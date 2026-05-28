@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+silent: true
+
+tasks:
+  default:
+    desc: Show available commands
+    cmd: task --list
+
+  # ----------------------------------------------------------------------------
+  # Docker Commands (Namespace: docker)
+  # ----------------------------------------------------------------------------
+
+  build:
+    desc: Build Docker image locally
+    cmds:
+      - echo "🔨 Building Docker image {{.IMAGE_NAME}}:latest"
+      - docker build -t {{.IMAGE_NAME}}:latest .
+      - echo "✅ Docker image built successfully"
+
+  test:
+    desc: Run and verify locally built image
+    cmds:
+      - echo "🧪 Testing locally built image {{.IMAGE_NAME}}:latest"
+      - docker compose up --build --watch
