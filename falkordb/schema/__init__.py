@@ -1,0 +1,1 @@
+"""Schema metadata for FalkorDB."""

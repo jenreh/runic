@@ -6,6 +6,10 @@ import pkgutil
 from falkordb.migrations.base import Migration
 
 
+class DuplicateMigrationVersionError(RuntimeError):
+    """Raised when two migrations use the same version string."""
+
+
 def discover_migrations() -> list[Migration]:
     """Discover and return migration instances ordered by version."""
     migrations: list[Migration] = []
@@ -14,7 +18,6 @@ def discover_migrations() -> list[Migration]:
 
     for _, module_name, _ in pkgutil.iter_modules(package.__path__):
         module = importlib.import_module(f"{package_name}.{module_name}")
-
         migrations.extend(
             value()
             for value in module.__dict__.values()
@@ -26,4 +29,8 @@ def discover_migrations() -> list[Migration]:
         )
 
     migrations.sort(key=lambda migration: migration.version)
+    versions = [migration.version for migration in migrations]
+    if len(versions) != len(set(versions)):
+        msg = "Duplicate FalkorDB migration versions discovered."
+        raise DuplicateMigrationVersionError(msg)
     return migrations
