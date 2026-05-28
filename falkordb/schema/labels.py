@@ -1,4 +1,5 @@
 USER = "User"
 TRIP = "Trip"
 LOCATION = "Location"
+INTEREST = "Interest"
 SCHEMA_MIGRATION = "SchemaMigration"

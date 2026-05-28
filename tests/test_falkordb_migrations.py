@@ -28,7 +28,14 @@ from falkordb.queries.location_queries import search_locations_query
 from falkordb.queries.recommendation_queries import recommend_locations_query
 from falkordb.queries.trip_queries import get_trip_by_id_query
 from falkordb.schema.constraints import REQUIRED_CONSTRAINTS, ConstraintSpec
-from falkordb.schema.relationships import CAN_ACCESS, OWNS, VISITS
+from falkordb.schema.labels import INTEREST, LOCATION, TRIP, USER
+from falkordb.schema.relationships import (
+    CAN_ACCESS,
+    HAS_CATEGORY,
+    INTERESTED_IN,
+    OWNS,
+    VISITS,
+)
 from falkordb.services.authorization_service import AuthorizationService
 from falkordb.services.location_graph_service import LocationGraphService
 from falkordb.services.trip_graph_service import TripGraphService
@@ -44,6 +51,18 @@ from falkordb.validate import (
 InitialSchema = importlib.import_module(
     "falkordb.migrations.versions.001_initial_schema"
 ).InitialSchema
+LocationIndexes = importlib.import_module(
+    "falkordb.migrations.versions.002_location_indexes"
+).LocationIndexes
+InterestNodes = importlib.import_module(
+    "falkordb.migrations.versions.003_interest_nodes"
+).InterestNodes
+AddGeoPoints = importlib.import_module(
+    "falkordb.migrations.versions.004_add_geo_points"
+).AddGeoPoints
+TripAccessConstraints = importlib.import_module(
+    "falkordb.migrations.versions.005_trip_access_constraints"
+).TripAccessConstraints
 
 
 class _FakeResult:
@@ -172,7 +191,13 @@ def test_discover_migrations_returns_ordered_versions() -> None:
     versions = [migration.version for migration in migrations]
 
     assert versions == sorted(versions)
-    assert versions == ["001_initial_schema"]
+    assert versions == [
+        "001_initial_schema",
+        "002_location_indexes",
+        "003_interest_nodes",
+        "004_add_geo_points",
+        "005_trip_access_constraints",
+    ]
 
 
 def test_discover_migrations_rejects_duplicate_versions(
@@ -313,6 +338,7 @@ def test_validate_required_constraints_checks_all() -> None:
             _Constraint(label="User", properties=["auth_user_id"]),
             _Constraint(label="Trip", properties=["id"]),
             _Constraint(label="Location", properties=["id"]),
+            _Constraint(label="Interest", properties=["id"]),
         ]
     )
 
@@ -452,8 +478,67 @@ def test_constraint_spec_shape() -> None:
         ConstraintSpec("User", ("auth_user_id",)),
         ConstraintSpec("Trip", ("id",)),
         ConstraintSpec("Location", ("id",)),
+        ConstraintSpec("Interest", ("id",)),
     )
 
 
 def test_relationship_constants_are_exposed() -> None:
     assert (OWNS, VISITS, CAN_ACCESS) == ("OWNS", "VISITS", "CAN_ACCESS")
+
+
+def test_new_relationship_constants_are_exposed() -> None:
+    assert INTERESTED_IN == "INTERESTED_IN"
+    assert HAS_CATEGORY == "HAS_CATEGORY"
+
+
+def test_schema_label_constants() -> None:
+    assert USER == "User"
+    assert TRIP == "Trip"
+    assert LOCATION == "Location"
+    assert INTEREST == "Interest"
+
+
+def test_location_indexes_migration_creates_expected_indexes() -> None:
+    graph = _GraphRecorder()
+
+    LocationIndexes().up(graph)
+
+    assert graph.created_operations == [
+        ("range", ("Location", "country")),
+        ("range", ("Location", "category")),
+    ]
+
+
+def test_interest_nodes_migration_creates_expected_schema() -> None:
+    graph = _GraphRecorder()
+
+    InterestNodes().up(graph)
+
+    assert graph.created_operations == [
+        ("range", ("Interest", "id")),
+        ("unique", ("Interest", "id")),
+        ("fulltext", ("Interest", "name")),
+    ]
+
+
+def test_add_geo_points_migration_creates_expected_indexes() -> None:
+    graph = _GraphRecorder()
+
+    AddGeoPoints().up(graph)
+
+    assert graph.created_operations == [
+        ("range", ("Location", "latitude")),
+        ("range", ("Location", "longitude")),
+    ]
+
+
+def test_trip_access_constraints_migration_creates_expected_schema() -> None:
+    graph = _GraphRecorder()
+
+    TripAccessConstraints().up(graph)
+
+    assert graph.created_operations == [
+        ("range", ("User", "id")),
+        ("unique", ("User", "id")),
+        ("range", ("Trip", "created_at")),
+    ]
