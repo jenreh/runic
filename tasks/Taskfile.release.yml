@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+silent: true
+
+vars:
+  PROJECT: Alloq
+  IMAGE_NAME: alloq
+  RUNNER: uv run
+
+tasks:
+  default:
+    desc: Show available commands
+    cmd: task --list
+
+  # ----------------------------------------------------------------------------
+  # Release Commands
+  # ----------------------------------------------------------------------------
+
+  build:
+    desc: |
+      Usage: task release:build -- [major|minor|patch], defaults to 'patch'.
+      Bumps version, commits, and creates a GitHub release.
+    cmds:
+      - uvx bump-my-version bump {{.CLI_ARGS | default "patch"}}
+      - uv sync
+      - git add -A
+      - 'git diff --cached --quiet || git commit -m "chore: release v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2)"'
+      - git push
+      - 'gh release create v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2) --generate-notes'

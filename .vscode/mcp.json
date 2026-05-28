@@ -1,0 +1,32 @@
+{
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "openai-key",
+            "description": "Enter your OpenAI API Key",
+            "password": true
+        }
+    ],
+    "servers": {
+        "memory": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-memory"
+            ]
+        },
+        "code-reasoning": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@mettamatt/code-reasoning"
+            ]
+        },
+        "duckduckgo": {
+            "command": "uvx",
+            "args": [
+                "duckduckgo-mcp-server"
+            ]
+        },
+    }
+}

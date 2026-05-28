@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+includes:
+  qa:
+    taskfile: ./tasks/Taskfile.qa.yml
+    flatten: true
+    vars:
+      PROJECT: "{{.PROJECT}}"
+  release: ./tasks/Taskfile.release.yml
+  # db: ./tasks/Taskfile.db.yml
+  # docker:
+  #   taskfile: ./tasks/Taskfile.docker.yml
+  #   vars:
+  #     IMAGE_NAME: "{{.PROJECT}}-image"
+  # dev:
+  #   taskfile: ./tasks/Taskfile.terraform-azure.yaml
+  #   vars:
+  #     TF_DIR: "{{.ROOT_DIR}}/terraform"
+  #     ENVIRONMENT: dev
+  # prod:
+  #   taskfile: ./tasks/Taskfile.terraform-azure.yaml
+  #   vars:
+  #     TF_DIR: "{{.ROOT_DIR}}/terraform"
+  #     ENVIRONMENT: prod
+
+silent: true
+
+vars:
+  PROJECT: app
+
+tasks:
+  default:
+    desc: Show available commands
+    cmd: task --list
+
+  # ----------------------------------------------------------------------------
+  # Project Initialization and Dependency Management
+  # ----------------------------------------------------------------------------
+
+  init:
+    desc: Initialize project (install python, sync deps, setup pre-commit)
+    vars:
+      PYTHON_VERSION:
+        sh: |
+          grep 'requires-python' pyproject.toml | sed -E 's/.*>=?([0-9]+\.[0-9]+).*/\1/'
+    cmds:
+      - echo "🐍 Installing Python {{.PYTHON_VERSION}}..."
+      - uv python install {{.PYTHON_VERSION}}
+      - uv python pin {{.PYTHON_VERSION}}
+      - echo "📦 Syncing dependencies..."
+      - uv sync
+      - echo "🔒 Installing pre-commit hooks..."
+      - uv tool list | grep -q pre-commit || uv tool install pre-commit
+      - uv run pre-commit install
+
+  install:
+    desc: Install all dependencies (including dev extras)
+    cmd: uv sync
+
+  sync:
+    desc: Install dependencies using uv
+    cmd: uv sync
+
+  clean:
+    desc: Clean cache and build artifacts
+    ignore_error: true
+    cmds:
+      - rm -rf __pycache__/ .cache/ .state/ .web/ dist/ build/ coverage.xml .coverage
+      - find . -type d -name "__pycache__" -exec rm -rf {} +
+      - find . -type f -name "*.pyc" -delete

@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+silent: true
+
+vars:
+  RUNNER: uv run
+
+tasks:
+  # ----------------------------------------------------------------------------
+  # Quality Assurance (Tests, Lint, Format)
+  # ----------------------------------------------------------------------------
+
+  test:
+    desc: Run pytest with coverage
+    cmd: "{{.RUNNER}} pytest --cov"
+
+  lint:
+    desc: Run linting with ruff
+    cmd: "{{.RUNNER}} ruff check ."
+
+  format:
+    desc: Format code with ruff
+    cmds:
+      - "{{.RUNNER}} ruff check --fix ."
+      - "{{.RUNNER}} ruff format ."
+
+  typecheck:
+    desc: Run mypy type checking
+    cmd: "{{.RUNNER}} mypy {{.PROJECT}}/"
