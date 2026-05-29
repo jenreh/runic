@@ -24,7 +24,7 @@ import sys
 import time
 import webbrowser
 from functools import partial
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 # Files to exclude from output listings
@@ -161,7 +161,7 @@ def embed_file(path: Path) -> dict:
             "type": "text",
             "content": content,
         }
-    elif ext in IMAGE_EXTENSIONS:
+    if ext in IMAGE_EXTENSIONS:
         try:
             raw = path.read_bytes()
             b64 = base64.b64encode(raw).decode("ascii")
@@ -173,7 +173,7 @@ def embed_file(path: Path) -> dict:
             "mime": mime,
             "data_uri": f"data:{mime};base64,{b64}",
         }
-    elif ext == ".pdf":
+    if ext == ".pdf":
         try:
             raw = path.read_bytes()
             b64 = base64.b64encode(raw).decode("ascii")
@@ -184,7 +184,7 @@ def embed_file(path: Path) -> dict:
             "type": "pdf",
             "data_uri": f"data:{mime};base64,{b64}",
         }
-    elif ext == ".xlsx":
+    if ext == ".xlsx":
         try:
             raw = path.read_bytes()
             b64 = base64.b64encode(raw).decode("ascii")
@@ -195,19 +195,18 @@ def embed_file(path: Path) -> dict:
             "type": "xlsx",
             "data_b64": b64,
         }
-    else:
-        # Binary / unknown — base64 download link
-        try:
-            raw = path.read_bytes()
-            b64 = base64.b64encode(raw).decode("ascii")
-        except OSError:
-            return {"name": path.name, "type": "error", "content": "(Error reading file)"}
-        return {
-            "name": path.name,
-            "type": "binary",
-            "mime": mime,
-            "data_uri": f"data:{mime};base64,{b64}",
-        }
+    # Binary / unknown — base64 download link
+    try:
+        raw = path.read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+    except OSError:
+        return {"name": path.name, "type": "error", "content": "(Error reading file)"}
+    return {
+        "name": path.name,
+        "type": "binary",
+        "mime": mime,
+        "data_uri": f"data:{mime};base64,{b64}",
+    }
 
 
 def load_previous_iteration(workspace: Path) -> dict[str, dict]:
@@ -447,8 +446,8 @@ def main() -> None:
         port = server.server_address[1]
 
     url = f"http://localhost:{port}"
-    print(f"\n  Eval Viewer")
-    print(f"  ─────────────────────────────────")
+    print("\n  Eval Viewer")
+    print("  ─────────────────────────────────")
     print(f"  URL:       {url}")
     print(f"  Workspace: {workspace}")
     print(f"  Feedback:  {feedback_path}")
@@ -456,7 +455,7 @@ def main() -> None:
         print(f"  Previous:  {args.previous_workspace} ({len(previous)} runs)")
     if benchmark_path:
         print(f"  Benchmark: {benchmark_path}")
-    print(f"\n  Press Ctrl+C to stop.\n")
+    print("\n  Press Ctrl+C to stop.\n")
 
     webbrowser.open(url)
 
