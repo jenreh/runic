@@ -1,0 +1,1450 @@
+EXE001 Shebang is present but file is not executable
+ --> .agents/skills/skills-creator/eval-viewer/generate_review.py:1:1
+  |
+1 | #!/usr/bin/env python3
+  | ^^^^^^^^^^^^^^^^^^^^^^
+2 | """Generate and serve a review page for eval results.
+  |
+
+PERF401 Use `list.extend` to create a transformed list
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:127:17
+    |
+125 |         for f in sorted(outputs_dir.iterdir()):
+126 |             if f.is_file() and f.name not in METADATA_FILES:
+127 |                 output_files.append(embed_file(f))
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+128 |
+129 |     # Load grading if present
+    |
+help: Replace for loop with list.extend
+
+S603 `subprocess` call: check for execution of untrusted input
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:290:18
+    |
+288 |     """Kill any process listening on the given port."""
+289 |     try:
+290 |         result = subprocess.run(
+    |                  ^^^^^^^^^^^^^^
+291 |             ["lsof", "-ti", f":{port}"],
+292 |             capture_output=True, text=True, timeout=5,
+    |
+
+PLW1510 `subprocess.run` without explicit `check` argument
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:290:18
+    |
+288 |     """Kill any process listening on the given port."""
+289 |     try:
+290 |         result = subprocess.run(
+    |                  ^^^^^^^^^^^^^^
+291 |             ["lsof", "-ti", f":{port}"],
+292 |             capture_output=True, text=True, timeout=5,
+    |
+help: Add explicit `check=False`
+
+S607 Starting a process with a partial executable path
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:291:13
+    |
+289 |     try:
+290 |         result = subprocess.run(
+291 |             ["lsof", "-ti", f":{port}"],
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+292 |             capture_output=True, text=True, timeout=5,
+293 |         )
+    |
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:305:9
+    |
+303 |         pass
+304 |     except FileNotFoundError:
+305 |         print("Note: lsof not found, cannot check if port is in use", file=sys.stderr)
+    |         ^^^^^
+306 |
+307 | class ReviewHandler(BaseHTTPRequestHandler):
+    |
+help: Remove `print`
+
+PLR1714 Consider merging multiple comparisons: `self.path in {"/", "/index.html"}`.
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:332:12
+    |
+331 |     def do_GET(self) -> None:
+332 |         if self.path == "/" or self.path == "/index.html":
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+333 |             # Regenerate HTML on each request (re-scans workspace for new outputs)
+334 |             runs = find_runs(self.workspace)
+    |
+help: Merge multiple comparisons
+
+A002 Function argument `format` is shadowing a Python builtin
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:381:27
+    |
+379 |             self.send_error(404)
+380 |
+381 |     def log_message(self, format: str, *args: object) -> None:
+    |                           ^^^^^^
+382 |         # Suppress request logging to keep terminal clean
+383 |         pass
+    |
+
+PLR0915 Too many statements (59 > 50)
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:386:5
+    |
+386 | def main() -> None:
+    |     ^^^^
+387 |     parser = argparse.ArgumentParser(description="Generate and serve eval review")
+388 |     parser.add_argument("workspace", type=Path, help="Path to workspace directory")
+    |
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:407:9
+    |
+405 |     workspace = args.workspace.resolve()
+406 |     if not workspace.is_dir():
+407 |         print(f"Error: {workspace} is not a directory", file=sys.stderr)
+    |         ^^^^^
+408 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:412:9
+    |
+410 |     runs = find_runs(workspace)
+411 |     if not runs:
+412 |         print(f"No runs found in {workspace}", file=sys.stderr)
+    |         ^^^^^
+413 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:434:9
+    |
+432 |         args.static.parent.mkdir(parents=True, exist_ok=True)
+433 |         args.static.write_text(html)
+434 |         print(f"\n  Static viewer written to: {args.static}\n")
+    |         ^^^^^
+435 |         sys.exit(0)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:449:5
+    |
+448 |     url = f"http://localhost:{port}"
+449 |     print("\n  Eval Viewer")
+    |     ^^^^^
+450 |     print("  ─────────────────────────────────")
+451 |     print(f"  URL:       {url}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:450:5
+    |
+448 |     url = f"http://localhost:{port}"
+449 |     print("\n  Eval Viewer")
+450 |     print("  ─────────────────────────────────")
+    |     ^^^^^
+451 |     print(f"  URL:       {url}")
+452 |     print(f"  Workspace: {workspace}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:451:5
+    |
+449 |     print("\n  Eval Viewer")
+450 |     print("  ─────────────────────────────────")
+451 |     print(f"  URL:       {url}")
+    |     ^^^^^
+452 |     print(f"  Workspace: {workspace}")
+453 |     print(f"  Feedback:  {feedback_path}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:452:5
+    |
+450 |     print("  ─────────────────────────────────")
+451 |     print(f"  URL:       {url}")
+452 |     print(f"  Workspace: {workspace}")
+    |     ^^^^^
+453 |     print(f"  Feedback:  {feedback_path}")
+454 |     if previous:
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:453:5
+    |
+451 |     print(f"  URL:       {url}")
+452 |     print(f"  Workspace: {workspace}")
+453 |     print(f"  Feedback:  {feedback_path}")
+    |     ^^^^^
+454 |     if previous:
+455 |         print(f"  Previous:  {args.previous_workspace} ({len(previous)} runs)")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:455:9
+    |
+453 |     print(f"  Feedback:  {feedback_path}")
+454 |     if previous:
+455 |         print(f"  Previous:  {args.previous_workspace} ({len(previous)} runs)")
+    |         ^^^^^
+456 |     if benchmark_path:
+457 |         print(f"  Benchmark: {benchmark_path}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:457:9
+    |
+455 |         print(f"  Previous:  {args.previous_workspace} ({len(previous)} runs)")
+456 |     if benchmark_path:
+457 |         print(f"  Benchmark: {benchmark_path}")
+    |         ^^^^^
+458 |     print("\n  Press Ctrl+C to stop.\n")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:458:5
+    |
+456 |     if benchmark_path:
+457 |         print(f"  Benchmark: {benchmark_path}")
+458 |     print("\n  Press Ctrl+C to stop.\n")
+    |     ^^^^^
+459 |
+460 |     webbrowser.open(url)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/eval-viewer/generate_review.py:465:9
+    |
+463 |         server.serve_forever()
+464 |     except KeyboardInterrupt:
+465 |         print("\nStopped.")
+    |         ^^^^^
+466 |         server.server_close()
+    |
+help: Remove `print`
+
+PLR0915 Too many statements (67 > 50)
+  --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:67:5
+   |
+67 | def load_run_results(benchmark_dir: Path) -> dict:
+   |     ^^^^^^^^^^^^^^^^
+68 |     """
+69 |     Load all run results from a benchmark directory.
+   |
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:81:9
+   |
+79 |         search_dir = benchmark_dir
+80 |     else:
+81 |         print(f"No eval directories found in {benchmark_dir} or {benchmark_dir / 'runs'}")
+   |         ^^^^^
+82 |         return {}
+   |
+help: Remove `print`
+
+PTH123 `open()` should be replaced by `Path.open()`
+  --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:90:22
+   |
+88 |         if metadata_path.exists():
+89 |             try:
+90 |                 with open(metadata_path) as mf:
+   |                      ^^^^
+91 |                     eval_id = json.load(mf).get("eval_id", eval_idx)
+92 |             except (json.JSONDecodeError, OSError):
+   |
+help: Replace with `Path.open()`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:116:21
+    |
+115 |                 if not grading_file.exists():
+116 |                     print(f"Warning: grading.json not found in {run_dir}")
+    |                     ^^^^^
+117 |                     continue
+    |
+help: Remove `print`
+
+PTH123 `open()` should be replaced by `Path.open()`
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:120:26
+    |
+119 |                 try:
+120 |                     with open(grading_file) as f:
+    |                          ^^^^
+121 |                         grading = json.load(f)
+122 |                 except json.JSONDecodeError as e:
+    |
+help: Replace with `Path.open()`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:123:21
+    |
+121 |                         grading = json.load(f)
+122 |                 except json.JSONDecodeError as e:
+123 |                     print(f"Warning: Invalid JSON in {grading_file}: {e}")
+    |                     ^^^^^
+124 |                     continue
+    |
+help: Remove `print`
+
+PTH123 `open()` should be replaced by `Path.open()`
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:142:30
+    |
+140 |                 if result["time_seconds"] == 0.0 and timing_file.exists():
+141 |                     try:
+142 |                         with open(timing_file) as tf:
+    |                              ^^^^
+143 |                             timing_data = json.load(tf)
+144 |                         result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
+    |
+help: Replace with `Path.open()`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:160:25
+    |
+158 |                 for exp in raw_expectations:
+159 |                     if "text" not in exp or "passed" not in exp:
+160 |                         print(f"Warning: expectation in {grading_file} missing required fields (text, passed, evidence): {exp}")
+    |                         ^^^^^
+161 |                 result["expectations"] = raw_expectations
+    |
+help: Remove `print`
+
+PERF401 Use `list.extend` to create a transformed list
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:238:13
+    |
+236 |       for config in results:
+237 |           for result in results[config]:
+238 | /             runs.append({
+239 | |                 "eval_id": result["eval_id"],
+240 | |                 "configuration": config,
+241 | |                 "run_number": result["run_number"],
+242 | |                 "result": {
+243 | |                     "pass_rate": result["pass_rate"],
+244 | |                     "passed": result["passed"],
+245 | |                     "failed": result["failed"],
+246 | |                     "total": result["total"],
+247 | |                     "time_seconds": result["time_seconds"],
+248 | |                     "tokens": result.get("tokens", 0),
+249 | |                     "tool_calls": result.get("tool_calls", 0),
+250 | |                     "errors": result.get("errors", 0)
+251 | |                 },
+252 | |                 "expectations": result["expectations"],
+253 | |                 "notes": result["notes"]
+254 | |             })
+    | |______________^
+255 |
+256 |       # Determine eval IDs from results
+    |
+help: Replace for loop with list.extend
+
+C401 Unnecessary generator (rewrite as a set comprehension)
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:257:23
+    |
+256 |       # Determine eval IDs from results
+257 |       eval_ids = sorted(set(
+    |  _______________________^
+258 | |         r["eval_id"]
+259 | |         for config in results.values()
+260 | |         for r in config
+261 | |     ))
+    | |_____^
+262 |
+263 |       benchmark = {
+    |
+help: Rewrite as a set comprehension
+
+RET504 Unnecessary assignment to `benchmark` before `return` statement
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:278:12
+    |
+276 |     }
+277 |
+278 |     return benchmark
+    |            ^^^^^^^^^
+    |
+help: Remove unnecessary assignment
+
+PERF401 Use `list.extend` to create a transformed list
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:333:13
+    |
+331 |         ])
+332 |         for note in benchmark["notes"]:
+333 |             lines.append(f"- {note}")
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+334 |
+335 |     return "\n".join(lines)
+    |
+help: Replace for loop with list.extend
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:338:5
+    |
+338 | def main():
+    |     ^^^^
+339 |     parser = argparse.ArgumentParser(
+340 |         description="Aggregate benchmark run results into summary statistics"
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:366:9
+    |
+365 |     if not args.benchmark_dir.exists():
+366 |         print(f"Directory not found: {args.benchmark_dir}")
+    |         ^^^^^
+367 |         sys.exit(1)
+    |
+help: Remove `print`
+
+PTH123 `open()` should be replaced by `Path.open()`
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:377:10
+    |
+376 |     # Write benchmark.json
+377 |     with open(output_json, "w") as f:
+    |          ^^^^
+378 |         json.dump(benchmark, f, indent=2)
+379 |     print(f"Generated: {output_json}")
+    |
+help: Replace with `Path.open()`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:379:5
+    |
+377 |     with open(output_json, "w") as f:
+378 |         json.dump(benchmark, f, indent=2)
+379 |     print(f"Generated: {output_json}")
+    |     ^^^^^
+380 |
+381 |     # Write benchmark.md
+    |
+help: Remove `print`
+
+PTH123 `open()` should be replaced by `Path.open()`
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:383:10
+    |
+381 |     # Write benchmark.md
+382 |     markdown = generate_markdown(benchmark)
+383 |     with open(output_md, "w") as f:
+    |          ^^^^
+384 |         f.write(markdown)
+385 |     print(f"Generated: {output_md}")
+    |
+help: Replace with `Path.open()`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:385:5
+    |
+383 |     with open(output_md, "w") as f:
+384 |         f.write(markdown)
+385 |     print(f"Generated: {output_md}")
+    |     ^^^^^
+386 |
+387 |     # Print summary
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:392:5
+    |
+390 |     delta = run_summary.get("delta", {})
+391 |
+392 |     print("\nSummary:")
+    |     ^^^^^
+393 |     for config in configs:
+394 |         pr = run_summary[config]["pass_rate"]["mean"]
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:396:9
+    |
+394 |         pr = run_summary[config]["pass_rate"]["mean"]
+395 |         label = config.replace("_", " ").title()
+396 |         print(f"  {label}: {pr*100:.1f}% pass rate")
+    |         ^^^^^
+397 |     print(f"  Delta:         {delta.get('pass_rate', '—')}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/aggregate_benchmark.py:397:5
+    |
+395 |         label = config.replace("_", " ").title()
+396 |         print(f"  {label}: {pr*100:.1f}% pass rate")
+397 |     print(f"  Delta:         {delta.get('pass_rate', '—')}")
+    |     ^^^^^
+    |
+help: Remove `print`
+
+PLR0915 Too many statements (74 > 50)
+  --> .agents/skills/skills-creator/scripts/generate_report.py:16:5
+   |
+16 | def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") -> str:
+   |     ^^^^^^^^^^^^^
+17 |     """Generate HTML report from loop output data. If auto_refresh is True, adds a meta refresh tag."""
+18 |     history = data.get("history", [])
+   |
+
+F841 Local variable `holdout` is assigned to but never used
+  --> .agents/skills/skills-creator/scripts/generate_report.py:19:5
+   |
+17 |     """Generate HTML report from loop output data. If auto_refresh is True, adds a meta refresh tag."""
+18 |     history = data.get("history", [])
+19 |     holdout = data.get("holdout", 0)
+   |     ^^^^^^^
+20 |     title_prefix = html.escape(skill_name + " \u2014 ") if skill_name else ""
+   |
+help: Remove assignment to unused variable `holdout`
+
+PERF401 Use `list.extend` to create a transformed list
+  --> .agents/skills/skills-creator/scripts/generate_report.py:27:13
+   |
+25 |     if history:
+26 |         for r in history[0].get("train_results", history[0].get("results", [])):
+27 |             train_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |         if history[0].get("test_results"):
+29 |             for r in history[0].get("test_results", []):
+   |
+help: Replace for loop with list.extend
+
+PERF401 Use `list.extend` to create a transformed list
+  --> .agents/skills/skills-creator/scripts/generate_report.py:30:17
+   |
+28 |         if history[0].get("test_results"):
+29 |             for r in history[0].get("test_results", []):
+30 |                 test_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+31 |
+32 |     refresh_tag = '    <meta http-equiv="refresh" content="5">\n' if auto_refresh else ""
+   |
+help: Replace for loop with list.extend
+
+F841 Local variable `best_train_score` is assigned to but never used
+   --> .agents/skills/skills-creator/scripts/generate_report.py:157:5
+    |
+155 |     # Summary section
+156 |     best_test_score = data.get("best_test_score")
+157 |     best_train_score = data.get("best_train_score")
+    |     ^^^^^^^^^^^^^^^^
+158 |     html_parts.append(f"""
+159 |     <div class="summary">
+    |
+help: Remove assignment to unused variable `best_train_score`
+
+F841 Local variable `train_passed` is assigned to but never used
+   --> .agents/skills/skills-creator/scripts/generate_report.py:214:9
+    |
+212 |     for h in history:
+213 |         iteration = h.get("iteration", "?")
+214 |         train_passed = h.get("train_passed", h.get("passed", 0))
+    |         ^^^^^^^^^^^^
+215 |         train_total = h.get("train_total", h.get("total", 0))
+216 |         test_passed = h.get("test_passed")
+    |
+help: Remove assignment to unused variable `train_passed`
+
+F841 Local variable `train_total` is assigned to but never used
+   --> .agents/skills/skills-creator/scripts/generate_report.py:215:9
+    |
+213 |         iteration = h.get("iteration", "?")
+214 |         train_passed = h.get("train_passed", h.get("passed", 0))
+215 |         train_total = h.get("train_total", h.get("total", 0))
+    |         ^^^^^^^^^^^
+216 |         test_passed = h.get("test_passed")
+217 |         test_total = h.get("test_total")
+    |
+help: Remove assignment to unused variable `train_total`
+
+F841 Local variable `test_passed` is assigned to but never used
+   --> .agents/skills/skills-creator/scripts/generate_report.py:216:9
+    |
+214 |         train_passed = h.get("train_passed", h.get("passed", 0))
+215 |         train_total = h.get("train_total", h.get("total", 0))
+216 |         test_passed = h.get("test_passed")
+    |         ^^^^^^^^^^^
+217 |         test_total = h.get("test_total")
+218 |         description = h.get("description", "")
+    |
+help: Remove assignment to unused variable `test_passed`
+
+F841 Local variable `test_total` is assigned to but never used
+   --> .agents/skills/skills-creator/scripts/generate_report.py:217:9
+    |
+215 |         train_total = h.get("train_total", h.get("total", 0))
+216 |         test_passed = h.get("test_passed")
+217 |         test_total = h.get("test_total")
+    |         ^^^^^^^^^^
+218 |         description = h.get("description", "")
+219 |         train_results = h.get("train_results", h.get("results", []))
+    |
+help: Remove assignment to unused variable `test_total`
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/generate_report.py:304:5
+    |
+304 | def main():
+    |     ^^^^
+305 |     parser = argparse.ArgumentParser(description="Generate HTML report from run_loop output")
+306 |     parser.add_argument("input", help="Path to JSON output from run_loop.py (or - for stdin)")
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/generate_report.py:320:9
+    |
+318 |     if args.output:
+319 |         Path(args.output).write_text(html_output)
+320 |         print(f"Report written to {args.output}", file=sys.stderr)
+    |         ^^^^^
+321 |     else:
+322 |         print(html_output)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/generate_report.py:322:9
+    |
+320 |         print(f"Report written to {args.output}", file=sys.stderr)
+321 |     else:
+322 |         print(html_output)
+    |         ^^^^^
+    |
+help: Remove `print`
+
+S603 `subprocess` call: check for execution of untrusted input
+  --> .agents/skills/skills-creator/scripts/improve_description.py:35:14
+   |
+33 |     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+34 |
+35 |     result = subprocess.run(
+   |              ^^^^^^^^^^^^^^
+36 |         cmd,
+37 |         input=prompt,
+   |
+
+PLW1510 `subprocess.run` without explicit `check` argument
+  --> .agents/skills/skills-creator/scripts/improve_description.py:35:14
+   |
+33 |     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+34 |
+35 |     result = subprocess.run(
+   |              ^^^^^^^^^^^^^^
+36 |         cmd,
+37 |         input=prompt,
+   |
+help: Add explicit `check=False`
+
+PLR0915 Too many statements (52 > 50)
+  --> .agents/skills/skills-creator/scripts/improve_description.py:50:5
+   |
+50 | def improve_description(
+   |     ^^^^^^^^^^^^^^^^^^^
+51 |     skill_name: str,
+52 |     skill_content: str,
+   |
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/improve_description.py:194:5
+    |
+194 | def main():
+    |     ^^^^
+195 |     parser = argparse.ArgumentParser(description="Improve a skill description based on eval results")
+196 |     parser.add_argument("--eval-results", required=True, help="Path to eval results JSON (from run_eval.py)")
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/improve_description.py:205:9
+    |
+203 |     skill_path = Path(args.skill_path)
+204 |     if not (skill_path / "SKILL.md").exists():
+205 |         print(f"Error: No SKILL.md found at {skill_path}", file=sys.stderr)
+    |         ^^^^^
+206 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/improve_description.py:217:9
+    |
+216 |     if args.verbose:
+217 |         print(f"Current: {current_description}", file=sys.stderr)
+    |         ^^^^^
+218 |         print(f"Score: {eval_results['summary']['passed']}/{eval_results['summary']['total']}", file=sys.stderr)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/improve_description.py:218:9
+    |
+216 |     if args.verbose:
+217 |         print(f"Current: {current_description}", file=sys.stderr)
+218 |         print(f"Score: {eval_results['summary']['passed']}/{eval_results['summary']['total']}", file=sys.stderr)
+    |         ^^^^^
+219 |
+220 |     new_description = improve_description(
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/improve_description.py:230:9
+    |
+229 |     if args.verbose:
+230 |         print(f"Improved: {new_description}", file=sys.stderr)
+    |         ^^^^^
+231 |
+232 |     # Output as JSON with both the new description and updated history
+    |
+help: Remove `print`
+
+RUF005 Consider iterable unpacking instead of concatenation
+   --> .agents/skills/skills-creator/scripts/improve_description.py:235:20
+    |
+233 |       output = {
+234 |           "description": new_description,
+235 |           "history": history + [{
+    |  ____________________^
+236 | |             "description": current_description,
+237 | |             "passed": eval_results["summary"]["passed"],
+238 | |             "failed": eval_results["summary"]["failed"],
+239 | |             "total": eval_results["summary"]["total"],
+240 | |             "results": eval_results["results"],
+241 | |         }],
+    | |__________^
+242 |       }
+243 |       print(json.dumps(output, indent=2))
+    |
+help: Replace with iterable unpacking
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/improve_description.py:243:5
+    |
+241 |         }],
+242 |     }
+243 |     print(json.dumps(output, indent=2))
+    |     ^^^^^
+    |
+help: Remove `print`
+
+ANN201 Missing return type annotation for public function `package_skill`
+  --> .agents/skills/skills-creator/scripts/package_skill.py:43:5
+   |
+43 | def package_skill(skill_path, output_dir=None):
+   |     ^^^^^^^^^^^^^
+44 |     """
+45 |     Package a skill folder into a .skill file.
+   |
+help: Add return type annotation
+
+ANN001 Missing type annotation for function argument `skill_path`
+  --> .agents/skills/skills-creator/scripts/package_skill.py:43:19
+   |
+43 | def package_skill(skill_path, output_dir=None):
+   |                   ^^^^^^^^^^
+44 |     """
+45 |     Package a skill folder into a .skill file.
+   |
+
+ANN001 Missing type annotation for function argument `output_dir`
+  --> .agents/skills/skills-creator/scripts/package_skill.py:43:31
+   |
+43 | def package_skill(skill_path, output_dir=None):
+   |                               ^^^^^^^^^^
+44 |     """
+45 |     Package a skill folder into a .skill file.
+   |
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:58:9
+   |
+56 |     # Validate skill folder exists
+57 |     if not skill_path.exists():
+58 |         print(f"❌ Error: Skill folder not found: {skill_path}")
+   |         ^^^^^
+59 |         return None
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:62:9
+   |
+61 |     if not skill_path.is_dir():
+62 |         print(f"❌ Error: Path is not a directory: {skill_path}")
+   |         ^^^^^
+63 |         return None
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:68:9
+   |
+66 |     skill_md = skill_path / "SKILL.md"
+67 |     if not skill_md.exists():
+68 |         print(f"❌ Error: SKILL.md not found in {skill_path}")
+   |         ^^^^^
+69 |         return None
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:72:5
+   |
+71 |     # Run validation before packaging
+72 |     print("🔍 Validating skill...")
+   |     ^^^^^
+73 |     valid, message = validate_skill(skill_path)
+74 |     if not valid:
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:75:9
+   |
+73 |     valid, message = validate_skill(skill_path)
+74 |     if not valid:
+75 |         print(f"❌ Validation failed: {message}")
+   |         ^^^^^
+76 |         print("   Please fix the validation errors before packaging.")
+77 |         return None
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:76:9
+   |
+74 |     if not valid:
+75 |         print(f"❌ Validation failed: {message}")
+76 |         print("   Please fix the validation errors before packaging.")
+   |         ^^^^^
+77 |         return None
+78 |     print(f"✅ {message}\n")
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/package_skill.py:78:5
+   |
+76 |         print("   Please fix the validation errors before packaging.")
+77 |         return None
+78 |     print(f"✅ {message}\n")
+   |     ^^^^^
+79 |
+80 |     # Determine output location
+   |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:99:21
+    |
+ 97 |                 arcname = file_path.relative_to(skill_path.parent)
+ 98 |                 if should_exclude(arcname):
+ 99 |                     print(f"  Skipped: {arcname}")
+    |                     ^^^^^
+100 |                     continue
+101 |                 zipf.write(file_path, arcname)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:102:17
+    |
+100 |                     continue
+101 |                 zipf.write(file_path, arcname)
+102 |                 print(f"  Added: {arcname}")
+    |                 ^^^^^
+103 |
+104 |         print(f"\n✅ Successfully packaged skill to: {skill_filename}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:104:9
+    |
+102 |                 print(f"  Added: {arcname}")
+103 |
+104 |         print(f"\n✅ Successfully packaged skill to: {skill_filename}")
+    |         ^^^^^
+105 |         return skill_filename
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:108:9
+    |
+107 |     except Exception as e:
+108 |         print(f"❌ Error creating .skill file: {e}")
+    |         ^^^^^
+109 |         return None
+    |
+help: Remove `print`
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/package_skill.py:112:5
+    |
+112 | def main():
+    |     ^^^^
+113 |     if len(sys.argv) < 2:
+114 |         print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:114:9
+    |
+112 | def main():
+113 |     if len(sys.argv) < 2:
+114 |         print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+    |         ^^^^^
+115 |         print("\nExample:")
+116 |         print("  python utils/package_skill.py skills/public/my-skill")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:115:9
+    |
+113 |     if len(sys.argv) < 2:
+114 |         print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+115 |         print("\nExample:")
+    |         ^^^^^
+116 |         print("  python utils/package_skill.py skills/public/my-skill")
+117 |         print("  python utils/package_skill.py skills/public/my-skill ./dist")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:116:9
+    |
+114 |         print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+115 |         print("\nExample:")
+116 |         print("  python utils/package_skill.py skills/public/my-skill")
+    |         ^^^^^
+117 |         print("  python utils/package_skill.py skills/public/my-skill ./dist")
+118 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:117:9
+    |
+115 |         print("\nExample:")
+116 |         print("  python utils/package_skill.py skills/public/my-skill")
+117 |         print("  python utils/package_skill.py skills/public/my-skill ./dist")
+    |         ^^^^^
+118 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:123:5
+    |
+121 |     output_dir = sys.argv[2] if len(sys.argv) > 2 else None
+122 |
+123 |     print(f"📦 Packaging skill: {skill_path}")
+    |     ^^^^^
+124 |     if output_dir:
+125 |         print(f"   Output directory: {output_dir}")
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:125:9
+    |
+123 |     print(f"📦 Packaging skill: {skill_path}")
+124 |     if output_dir:
+125 |         print(f"   Output directory: {output_dir}")
+    |         ^^^^^
+126 |     print()
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/package_skill.py:126:5
+    |
+124 |     if output_dir:
+125 |         print(f"   Output directory: {output_dir}")
+126 |     print()
+    |     ^^^^^
+127 |
+128 |     result = package_skill(skill_path, output_dir)
+    |
+help: Remove `print`
+
+ANN201 Missing return type annotation for public function `validate_skill`
+  --> .agents/skills/skills-creator/scripts/quick_validate.py:13:5
+   |
+13 | def validate_skill(skill_path):
+   |     ^^^^^^^^^^^^^^
+14 |     """Basic validation of a skill"""
+15 |     skill_path = Path(skill_path)
+   |
+help: Add return type annotation
+
+ANN001 Missing type annotation for function argument `skill_path`
+  --> .agents/skills/skills-creator/scripts/quick_validate.py:13:20
+   |
+13 | def validate_skill(skill_path):
+   |                    ^^^^^^^^^^
+14 |     """Basic validation of a skill"""
+15 |     skill_path = Path(skill_path)
+   |
+
+N806 Variable `ALLOWED_PROPERTIES` in function should be lowercase
+  --> .agents/skills/skills-creator/scripts/quick_validate.py:43:5
+   |
+42 |     # Define allowed properties
+43 |     ALLOWED_PROPERTIES = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
+   |     ^^^^^^^^^^^^^^^^^^
+44 |
+45 |     # Check for unexpected properties (excluding nested keys under metadata)
+   |
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/quick_validate.py:99:9
+    |
+ 97 | if __name__ == "__main__":
+ 98 |     if len(sys.argv) != 2:
+ 99 |         print("Usage: python quick_validate.py <skill_directory>")
+    |         ^^^^^
+100 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/quick_validate.py:103:5
+    |
+102 |     valid, message = validate_skill(sys.argv[1])
+103 |     print(message)
+    |     ^^^^^
+104 |     sys.exit(0 if valid else 1)
+    |
+help: Remove `print`
+
+PLR0915 Too many statements (80 > 50)
+  --> .agents/skills/skills-creator/scripts/run_eval.py:35:5
+   |
+35 | def run_single_query(
+   |     ^^^^^^^^^^^^^^^^
+36 |     query: str,
+37 |     skill_name: str,
+   |
+
+S603 `subprocess` call: check for execution of untrusted input
+  --> .agents/skills/skills-creator/scripts/run_eval.py:85:19
+   |
+83 |         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+84 |
+85 |         process = subprocess.Popen(
+   |                   ^^^^^^^^^^^^^^^^
+86 |             cmd,
+87 |             stdout=subprocess.PIPE,
+   |
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:222:17
+    |
+220 |                 query_triggers[query].append(future.result())
+221 |             except Exception as e:
+222 |                 print(f"Warning: query failed: {e}", file=sys.stderr)
+    |                 ^^^^^
+223 |                 query_triggers[query].append(False)
+    |
+help: Remove `print`
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/run_eval.py:257:5
+    |
+257 | def main():
+    |     ^^^^
+258 |     parser = argparse.ArgumentParser(description="Run trigger evaluation for a skill description")
+259 |     parser.add_argument("--eval-set", required=True, help="Path to eval set JSON file")
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:274:9
+    |
+273 |     if not (skill_path / "SKILL.md").exists():
+274 |         print(f"Error: No SKILL.md found at {skill_path}", file=sys.stderr)
+    |         ^^^^^
+275 |         sys.exit(1)
+    |
+help: Remove `print`
+
+RUF059 Unpacked variable `content` is never used
+   --> .agents/skills/skills-creator/scripts/run_eval.py:277:33
+    |
+275 |         sys.exit(1)
+276 |
+277 |     name, original_description, content = parse_skill_md(skill_path)
+    |                                 ^^^^^^^
+278 |     description = args.description or original_description
+279 |     project_root = find_project_root()
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:282:9
+    |
+281 |     if args.verbose:
+282 |         print(f"Evaluating: {description}", file=sys.stderr)
+    |         ^^^^^
+283 |
+284 |     output = run_eval(
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:298:9
+    |
+296 |     if args.verbose:
+297 |         summary = output["summary"]
+298 |         print(f"Results: {summary['passed']}/{summary['total']} passed", file=sys.stderr)
+    |         ^^^^^
+299 |         for r in output["results"]:
+300 |             status = "PASS" if r["pass"] else "FAIL"
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:302:13
+    |
+300 |             status = "PASS" if r["pass"] else "FAIL"
+301 |             rate_str = f"{r['triggers']}/{r['runs']}"
+302 |             print(f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:70]}", file=sys.stderr)
+    |             ^^^^^
+303 |
+304 |     print(json.dumps(output, indent=2))
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_eval.py:304:5
+    |
+302 |             print(f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:70]}", file=sys.stderr)
+303 |
+304 |     print(json.dumps(output, indent=2))
+    |     ^^^^^
+    |
+help: Remove `print`
+
+PLR0915 Too many statements (90 > 50)
+  --> .agents/skills/skills-creator/scripts/run_loop.py:47:5
+   |
+47 | def run_loop(
+   |     ^^^^^^^^
+48 |     eval_set: list[dict],
+49 |     skill_path: Path,
+   |
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/run_loop.py:71:13
+   |
+69 |         train_set, test_set = split_eval_set(eval_set, holdout)
+70 |         if verbose:
+71 |             print(f"Split: {len(train_set)} train, {len(test_set)} test (holdout={holdout})", file=sys.stderr)
+   |             ^^^^^
+72 |     else:
+73 |         train_set = eval_set
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/run_loop.py:81:13
+   |
+79 |     for iteration in range(1, max_iterations + 1):
+80 |         if verbose:
+81 |             print(f"\n{'='*60}", file=sys.stderr)
+   |             ^^^^^
+82 |             print(f"Iteration {iteration}/{max_iterations}", file=sys.stderr)
+83 |             print(f"Description: {current_description}", file=sys.stderr)
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/run_loop.py:82:13
+   |
+80 |         if verbose:
+81 |             print(f"\n{'='*60}", file=sys.stderr)
+82 |             print(f"Iteration {iteration}/{max_iterations}", file=sys.stderr)
+   |             ^^^^^
+83 |             print(f"Description: {current_description}", file=sys.stderr)
+84 |             print(f"{'='*60}", file=sys.stderr)
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/run_loop.py:83:13
+   |
+81 |             print(f"\n{'='*60}", file=sys.stderr)
+82 |             print(f"Iteration {iteration}/{max_iterations}", file=sys.stderr)
+83 |             print(f"Description: {current_description}", file=sys.stderr)
+   |             ^^^^^
+84 |             print(f"{'='*60}", file=sys.stderr)
+   |
+help: Remove `print`
+
+T201 `print` found
+  --> .agents/skills/skills-creator/scripts/run_loop.py:84:13
+   |
+82 |             print(f"Iteration {iteration}/{max_iterations}", file=sys.stderr)
+83 |             print(f"Description: {current_description}", file=sys.stderr)
+84 |             print(f"{'='*60}", file=sys.stderr)
+   |             ^^^^^
+85 |
+86 |         # Evaluate train + test together in one batch for parallelism
+   |
+help: Remove `print`
+
+ANN001 Missing type annotation for function argument `label`
+   --> .agents/skills/skills-creator/scripts/run_loop.py:154:34
+    |
+153 |         if verbose:
+154 |             def print_eval_stats(label, results, elapsed):
+    |                                  ^^^^^
+155 |                 pos = [r for r in results if r["should_trigger"]]
+156 |                 neg = [r for r in results if not r["should_trigger"]]
+    |
+
+ANN001 Missing type annotation for function argument `results`
+   --> .agents/skills/skills-creator/scripts/run_loop.py:154:41
+    |
+153 |         if verbose:
+154 |             def print_eval_stats(label, results, elapsed):
+    |                                         ^^^^^^^
+155 |                 pos = [r for r in results if r["should_trigger"]]
+156 |                 neg = [r for r in results if not r["should_trigger"]]
+    |
+
+ANN001 Missing type annotation for function argument `elapsed`
+   --> .agents/skills/skills-creator/scripts/run_loop.py:154:50
+    |
+153 |         if verbose:
+154 |             def print_eval_stats(label, results, elapsed):
+    |                                                  ^^^^^^^
+155 |                 pos = [r for r in results if r["should_trigger"]]
+156 |                 neg = [r for r in results if not r["should_trigger"]]
+    |
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:167:17
+    |
+165 | …     recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+166 | …     accuracy = (tp + tn) / total if total > 0 else 0.0
+167 | …     print(f"{label}: {tp+tn}/{total} correct, precision={precision:.0%} recall={recall:.0%} accuracy={accuracy:.0%} ({elapsed:.1f}s…
+    |       ^^^^^
+168 | …     for r in results:
+169 | …         status = "PASS" if r["pass"] else "FAIL"
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:171:21
+    |
+169 |                     status = "PASS" if r["pass"] else "FAIL"
+170 |                     rate_str = f"{r['triggers']}/{r['runs']}"
+171 |                     print(f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:60]}", file=sys.stderr)
+    |                     ^^^^^
+172 |
+173 |             print_eval_stats("Train", train_results["results"], eval_elapsed)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:180:17
+    |
+178 |             exit_reason = f"all_passed (iteration {iteration})"
+179 |             if verbose:
+180 |                 print(f"\nAll train queries passed on iteration {iteration}!", file=sys.stderr)
+    |                 ^^^^^
+181 |             break
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:186:17
+    |
+184 |             exit_reason = f"max_iterations ({max_iterations})"
+185 |             if verbose:
+186 |                 print(f"\nMax iterations reached ({max_iterations}).", file=sys.stderr)
+    |                 ^^^^^
+187 |             break
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:191:13
+    |
+189 |         # Improve the description based on train results
+190 |         if verbose:
+191 |             print("\nImproving description...", file=sys.stderr)
+    |             ^^^^^
+192 |
+193 |         t0 = time.time()
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:212:13
+    |
+211 |         if verbose:
+212 |             print(f"Proposed ({improve_elapsed:.1f}s): {new_description}", file=sys.stderr)
+    |             ^^^^^
+213 |
+214 |         current_description = new_description
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:225:9
+    |
+224 |     if verbose:
+225 |         print(f"\nExit reason: {exit_reason}", file=sys.stderr)
+    |         ^^^^^
+226 |         print(f"Best score: {best_score} (iteration {best['iteration']})", file=sys.stderr)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:226:9
+    |
+224 |     if verbose:
+225 |         print(f"\nExit reason: {exit_reason}", file=sys.stderr)
+226 |         print(f"Best score: {best_score} (iteration {best['iteration']})", file=sys.stderr)
+    |         ^^^^^
+227 |
+228 |     return {
+    |
+help: Remove `print`
+
+ANN201 Missing return type annotation for public function `main`
+   --> .agents/skills/skills-creator/scripts/run_loop.py:244:5
+    |
+244 | def main():
+    |     ^^^^
+245 |     parser = argparse.ArgumentParser(description="Run eval + improve loop")
+246 |     parser.add_argument("--eval-set", required=True, help="Path to eval set JSON file")
+    |
+help: Add return type annotation: `None`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:265:9
+    |
+264 |     if not (skill_path / "SKILL.md").exists():
+265 |         print(f"Error: No SKILL.md found at {skill_path}", file=sys.stderr)
+    |         ^^^^^
+266 |         sys.exit(1)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:311:5
+    |
+309 |     # Save JSON output
+310 |     json_output = json.dumps(output, indent=2)
+311 |     print(json_output)
+    |     ^^^^^
+312 |     if results_dir:
+313 |         (results_dir / "results.json").write_text(json_output)
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:318:9
+    |
+316 |     if live_report_path:
+317 |         live_report_path.write_text(generate_html(output, auto_refresh=False, skill_name=name))
+318 |         print(f"\nReport: {live_report_path}", file=sys.stderr)
+    |         ^^^^^
+319 |
+320 |     if results_dir and live_report_path:
+    |
+help: Remove `print`
+
+T201 `print` found
+   --> .agents/skills/skills-creator/scripts/run_loop.py:324:9
+    |
+323 |     if results_dir:
+324 |         print(f"Results saved to: {results_dir}", file=sys.stderr)
+    |         ^^^^^
+    |
+help: Remove `print`
+
+ARG002 Unused method argument: `kind`
+  --> runic/operations.py:89:15
+   |
+88 |     def _poll_constraint(
+89 |         self, kind: str, entity: str, label: str, props: list[str]
+   |               ^^^^
+90 |     ) -> None:
+91 |         for _ in range(_POLL_RETRIES):
+   |
+
+ARG002 Unused method argument: `entity`
+  --> runic/operations.py:89:26
+   |
+88 |     def _poll_constraint(
+89 |         self, kind: str, entity: str, label: str, props: list[str]
+   |                          ^^^^^^
+90 |     ) -> None:
+91 |         for _ in range(_POLL_RETRIES):
+   |
+
+DTZ005 `datetime.datetime.now()` called without a `tz` argument
+  --> runic/script.py:70:61
+   |
+68 |                     snapshot=getattr(mod, "snapshot", False),
+69 |                     message=getattr(mod, "message", ""),
+70 |                     create_date=getattr(mod, "create_date", datetime.now()),
+   |                                                             ^^^^^^^^^^^^^^
+71 |                     path=py_file,
+72 |                     module=mod,
+   |
+help: Pass a `datetime.timezone` object to the `tz` parameter
+
+S702 Mako templates allow HTML and JavaScript rendering by default and are inherently open to XSS attacks
+   --> runic/script.py:153:16
+    |
+152 |         template_path = Path(__file__).parent / "templates" / "script.py.mako"
+153 |         tmpl = Template(filename=str(template_path), strict_undefined=True, disable_unicode=False)
+    |                ^^^^^^^^
+154 |         content = tmpl.render_unicode(
+155 |             up_revision=rev_id,
+    |
+
+DTZ005 `datetime.datetime.now()` called without a `tz` argument
+   --> runic/script.py:160:25
+    |
+158 |             depends_on=[],
+159 |             message=message,
+160 |             create_date=datetime.now(),
+    |                         ^^^^^^^^^^^^^^
+161 |         )
+    |
+help: Pass a `datetime.timezone` object to the `tz` parameter
+
+DTZ001 `datetime.datetime()` called without a `tzinfo` argument
+  --> tests/test_script.py:88:21
+   |
+86 |         snapshot=False,
+87 |         message="extra",
+88 |         create_date=datetime(2026, 1, 3),
+   |                     ^^^^^^^^^^^^^^^^^^^^
+89 |         path=tmp_versions / "versions" / "aaaa11111111_extra.py",
+90 |     )
+   |
+help: Pass a `datetime.timezone` object to the `tzinfo` parameter
+
+Found 129 errors.
+No fixes available (90 hidden fixes can be enabled with the `--unsafe-fixes` option).

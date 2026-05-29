@@ -153,8 +153,8 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
 """]
 
     # Summary section
-    best_test_score = data.get('best_test_score')
-    best_train_score = data.get('best_train_score')
+    best_test_score = data.get("best_test_score")
+    best_train_score = data.get("best_train_score")
     html_parts.append(f"""
     <div class="summary">
         <p><strong>Original:</strong> {html.escape(data.get('original_description', 'N/A'))}</p>
@@ -246,7 +246,7 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
                 ratio = correct / total
                 if ratio >= 0.8:
                     return "score-good"
-                elif ratio >= 0.5:
+                if ratio >= 0.5:
                     return "score-ok"
             return "score-bad"
 
