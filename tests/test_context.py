@@ -3,9 +3,10 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from runic.context import IrreversibleMigrationError, MigrationContext
 
+import runic.context as ctx_module
 from runic.config import Config
+from runic.context import IrreversibleMigrationError, MigrationContext
 
 
 @pytest.fixture
@@ -151,3 +152,61 @@ def test_downgrade_irreversible_with_force(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True
     ctx.downgrade("aaaaaaaaaaaa", force=True)
+
+
+def test_downgrade_when_already_at_base(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.ro_query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.downgrade("base")  # should be a no-op, no error
+
+
+def test_upgrade_already_at_target(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.upgrade("bbbbbbbbbbbb")
+    query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
+    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    assert len(stamp_calls) == 0
+
+
+def test_module_configure_and_get(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    ctx_module._context = None
+    ctx_module.configure(
+        connection=mock_db,
+        graph=mock_graph,
+        script_location=tmp_versions,
+    )
+    ctx = ctx_module.get()
+    assert isinstance(ctx, MigrationContext)
+
+
+def test_module_get_raises_when_not_configured() -> None:
+    ctx_module._context = None
+    with pytest.raises(RuntimeError, match="not configured"):
+        ctx_module.get()
+
+
+def test_module_is_preview_false_when_not_configured() -> None:
+    ctx_module._context = None
+    assert ctx_module.is_preview() is False
+
+
+def test_module_configure_with_env_path(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_path: Path
+) -> None:
+    ctx_module._context = None
+    env_path = tmp_path / "runic" / "env.py"
+    env_path.parent.mkdir()
+    ctx_module.configure(
+        connection=mock_db,
+        graph=mock_graph,
+        _env_path=env_path,
+    )
+    ctx = ctx_module.get()
+    assert ctx._config.script_location == tmp_path / "runic"
