@@ -5,7 +5,7 @@
 
 **Graph schema migrations for FalkorDB.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/jenreh/runic/ci.yml?branch=main&logo=github&label=CI)](https://github.com/jenreh/runic/actions)
+![Version](https://img.shields.io/badge/version-0.0.2-blue)
 [![pypi](https://img.shields.io/pypi/v/runic.svg)](https://pypi.python.org/pypi/runic)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
