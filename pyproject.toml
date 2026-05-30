@@ -50,7 +50,7 @@ dev = [
 runic = "runic.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/jenreh/runic"
+Homepage = "https://runic-migrate.readthedocs.io/latest/"
 Repository = "https://github.com/jenreh/runic"
 
 [tool.hatch.build.targets.wheel]
