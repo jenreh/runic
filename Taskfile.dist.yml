@@ -73,3 +73,14 @@ tasks:
       - rm -rf __pycache__/ .cache/ .state/ .web/ dist/ build/ coverage.xml .coverage
       - find . -type d -name "__pycache__" -exec rm -rf {} +
       - find . -type f -name "*.pyc" -delete
+
+  # ----------------------------------------------------------------------------
+  # PyPI Publishing Commands (Namespace: publish)
+  # ----------------------------------------------------------------------------
+
+  release:publish:
+    desc: Build and publish all library modules to PyPI
+    cmds:
+      - uv build
+      - uv publish
+      - echo "✅ All modules published successfully"

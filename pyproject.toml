@@ -1,5 +1,5 @@
 [project]
-name = "runic"
+name = "runic-migrate"
 version = "0.1.0"
 description = "Graph schema migrations for FalkorDB."
 readme = "README.md"
@@ -95,6 +95,16 @@ replace = 'version = "{new_version}"'
 filename = "README.md"
 search = '![Version](https://img.shields.io/badge/version-{current_version}-blue)'
 replace = '![Version](https://img.shields.io/badge/version-{new_version}-blue)'
+
+[[tool.bumpversion.files]]
+search = '.. |PyPI| image:: https://img.shields.io/pypi/v
+    :target: https://pypi.org/project/runic-migrate/'replace = '.. |PyPI| image:: https://img.shields.io/pypi/v{new_version}
+    :target: https://pypi.org/project/runic-migrate/'filename = "docs/source/index.rst"
+
+[[dependency-groups.dev.files]]
+filename = "docs/source/index.rst"
+search = 'Documentation for version: {current_version}.'
+replace = 'Documentation for version: {new_version}.'
 
 [tool.ruff]
 cache-dir = ".cache/ruff"
