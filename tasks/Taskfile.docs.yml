@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+vars:
+  DOCS_DIR: docs
+  SOURCE_DIR: "{{.DOCS_DIR}}/source"
+  BUILD_DIR: "{{.DOCS_DIR}}/build"
+
+tasks:
+  build:
+    desc: Build the Sphinx HTML documentation
+    cmds:
+      - sphinx-build -b html "{{.SOURCE_DIR}}" "{{.BUILD_DIR}}/html"
+    sources:
+      - "{{.SOURCE_DIR}}/**/*.rst"
+      - "{{.SOURCE_DIR}}/**/*.py"
+      - "{{.SOURCE_DIR}}/_static/**/*"
+    generates:
+      - "{{.BUILD_DIR}}/html/index.html"
+
+  clean:
+    desc: Clean the built Sphinx documentation
+    cmds:
+      - rm -rf "{{.BUILD_DIR}}"
+
+  serve:
+    desc: Build and serve the documentation with live-reloading
+    cmds:
+      - sphinx-autobuild "{{.SOURCE_DIR}}" "{{.BUILD_DIR}}/html"
+
+  publish:
+    desc: Publish documentation to gh-pages branch in the current project
+    deps:
+      - build
+    cmds:
+      - uvx ghp-import -n -p -f "{{.BUILD_DIR}}/html"
