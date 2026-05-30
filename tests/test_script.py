@@ -131,3 +131,21 @@ def test_create_writes_file(tmp_versions: Path) -> None:
     content = path.read_text()
     assert "add index" in content
     assert "down_revision = 'bbbbbbbbbbbb'" in content
+
+
+def test_create_round_trip_message_and_date(tmp_versions: Path) -> None:
+    """Template-generated revisions must load back with correct message and create_date."""
+    from datetime import UTC, datetime, timedelta
+
+    sd = ScriptDirectory.load(tmp_versions)
+    before = datetime.now(UTC)
+    path = sd.create("my migration msg", head="bbbbbbbbbbbb", script_location=tmp_versions)
+    after = datetime.now(UTC) + timedelta(seconds=1)
+
+    # Reload the ScriptDirectory to pick up the new file
+    sd2 = ScriptDirectory.load(tmp_versions)
+    rev_id = path.stem.split("_")[0]
+    rev = sd2.get_revision(rev_id)
+
+    assert rev.message == "my migration msg"
+    assert before <= rev.create_date <= after

@@ -4,6 +4,7 @@ import importlib.util
 import logging
 import re
 import secrets
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -268,6 +269,90 @@ class ScriptDirectory:
             if rev_id in _down_revision_parents(r)
         ]
 
+    # ------------------------------------------------------------------
+    # Phase 4 — topological upgrade path
+    # ------------------------------------------------------------------
+
+    def _ancestors(self, rev_id: str) -> set[str]:
+        """Return all ancestor revision ids including rev_id itself."""
+        seen: set[str] = set()
+        stack = [rev_id]
+        while stack:
+            r = stack.pop()
+            if r in seen:
+                continue
+            seen.add(r)
+            rev = self._revisions.get(r)
+            if rev is None:
+                continue
+            stack.extend(_down_revision_parents(rev))
+        return seen
+
+    def topological_upgrade_path(
+        self,
+        from_revs: list[str] | None,
+        to_rev: str,
+    ) -> list[Revision]:
+        """Return revisions to apply in valid topological order from from_revs to to_rev.
+
+        Uses Kahn's BFS algorithm. Raises MultipleHeadsError when to_rev='head' and
+        multiple heads exist. Returns [] when already at to_rev.
+        """
+        if to_rev == "head":
+            heads = self.get_heads()
+            if len(heads) > 1:
+                raise MultipleHeadsError(
+                    "Multiple heads detected — run `runic heads` to inspect. "
+                    "Use `merge` to resolve or specify an explicit target revision."
+                )
+            if not heads:
+                return []
+            to_rev = heads[0].revision
+
+        if to_rev not in self._revisions:
+            raise RevisionNotFound(f"revision {to_rev!r} not found")
+
+        from_set = set(from_revs or [])
+
+        # All ancestors of each from_rev (including from_rev itself) = already satisfied
+        already_satisfied: set[str] = set()
+        for r in from_set:
+            already_satisfied.update(self._ancestors(r))
+
+        # Ancestors of to_rev that still need applying
+        target_ancestors = self._ancestors(to_rev)
+        to_apply_ids = target_ancestors - already_satisfied
+
+        if not to_apply_ids:
+            return []
+
+        # Kahn's topological sort
+        in_degree: dict[str, int] = dict.fromkeys(to_apply_ids, 0)
+        children: dict[str, list[str]] = {rid: [] for rid in to_apply_ids}  # noqa: C420
+
+        for rid in to_apply_ids:
+            rev = self._revisions[rid]
+            for parent in _down_revision_parents(rev):
+                if parent in to_apply_ids:
+                    in_degree[rid] += 1
+                    children[parent].append(rid)
+
+        queue: deque[str] = deque(rid for rid in to_apply_ids if in_degree[rid] == 0)
+        result: list[Revision] = []
+
+        while queue:
+            rid = queue.popleft()
+            result.append(self._revisions[rid])
+            for child in children[rid]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+
+        if len(result) != len(to_apply_ids):
+            raise RuntimeError("cycle detected in revision graph")
+
+        return result
+
     @staticmethod
     def generate_revision_id() -> str:
         return secrets.token_hex(6)
@@ -275,8 +360,13 @@ class ScriptDirectory:
     def create(
         self,
         message: str,
-        head: str | None,
+        head: str | tuple[str, ...] | None,
         script_location: Path,
+        *,
+        branch_labels: list[str] | None = None,
+        depends_on: list[str] | None = None,
+        upgrade_body: str = "    pass",
+        downgrade_body: str = "    pass",
         rev_id: str | None = None,
     ) -> Path:
         rev_id = rev_id or self.generate_revision_id()
@@ -288,10 +378,12 @@ class ScriptDirectory:
         content = tmpl.render(
             up_revision=rev_id,
             down_revision=head,
-            branch_labels=[],
-            depends_on=[],
+            branch_labels=branch_labels or [],
+            depends_on=depends_on or [],
             message=message,
             create_date=datetime.now(UTC),
+            upgrade_body=upgrade_body,
+            downgrade_body=downgrade_body,
         )
 
         versions_dir = script_location / "versions"

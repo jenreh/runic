@@ -65,14 +65,70 @@ def revision(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
     head: Annotated[str | None, typer.Option("--head")] = None,
     rev_id: Annotated[str | None, typer.Option("--rev-id")] = None,
+    branch_label: Annotated[str | None, typer.Option("--branch-label")] = None,
+    depends_on: Annotated[list[str], typer.Option("--depends-on")] = [],  # noqa: B006
+    autogenerate: Annotated[bool, typer.Option("--autogenerate")] = False,
+    format_: Annotated[bool, typer.Option("--format")] = False,
 ) -> None:
     """Create a new migration revision script."""
+    from runic.script import ScriptDirectory
     from runic.service import RunicService
 
     script_location = _get_script_location(config)
-    svc = RunicService(script_location)
-    path = svc.create_revision(message, head, rev_id)
-    typer.echo(f"Created revision: {path}")
+
+    if autogenerate:
+        _exec_env(config)
+        from runic import autogen, introspect
+        from runic.context import get as _get_ctx
+
+        ctx = _get_ctx()
+        if ctx._target_manifest is None:  # noqa: SLF001
+            typer.echo(
+                "Error: --autogenerate requires target_manifest to be set in env.py",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        live = introspect.read_live_schema(ctx._graph)  # noqa: SLF001
+        ops = autogen.diff_schema(ctx._target_manifest, live)  # noqa: SLF001
+        if not ops:
+            typer.echo("No schema changes detected.")
+            raise typer.Exit(code=0)
+        upgrade_body = autogen.render_upgrade_body(ops)
+        downgrade_body = autogen.render_downgrade_body(ops)
+        sd = ScriptDirectory.load(script_location)
+        path = sd.create(
+            message,
+            sd.head(),
+            script_location,
+            branch_labels=[branch_label] if branch_label else None,
+            depends_on=list(depends_on) or None,
+            upgrade_body=upgrade_body,
+            downgrade_body=downgrade_body,
+            rev_id=rev_id,
+        )
+        typer.echo(f"Created revision: {path}  [CANDIDATE — review before applying]")
+    else:
+        svc = RunicService(script_location)
+        path = svc.create_revision(
+            message,
+            head,
+            rev_id=rev_id,
+            branch_labels=[branch_label] if branch_label else None,
+            depends_on=list(depends_on) or None,
+        )
+        typer.echo(f"Created revision: {path}")
+
+    if format_:
+        import subprocess
+
+        try:
+            subprocess.run(  # noqa: S603
+                ["ruff", "format", str(path)],  # noqa: S607
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError, FileNotFoundError:
+            log.warning("ruff format failed or ruff not installed; skipping")
 
 
 @app.command()
@@ -399,3 +455,77 @@ def migration_test_cmd(
     else:
         typer.echo("FAILED", err=True)
         raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 commands
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="merge")
+def merge_cmd(
+    r1: Annotated[str, typer.Argument(help="First revision id or prefix")],
+    r2: Annotated[str, typer.Argument(help="Second revision id or prefix")],
+    message: Annotated[
+        str, typer.Option("-m", "--message", help="Merge revision message")
+    ],
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+    branch_label: Annotated[str | None, typer.Option("--branch-label")] = None,
+) -> None:
+    """Create a merge revision combining two branch heads."""
+    from runic.script import ScriptDirectory
+
+    script_location = _get_script_location(config)
+    sd = ScriptDirectory.load(script_location)
+
+    rev1 = sd.get_revision(r1)
+    rev2 = sd.get_revision(r2)
+
+    heads = {h.revision for h in sd.get_heads()}
+    if rev1.revision not in heads or rev2.revision not in heads:
+        typer.echo(
+            f"Warning: {rev1.revision!r} or {rev2.revision!r} is not a current head",
+            err=True,
+        )
+
+    path = sd.create(
+        message,
+        (rev1.revision, rev2.revision),
+        script_location,
+        branch_labels=[branch_label] if branch_label else None,
+    )
+    typer.echo(f"Created revision: {path}")
+
+
+@app.command(name="check")
+def check_cmd(
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+) -> None:
+    """Exit non-zero if the live schema has pending changes vs the manifest (CI gate)."""
+    _exec_env(config)
+    from runic import autogen, introspect
+    from runic.context import get as _get_ctx
+
+    ctx = _get_ctx()
+    if ctx._target_manifest is None:  # noqa: SLF001
+        typer.echo(
+            "Error: check requires target_manifest to be set in env.py via "
+            "context.configure(..., target_manifest=...)",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    live = introspect.read_live_schema(ctx._graph)  # noqa: SLF001
+    ops = autogen.diff_schema(ctx._target_manifest, live)  # noqa: SLF001
+
+    if not ops:
+        typer.echo("Schema up-to-date.")
+        return
+
+    typer.echo(
+        'Pending schema changes (run `runic revision --autogenerate -m "..."` to generate):'
+    )
+    for op_item in ops:
+        prefix = "+" if op_item.action == "create" else "-"
+        typer.echo(f"  {prefix} {op_item.op_call}")
+    raise typer.Exit(code=1)
