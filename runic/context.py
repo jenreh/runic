@@ -1,13 +1,21 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 from typing import Any
 
 from runic.config import Config
+from runic.exceptions import MultipleHeadsError
 from runic.operations import GraphOperations, _bind_op
-from runic.script import ScriptDirectory
+from runic.script import RevisionNotFound, ScriptDirectory
 from runic.version import VersionNode
 
 log = logging.getLogger(__name__)
+
+_MULTIPLE_HEADS_MSG = (
+    "Multiple heads detected — run `runic heads` to inspect. "
+    "Use `merge` to resolve or specify an explicit target revision."
+)
 
 
 class IrreversibleMigrationError(Exception):
@@ -46,17 +54,20 @@ class MigrationContext:
         return self._ops.preview_log
 
     def current(self) -> str | None:
-        return self._version_node.get()
+        return self._version_node.get_single()
 
     def upgrade(self, target: str = "head") -> None:
         resolved_target: str | None = target
         if target == "head":
-            resolved_target = self._script_dir.head()
+            heads = self._script_dir.get_heads()
+            if len(heads) > 1:
+                raise MultipleHeadsError(_MULTIPLE_HEADS_MSG)
+            resolved_target = heads[0].revision if heads else None
             if resolved_target is None:
                 log.info("no revisions found, nothing to upgrade")
                 return
 
-        current = self._version_node.get()
+        current = self._version_node.get_single()
         assert resolved_target is not None
         revisions = self._script_dir.iterate_revisions(current, resolved_target)
 
@@ -80,7 +91,7 @@ class MigrationContext:
             current = rev.revision
 
     def downgrade(self, target: str, *, force: bool = False) -> None:
-        current = self._version_node.get()
+        current = self._version_node.get_single()
         if current is None:
             log.info("nothing to downgrade, no current revision")
             return
@@ -110,7 +121,28 @@ class MigrationContext:
                 if rev.down_revision is None:
                     self._version_node.clear()
                 else:
-                    self._version_node.set(rev.down_revision)
+                    parent = (
+                        rev.down_revision
+                        if isinstance(rev.down_revision, str)
+                        else rev.down_revision[0]
+                    )
+                    self._version_node.set(parent)
+
+    def stamp(self, target: str, *, purge: bool = False) -> None:
+        if purge:
+            self._version_node.clear()
+
+        if target == "base":
+            self._version_node.clear()
+            log.info("stamped: base (cleared)")
+        elif target == "heads":
+            heads = self._script_dir.get_heads()
+            self._version_node.set_multiple([r.revision for r in heads])
+            log.info("stamped: heads %s", [r.revision for r in heads])
+        else:
+            rev = self._script_dir.get_revision(target)
+            self._version_node.set(rev.revision)
+            log.info("stamped: %s", rev.revision)
 
 
 # ---------------------------------------------------------------------------
@@ -148,3 +180,14 @@ def get() -> MigrationContext:
 
 def is_preview() -> bool:
     return _context._preview if _context else False  # noqa: SLF001
+
+
+# Re-export RevisionNotFound so env.py users can import from runic.context
+__all__ = [
+    "IrreversibleMigrationError",
+    "MigrationContext",
+    "RevisionNotFound",
+    "configure",
+    "get",
+    "is_preview",
+]
