@@ -17,6 +17,7 @@ import pytest
 
 pytest.importorskip("redislite", reason="falkordblite (redislite) not installed")
 
+from runic.adapters.falkordb import FalkorDBAdapter  # noqa: E402
 from runic.context import IrreversibleMigrationError, Runic  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -77,7 +78,7 @@ def _versions_dir(tmp_path: Path) -> Path:
 def _make_ctx(db: Any, graph: Any, tmp_path: Path) -> Runic:
     """Create a Runic instance; call AFTER writing migration scripts."""
     script_location = tmp_path / "runic"
-    return Runic(db, graph, script_location)
+    return Runic(FalkorDBAdapter(db, graph), script_location)
 
 
 _R1 = "aa11bb22cc33"

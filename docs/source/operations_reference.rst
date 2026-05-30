@@ -259,10 +259,10 @@ batch sizes.
 
 ----
 
-Raw operations
---------------
+Raw Cypher
+----------
 
-For anything not covered by the helpers above, use the raw wrappers:
+For anything not covered by the helpers above:
 
 .. py:method:: op.run_cypher(query, params=None)
 
@@ -270,7 +270,7 @@ For anything not covered by the helpers above, use the raw wrappers:
 
    :param query: Cypher string.
    :param params: Optional parameter dict.
-   :returns: The raw FalkorDB result object (or ``None`` in preview mode).
+   :returns: The raw adapter result object (or ``None`` in preview mode).
 
    .. code-block:: python
 
@@ -283,32 +283,19 @@ For anything not covered by the helpers above, use the raw wrappers:
               {"threshold": 0},
           )
 
-.. py:method:: op.run_command(*args)
-
-   Execute a raw Redis/FalkorDB command via ``db.execute_command(*args)``.
-   Use for operations not expressible in Cypher (e.g. direct ``GRAPH.*``
-   commands).
-
-   :param args: Command and its arguments.
-
-   .. code-block:: python
-
-      def upgrade(op) -> None:
-          op.run_command("GRAPH.COPY", "source_graph", "dest_graph")
-
 ----
 
 Error classes
 -------------
 
-These exceptions are raised by ``op.create_constraint()`` during constraint polling.
-They live in ``runic.adapters.falkordb`` and are re-exported from the top-level
-``runic`` package.
+These exceptions are raised by ``op.create_constraint()`` during constraint
+polling.  They live in :mod:`runic.exceptions` and are exported from the
+top-level ``runic`` package.
 
-.. autoclass:: runic.adapters.falkordb.ConstraintFailedError
+.. autoclass:: runic.exceptions.ConstraintFailedError
    :no-members:
    :no-index:
 
-.. autoclass:: runic.adapters.falkordb.ConstraintTimeoutError
+.. autoclass:: runic.exceptions.ConstraintTimeoutError
    :no-members:
    :no-index:

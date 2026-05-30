@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
+from runic.adapters import GraphAdapter
 from runic.manifest import SchemaManifest
 from runic.operations import GraphOperations
 from runic.script import Revision, RevisionInfo, RevisionNotFound, ScriptDirectory
@@ -26,41 +26,36 @@ class Runic:
 
         from pathlib import Path
         from runic import Runic
+        from runic.adapters.falkordb import FalkorDBAdapter
 
-        runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
+        adapter = FalkorDBAdapter.from_url("falkor://localhost:6379", "my_graph")
+        runic = Runic(adapter, script_location=Path("runic/"))
         runic.upgrade("head")
     """
 
     def __init__(
         self,
-        connection: Any,
-        graph: Any,
+        adapter: GraphAdapter,
         script_location: Path,
         *,
         preview: bool = False,
         target_manifest: SchemaManifest | None = None,
     ) -> None:
-        self._connection = connection
-        self._graph = graph
-        self._graph_name: str = graph.name
+        self._adapter = adapter
         self._script_location = script_location
         self._preview = preview
         self._target_manifest = target_manifest
-        self._version_node = VersionNode(graph)
+        self._version_node = VersionNode(adapter)
         self._script_dir = ScriptDirectory.load(script_location)
-        self._ops = GraphOperations(graph, connection, preview=preview)
+        self._ops = GraphOperations(adapter, preview=preview)
 
     # ------------------------------------------------------------------
-    # Public properties (safe for callers — no private access needed)
+    # Public properties
     # ------------------------------------------------------------------
 
     @property
-    def connection(self) -> Any:
-        return self._connection
-
-    @property
-    def graph(self) -> Any:
-        return self._graph
+    def adapter(self) -> GraphAdapter:
+        return self._adapter
 
     @property
     def target_manifest(self) -> SchemaManifest | None:
@@ -137,8 +132,6 @@ class Runic:
         if current is None:
             return "base"
         all_to_head = self._script_dir.iterate_revisions(None, current)
-        # all_to_head is in upgrade order: [base, ..., current]
-        # reversed gives [current, parent, grandparent, ...]
         chain = list(reversed(all_to_head))
         if n >= len(chain):
             return "base"
@@ -157,7 +150,7 @@ class Runic:
             return
 
         for rev in revisions:
-            snap_name = f"{self._graph_name}__premig_{rev.revision}"
+            snap_name = f"{self._adapter.name}__premig_{rev.revision}"
             if rev.snapshot and not self._preview:
                 self._ops.snapshot(snap_name)
 
@@ -204,15 +197,17 @@ class Runic:
                 )
 
         for rev in revisions:
-            snap_name = f"{self._graph_name}__premig_{rev.revision}"
+            snap_name = f"{self._adapter.name}__premig_{rev.revision}"
             used_snapshot = False
 
-            if rev.snapshot and not self._preview:
-                existing = self._connection.list_graphs()
-                if snap_name in existing:
-                    log.info("restoring snapshot for revision %s", rev.revision)
-                    self._ops.restore_snapshot(snap_name)
-                    used_snapshot = True
+            if (
+                rev.snapshot
+                and not self._preview
+                and self._adapter.snapshot_exists(snap_name)
+            ):
+                log.info("restoring snapshot for revision %s", rev.revision)
+                self._ops.restore_snapshot(snap_name)
+                used_snapshot = True
 
             if not used_snapshot:
                 log.info("downgrading revision: %s — %s", rev.revision, rev.message)
@@ -322,8 +317,7 @@ _context: Runic | None = None
 
 
 def configure(
-    connection: Any,
-    graph: Any,
+    adapter: GraphAdapter,
     script_location: Path | None = None,
     preview: bool = False,
     *,
@@ -336,9 +330,7 @@ def configure(
         loc = _env_path.parent
     if loc is None:
         loc = Path("runic")
-    _context = Runic(
-        connection, graph, loc, preview=preview, target_manifest=target_manifest
-    )
+    _context = Runic(adapter, loc, preview=preview, target_manifest=target_manifest)
     log.debug("context configured: script_location=%s", loc)
 
 

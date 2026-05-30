@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from runic.adapters.falkordb import FalkorDBAdapter
 from runic.context import Runic
 from runic.exceptions import MultipleHeadsError
 from runic.script import RevisionNotFound
@@ -86,7 +87,7 @@ def tmp_two_heads(tmp_path: Path) -> Path:
 
 
 def _make_ctx(mock_graph: MagicMock, mock_db: MagicMock, path: Path) -> Runic:
-    return Runic(mock_db, mock_graph, path)
+    return Runic(FalkorDBAdapter(mock_db, mock_graph), path)
 
 
 # ------------------------------------------------------------------

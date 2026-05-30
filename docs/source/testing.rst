@@ -57,10 +57,12 @@ Or use ``falkordblite`` for an embedded server (no Docker required).  Configure
    from pathlib import Path
    from redislite import FalkorDB
    from runic import context
+   from runic.adapters.falkordb import FalkorDBAdapter
 
    db = FalkorDB(protocol=2)
    graph = db.select_graph("test")
-   context.configure(connection=db, graph=graph, script_location=Path("runic"))
+   adapter = FalkorDBAdapter(db, graph)
+   context.configure(adapter, script_location=Path("runic"))
 
 Then run ``runic test 3f9a12c1`` without any ``--url`` flag.
 
@@ -140,7 +142,7 @@ to test upgrade/downgrade logic end-to-end.
    """)
 
        # Create a fresh Runic instance to pick up the new revision file
-       ctx2 = Runic(ctx.connection, ctx.graph, ctx.script_location)
+       ctx2 = Runic(ctx.adapter, ctx.script_location)
 
        ctx2.upgrade("head")
        assert ctx2.current() == "0001"

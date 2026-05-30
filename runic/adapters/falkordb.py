@@ -6,6 +6,7 @@ from typing import Any
 
 from runic import introspect
 from runic.adapters import GraphAdapter
+from runic.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.introspect import LiveSchema
 
 log = logging.getLogger(__name__)
@@ -19,14 +20,6 @@ _SET_VERSION_QUERY = (
     f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
     " SET v.revisions = $revisions, v.applied_at = timestamp()"
 )
-
-
-class ConstraintFailedError(Exception):
-    pass
-
-
-class ConstraintTimeoutError(Exception):
-    pass
 
 
 class FalkorDBAdapter(GraphAdapter):
@@ -60,6 +53,9 @@ class FalkorDBAdapter(GraphAdapter):
 
     def run_ro_query(self, query: str) -> Any:
         return self._graph.ro_query(query)
+
+    def run_command(self, *args: Any) -> Any:
+        return self._db.execute_command(*args)
 
     # ------------------------------------------------------------------
     # Version tracking
