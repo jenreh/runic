@@ -11,6 +11,11 @@ class GraphAdapter(Protocol):
 
     The runic core depends only on this interface — no FalkorDB or any other
     concrete database client leaks into shared code.
+
+    Note: ``LiveSchema`` (returned by ``read_live_schema``) is currently parsed
+    from FalkorDB's ``CALL db.indexes()`` / ``CALL db.constraints()`` output in
+    ``runic.introspect``.  A future adapter must override ``read_live_schema``
+    and may supply its own introspection logic.
     """
 
     @property
@@ -19,6 +24,9 @@ class GraphAdapter(Protocol):
     # Low-level query execution
     def run_query(self, query: str, params: dict | None = None) -> Any: ...
     def run_ro_query(self, query: str) -> Any: ...
+
+    # Sibling adapter for a different graph/database on the same connection
+    def fork(self, graph_name: str) -> GraphAdapter: ...
 
     # Version tracking
     def get_version(self) -> list[str]: ...
@@ -65,4 +73,28 @@ class GraphAdapter(Protocol):
     def snapshot_exists(self, snap_name: str) -> bool: ...
 
 
-__all__ = ["GraphAdapter"]
+def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter:
+    """Instantiate a named adapter from keyword arguments.
+
+    Supported backends and their required kwargs:
+
+    ``"falkordb"``
+        ``url`` (str) — connection URL, e.g. ``"falkor://localhost:6379"``
+        ``graph_name`` (str) — name of the graph
+
+    Example::
+
+        from runic.adapters import create_adapter
+
+        adapter = create_adapter(
+            "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
+        )
+    """
+    if backend == "falkordb":
+        from runic.adapters.falkordb import FalkorDBAdapter
+
+        return FalkorDBAdapter.from_url(kwargs["url"], kwargs["graph_name"])
+    raise KeyError(f"Unknown adapter backend {backend!r}. Supported: 'falkordb'")
+
+
+__all__ = ["GraphAdapter", "create_adapter"]

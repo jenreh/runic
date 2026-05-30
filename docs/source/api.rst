@@ -17,7 +17,7 @@ offline DAG queries (history, heads, revision creation) in one coherent API.
    :members: upgrade, downgrade, stamp, current, enable_preview, preview_log,
              get_revision_message, get_history, get_heads, get_branch_points,
              create_revision, show_revision,
-             connection, graph, target_manifest, script_location
+             adapter, target_manifest, script_location
    :show-inheritance:
 
 .. autoexception:: runic.context.IrreversibleMigrationError
@@ -29,13 +29,15 @@ Programmatic usage example
 .. code-block:: python
 
    from pathlib import Path
-   from falkordb import FalkorDB
    from runic import Runic
+   from runic.adapters import create_adapter
 
-   db = FalkorDB.from_url("falkor://localhost:6379")
-   graph = db.select_graph("my_graph")
-
-   runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
+   adapter = create_adapter(
+       "falkordb",
+       url="falkor://localhost:6379",
+       graph_name="my_graph",
+   )
+   runic = Runic(adapter, script_location=Path("runic/"))
 
    runic.upgrade("head")
    print("current:", runic.current())
@@ -71,17 +73,18 @@ the file.  **SDK users should prefer instantiating** :class:`~runic.context.Runi
 
 ----
 
+runic.adapters
+--------------
+
+.. autofunction:: runic.adapters.create_adapter
+
+----
+
 runic.operations
 ----------------
 
 .. autoclass:: runic.operations.GraphOperations
    :members:
-   :show-inheritance:
-
-.. autoexception:: runic.operations.ConstraintFailedError
-   :show-inheritance:
-
-.. autoexception:: runic.operations.ConstraintTimeoutError
    :show-inheritance:
 
 ----
@@ -153,6 +156,12 @@ runic.exceptions
    :show-inheritance:
 
 .. autoexception:: runic.exceptions.MultipleBasesError
+   :show-inheritance:
+
+.. autoexception:: runic.exceptions.ConstraintFailedError
+   :show-inheritance:
+
+.. autoexception:: runic.exceptions.ConstraintTimeoutError
    :show-inheritance:
 
 ----

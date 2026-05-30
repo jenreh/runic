@@ -96,17 +96,19 @@ Use runic directly in Python — no CLI, no `env.py` needed:
 
 ```python
 from pathlib import Path
-from falkordb import FalkorDB
 from runic import Runic, init
+from runic.adapters import create_adapter
 
 # One-time setup: scaffold the migration directory
 init(Path("runic/"))
 
 # Connect and run
-db = FalkorDB.from_url("falkor://localhost:6379")
-graph = db.select_graph("my_graph")
-
-runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
+adapter = create_adapter(
+    "falkordb",
+    url="falkor://localhost:6379",
+    graph_name="my_graph",
+)
+runic = Runic(adapter, script_location=Path("runic/"))
 runic.upgrade("head")
 
 print("current:", runic.current())

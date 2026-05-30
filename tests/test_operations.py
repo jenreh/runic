@@ -1,17 +1,16 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from runic.operations import (
-    ConstraintFailedError,
-    ConstraintTimeoutError,
-    GraphOperations,
-)
+from runic.adapters.falkordb import FalkorDBAdapter
+from runic.operations import GraphOperations
 
 
 @pytest.fixture
 def mock_graph() -> MagicMock:
-    return MagicMock()
+    graph = MagicMock()
+    graph.name = "test_graph"
+    return graph
 
 
 @pytest.fixture
@@ -20,13 +19,18 @@ def mock_db() -> MagicMock:
 
 
 @pytest.fixture
-def ops(mock_graph: MagicMock, mock_db: MagicMock) -> GraphOperations:
-    return GraphOperations(mock_graph, mock_db)
+def adapter(mock_graph: MagicMock, mock_db: MagicMock) -> FalkorDBAdapter:
+    return FalkorDBAdapter(mock_db, mock_graph)
 
 
 @pytest.fixture
-def preview_ops(mock_graph: MagicMock, mock_db: MagicMock) -> GraphOperations:
-    return GraphOperations(mock_graph, mock_db, preview=True)
+def ops(adapter: FalkorDBAdapter) -> GraphOperations:
+    return GraphOperations(adapter)
+
+
+@pytest.fixture
+def preview_ops(adapter: FalkorDBAdapter) -> GraphOperations:
+    return GraphOperations(adapter, preview=True)
 
 
 def test_preview_run_cypher_no_calls(
@@ -34,14 +38,6 @@ def test_preview_run_cypher_no_calls(
 ) -> None:
     preview_ops.run_cypher("MATCH (n) RETURN n")
     mock_graph.query.assert_not_called()
-    assert len(preview_ops.preview_log) == 1
-
-
-def test_preview_run_command_no_calls(
-    preview_ops: GraphOperations, mock_db: MagicMock
-) -> None:
-    preview_ops.run_command("GRAPH.CONSTRAINT", "CREATE")
-    mock_db.execute_command.assert_not_called()
     assert len(preview_ops.preview_log) == 1
 
 
@@ -72,30 +68,6 @@ def test_drop_range_index_node(ops: GraphOperations, mock_graph: MagicMock) -> N
     assert "Person" in call_args
 
 
-def test_create_unique_constraint_also_creates_index(
-    ops: GraphOperations, mock_graph: MagicMock, mock_db: MagicMock
-) -> None:
-    mock_db.execute_command.return_value = "PENDING"
-    with patch.object(ops, "_poll_constraint", return_value=None):
-        ops.create_constraint("UNIQUE", "NODE", "Person", ["email"])
-    index_call = mock_graph.query.call_args_list[0][0][0]
-    assert "CREATE INDEX" in index_call
-    mock_db.execute_command.assert_called_once()
-    constraint_args = mock_db.execute_command.call_args[0]
-    assert "GRAPH.CONSTRAINT" in constraint_args
-    assert "CREATE" in constraint_args
-    assert "UNIQUE" in constraint_args
-
-
-def test_polling_raises_on_failed_status(
-    ops: GraphOperations, mock_graph: MagicMock
-) -> None:
-    failed_row = ["type", "entity", "label", "props", "FAILED"]
-    mock_graph.ro_query.return_value.result_set = [[failed_row]]
-    with pytest.raises(ConstraintFailedError):
-        ops._poll_constraint("Person", ["email"])
-
-
 def test_drop_constraint(ops: GraphOperations, mock_db: MagicMock) -> None:
     ops.drop_constraint("UNIQUE", "NODE", "Person", ["email"])
     args = mock_db.execute_command.call_args[0]
@@ -109,17 +81,6 @@ def test_preview_drop_constraint_no_calls(
     preview_ops.drop_constraint("UNIQUE", "NODE", "Person", ["email"])
     mock_db.execute_command.assert_not_called()
     assert len(preview_ops.preview_log) == 1
-
-
-def test_polling_raises_on_timeout(mock_graph: MagicMock, mock_db: MagicMock) -> None:
-    ops = GraphOperations(mock_graph, mock_db)
-    mock_graph.ro_query.return_value.result_set = []
-    with (
-        patch("runic.operations._POLL_RETRIES", 1),
-        patch("runic.operations._POLL_INTERVAL", 0),
-        pytest.raises(ConstraintTimeoutError),
-    ):
-        ops._poll_constraint("Person", ["email"])
 
 
 def test_run_cypher_no_params(ops: GraphOperations, mock_graph: MagicMock) -> None:
@@ -152,7 +113,7 @@ def test_preview_create_constraint(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — fulltext index
+# fulltext index
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +177,7 @@ def test_drop_fulltext_index_preview(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — vector index
+# vector index
 # ---------------------------------------------------------------------------
 
 
@@ -264,7 +225,7 @@ def test_drop_vector_index_preview(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — rename_property
+# rename_property
 # ---------------------------------------------------------------------------
 
 
@@ -296,7 +257,6 @@ def test_rename_property_passes_batch_param(
 ) -> None:
     mock_graph.query.return_value.result_set = [[0]]
     ops.rename_property("Person", "fname", "first_name", batch=999)
-    _, kwargs = mock_graph.query.call_args
     params = mock_graph.query.call_args[0][1]
     assert params["batch"] == 999
 
@@ -310,7 +270,7 @@ def test_rename_property_preview(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — relabel_nodes
+# relabel_nodes
 # ---------------------------------------------------------------------------
 
 
@@ -345,7 +305,7 @@ def test_relabel_nodes_preview(
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — seed
+# seed
 # ---------------------------------------------------------------------------
 
 

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import runic.context as ctx_module
+from runic.adapters.falkordb import FalkorDBAdapter
 from runic.context import IrreversibleMigrationError, Runic
 
 
@@ -76,7 +77,7 @@ def _make_ctx(
     tmp_versions: Path,
     preview: bool = False,
 ) -> Runic:
-    return Runic(mock_db, mock_graph, tmp_versions, preview=preview)
+    return Runic(FalkorDBAdapter(mock_db, mock_graph), tmp_versions, preview=preview)
 
 
 def test_current_returns_none_initially(
@@ -178,8 +179,7 @@ def test_module_configure_and_get(
 ) -> None:
     ctx_module._context = None
     ctx_module.configure(
-        connection=mock_db,
-        graph=mock_graph,
+        FalkorDBAdapter(mock_db, mock_graph),
         script_location=tmp_versions,
     )
     ctx = ctx_module.get()
@@ -204,8 +204,7 @@ def test_module_configure_with_env_path(
     env_path = tmp_path / "runic" / "env.py"
     env_path.parent.mkdir()
     ctx_module.configure(
-        connection=mock_db,
-        graph=mock_graph,
+        FalkorDBAdapter(mock_db, mock_graph),
         _env_path=env_path,
     )
     ctx = ctx_module.get()
@@ -343,6 +342,6 @@ def test_upgrade_relative_multiple_heads_raises(
         )
 
     mock_graph.ro_query.return_value.result_set = []
-    ctx = Runic(mock_db, mock_graph, branched_dir)
+    ctx = Runic(FalkorDBAdapter(mock_db, mock_graph), branched_dir)
     with pytest.raises(MultipleHeadsError):
         ctx.upgrade("+1")

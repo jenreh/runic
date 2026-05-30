@@ -38,10 +38,11 @@ def falkordb_graph() -> Any:
 @pytest.fixture
 def runic_context(falkordb_graph: Any, tmp_path: Path) -> Any:
     """Yield a configured Runic instance backed by an ephemeral falkordblite graph."""
+    from runic.adapters.falkordb import FalkorDBAdapter
     from runic.context import configure, get
 
     db, graph = falkordb_graph
     script_location = tmp_path / "runic"
     (script_location / "versions").mkdir(parents=True, exist_ok=True)
-    configure(db, graph, script_location=script_location)
+    configure(FalkorDBAdapter(db, graph), script_location=script_location)
     return get()

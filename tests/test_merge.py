@@ -6,6 +6,7 @@ import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from runic.adapters.falkordb import FalkorDBAdapter
 from runic.script import ScriptDirectory
 
 
@@ -168,7 +169,7 @@ def test_upgrade_context_merges_version_node(tmp_path: Path) -> None:
     graph.ro_query.return_value = get_result
     graph.query.return_value = MagicMock(result_set=[[0]])
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     with patch.object(ctx._version_node, "set_multiple") as mock_set_multiple:  # noqa: SLF001
         ctx.upgrade(_M)

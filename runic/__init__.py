@@ -9,7 +9,7 @@ from runic.manifest import (
     UniqueConstraint,
     VectorIndex,
 )
-from runic.operations import ConstraintFailedError, ConstraintTimeoutError
+from runic.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.script import AmbiguousRevision, RevisionNotFound
 from runic.service import init
 

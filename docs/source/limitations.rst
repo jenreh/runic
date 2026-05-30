@@ -63,17 +63,25 @@ a parameter change requires a drop + create anyway.
 **What to do:** If you need to change vector index parameters, write a
 migration with ``op.drop_vector_index`` + ``op.create_vector_index`` manually.
 
-FalkorDB only
---------------
+FalkorDB is the only supported backend
+---------------------------------------
 
-**What this means:** runic is built specifically for
-`FalkorDB <https://falkordb.com>`_ and uses FalkorDB-specific Cypher
-extensions, ``GRAPH.CONSTRAINT``, and ``GRAPH.COPY``.  It does not support
-Neo4j, Amazon Neptune, AgeDB, or any other graph database.
+**What this means:** runic ships one adapter — ``FalkorDBAdapter`` — and the
+``create_adapter("falkordb", ...)`` factory only knows about FalkorDB.  Neo4j,
+Amazon Neptune, AgeDB, and other graph databases are not supported out of the
+box.
 
-**Why:** The operations API, constraint polling, snapshot mechanism, and
-introspection layer all depend on FalkorDB-specific commands.  Building a
-multi-database abstraction would require a complete architectural redesign.
+**Architecture note:** The runtime now flows through a clean
+:class:`~runic.adapters.GraphAdapter` protocol, so a second adapter (e.g.
+Neo4j) can be added without touching the migration core.  The main differences
+to implement are constraint syntax (Cypher instead of ``GRAPH.CONSTRAINT``),
+fulltext index procedures, vector index syntax, and snapshot semantics (no
+``GRAPH.COPY`` equivalent).  The introspection layer (``CALL db.indexes()`` /
+``CALL db.constraints()`` column parsing) is still FalkorDB-specific and would
+need an adapter-level override.
+
+**Current limitation:** Only FalkorDB is tested and supported.  Do not point
+runic at any other graph database.
 
 Version state lives inside the graph
 --------------------------------------

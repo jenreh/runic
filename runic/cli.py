@@ -77,7 +77,7 @@ def revision(
 
     if autogenerate:
         _exec_env(config)
-        from runic import autogen, introspect
+        from runic import autogen
         from runic.context import get as _get_ctx
 
         ctx = _get_ctx()
@@ -87,7 +87,7 @@ def revision(
                 err=True,
             )
             raise typer.Exit(code=1)
-        live = introspect.read_live_schema(ctx.graph)
+        live = ctx.adapter.read_live_schema()
         ops = autogen.diff_schema(ctx.target_manifest, live)
         if not ops:
             typer.echo("No schema changes detected.")
@@ -363,20 +363,22 @@ def show(
 # ---------------------------------------------------------------------------
 
 
-def _entity_count(graph: Any) -> int:
-    result = graph.query(
+def _entity_count(adapter: Any) -> int:
+    result = adapter.run_query(
         "MATCH (n) WHERE NOT n:_FalkorMigrateVersion RETURN count(n) AS c"
     )
     return int(result.result_set[0][0]) if result.result_set else 0
 
 
-def _index_count(graph: Any) -> int:
-    result = graph.query("CALL db.indexes() YIELD label RETURN count(label) AS c")
+def _index_count(adapter: Any) -> int:
+    result = adapter.run_query("CALL db.indexes() YIELD label RETURN count(label) AS c")
     return int(result.result_set[0][0]) if result.result_set else 0
 
 
-def _constraint_count(graph: Any) -> int:
-    result = graph.query("CALL db.constraints() YIELD type RETURN count(type) AS c")
+def _constraint_count(adapter: Any) -> int:
+    result = adapter.run_query(
+        "CALL db.constraints() YIELD type RETURN count(type) AS c"
+    )
     return int(result.result_set[0][0]) if result.result_set else 0
 
 
@@ -402,23 +404,23 @@ def migration_test_cmd(
     rev_id = resolved.revision
 
     if url is not None:
-        from falkordb import FalkorDB
+        from runic.adapters.falkordb import FalkorDBAdapter
 
-        db = FalkorDB.from_url(url)
-        source_graph_name = graph_name or "test"
+        base_adapter: Any = FalkorDBAdapter.from_url(url, graph_name or "test")
+        source_graph_name = base_adapter.name
     else:
         _exec_env(config)
         from runic.context import get as _get_ctx
 
         existing_ctx = _get_ctx()
-        db = existing_ctx.connection
-        source_graph_name = existing_ctx.graph.name
+        base_adapter = existing_ctx.adapter
+        source_graph_name = base_adapter.name
 
     token = secrets.token_hex(4)
     ephemeral_name = f"{source_graph_name}__test_{rev_id}_{token}"
-    ephemeral_graph = db.select_graph(ephemeral_name)
+    ephemeral_adapter = base_adapter.fork(ephemeral_name)
 
-    ctx = Runic(db, ephemeral_graph, script_location)
+    ctx = Runic(ephemeral_adapter, script_location)
 
     sep = "─" * 45
     typer.echo(f"runic test {rev_id}")
@@ -429,9 +431,9 @@ def migration_test_cmd(
         # Phase A — upgrade
         try:
             ctx.upgrade(target=rev_id)
-            nodes_a = _entity_count(ephemeral_graph)
-            idx_a = _index_count(ephemeral_graph)
-            con_a = _constraint_count(ephemeral_graph)
+            nodes_a = _entity_count(ephemeral_adapter)
+            idx_a = _index_count(ephemeral_adapter)
+            con_a = _constraint_count(ephemeral_adapter)
             typer.echo(
                 f"Phase A (upgrade):    ✓  nodes={nodes_a}  indices={idx_a}  constraints={con_a}"
             )
@@ -443,9 +445,9 @@ def migration_test_cmd(
         # Phase B — downgrade
         try:
             ctx.downgrade(target="base")
-            nodes_b = _entity_count(ephemeral_graph)
-            idx_b = _index_count(ephemeral_graph)
-            con_b = _constraint_count(ephemeral_graph)
+            nodes_b = _entity_count(ephemeral_adapter)
+            idx_b = _index_count(ephemeral_adapter)
+            con_b = _constraint_count(ephemeral_adapter)
             typer.echo(
                 f"Phase B (downgrade):  ✓  nodes={nodes_b}  indices={idx_b}  constraints={con_b}"
             )
@@ -457,9 +459,9 @@ def migration_test_cmd(
         # Phase C — idempotency (re-upgrade)
         try:
             ctx.upgrade(target=rev_id)
-            nodes_c = _entity_count(ephemeral_graph)
-            idx_c = _index_count(ephemeral_graph)
-            con_c = _constraint_count(ephemeral_graph)
+            nodes_c = _entity_count(ephemeral_adapter)
+            idx_c = _index_count(ephemeral_adapter)
+            con_c = _constraint_count(ephemeral_adapter)
             typer.echo(
                 f"Phase C (idempotency):✓  nodes={nodes_c}  indices={idx_c}  constraints={con_c}"
             )
@@ -470,7 +472,7 @@ def migration_test_cmd(
 
     finally:
         with contextlib.suppress(Exception):
-            ephemeral_graph.delete()
+            ephemeral_adapter.delete_graph()
 
     typer.echo(sep)
     if passed:

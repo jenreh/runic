@@ -39,8 +39,9 @@ def test_init_env_py_content(tmp_path: Path) -> None:
     result = runner.invoke(app, ["init", str(target)])
     assert result.exit_code == 0
     env_content = (target / "env.py").read_text()
-    assert "FalkorDB" in env_content
-    assert "context.configure" in env_content
+    assert "create_adapter" in env_content
+    assert '"falkordb"' in env_content
+    assert "context.configure(adapter)" in env_content
     assert "FALKORDB_URL" in env_content
 
 

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from runic.adapters.falkordb import FalkorDBAdapter
 from runic.context import Runic
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ def _make_ctx(
             (versions_dir / filename).write_text(textwrap.dedent(content))
 
     graph.ro_query.return_value.result_set = []
-    return Runic(db, graph, tmp_path)
+    return Runic(FalkorDBAdapter(db, graph), tmp_path)
 
 
 _REV_A = "aaaaaaaaaaaa"
@@ -99,7 +100,7 @@ def test_upgrade_calls_snapshot_when_flag_set(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     ctx.upgrade(_REV_A)
 
@@ -117,7 +118,7 @@ def test_upgrade_no_snapshot_when_flag_false(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=False)
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     ctx.upgrade(_REV_A)
 
@@ -134,7 +135,7 @@ def test_upgrade_restores_snapshot_on_failure(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     # Make upgrade() raise
     ctx._script_dir.get_revision(_REV_A).module.upgrade = lambda op: (
@@ -172,7 +173,7 @@ def test_downgrade_uses_snapshot_when_exists(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     # Track whether module.downgrade was called
     downgrade_called = []
@@ -201,7 +202,7 @@ def test_downgrade_fallback_when_no_snapshot(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    ctx = Runic(db, graph, tmp_path)
+    ctx = Runic(FalkorDBAdapter(db, graph), tmp_path)
 
     downgrade_called = []
     ctx._script_dir.get_revision(_REV_A).module.downgrade = lambda op: (
