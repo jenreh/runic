@@ -64,7 +64,9 @@ class RunicService:
     ) -> Path:
         """Create a new migration revision script and return its path."""
         resolved_head = head if head is not None else self._sd.head()
-        return self._sd.create(message, resolved_head, self._script_location, rev_id=rev_id)
+        return self._sd.create(
+            message, resolved_head, self._script_location, rev_id=rev_id
+        )
 
     def show_revision(self, rev: str) -> Revision:
         """Return full metadata for a single revision (by id or unique prefix)."""

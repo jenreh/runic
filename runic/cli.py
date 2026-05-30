@@ -47,7 +47,7 @@ def init(
         RunicService.init(directory, force=force)
     except FileExistsError as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     typer.echo(f"Created runic environment at {directory}/")
     typer.echo(f"  {directory}/env.py")
@@ -262,7 +262,7 @@ def show(
         revision = svc.show_revision(rev)
     except RevisionNotFound as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     typer.echo(f"Revision ID:   {revision.revision}")
     typer.echo(f"Revises:       {revision.down_revision or '<base>'}")
