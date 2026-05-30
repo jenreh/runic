@@ -965,7 +965,6 @@ version = "0.1.6"
 source = { editable = "." }
 dependencies = [
     { name = "falkordb" },
-    { name = "falkordblite" },
     { name = "mako" },
     { name = "rich" },
     { name = "typer" },
@@ -993,7 +992,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "falkordb", specifier = ">=1.6.1" },
-    { name = "falkordblite", specifier = ">=0.10.0" },
     { name = "mako", specifier = ">=1.3.12" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "typer", extras = ["all"], specifier = "==0.26.4" },
