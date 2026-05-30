@@ -1624,8 +1624,8 @@ wheels = [
 ]
 
 [[package]]
-name = "runic"
-version = "0.1.0"
+name = "runic-migrate"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
