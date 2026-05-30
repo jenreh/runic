@@ -17,7 +17,7 @@ classifiers = [
 
 dependencies = [
     "fastmcp==3.3.1",
-    "typer[all]==0.26.3",
+    "typer[all]==0.26.4",
     "rich==15.0.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.1",
@@ -50,8 +50,8 @@ dev = [
 runic = "runic.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/jenreh/python-kit"
-Repository = "https://github.com/jenreh/python-kit"
+Homepage = "https://github.com/jenreh/runic"
+Repository = "https://github.com/jenreh/runic"
 
 [tool.hatch.build.targets.wheel]
 packages = ["runic"]
