@@ -1,6 +1,6 @@
 [project]
 name = "runic-migrate"
-version = "0.1.1"
+version = "0.1.2"
 description = "Graph schema migrations for FalkorDB."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -82,7 +82,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.1.1"
+current_version = "0.1.2"
 tag = false
 allow-dirty = false
 
