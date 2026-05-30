@@ -91,4 +91,4 @@ runic upgrade head
 
 ## Documentation
 
-For a full conceptual overview, advanced CLI usage, and deep dives into branching or multi-head resolution, visit the complete [Runic Documentation](https://jenreh.github.io/runic/).
+For a full conceptual overview, advanced CLI usage, and deep dives into branching or multi-head resolution, visit the complete [Runic Documentation](https://runic-migrate.readthedocs.io/latest/).
