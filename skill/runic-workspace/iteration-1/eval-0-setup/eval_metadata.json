@@ -1,0 +1,14 @@
+{
+  "eval_id": 0,
+  "eval_name": "full-setup-walkthrough",
+  "prompt": "I'm adding runic to my FalkorDB-backed Python app. The graph is called 'socialnet' and runs on localhost:6379. Walk me through the full setup: init the environment, configure env.py, create a first migration that adds a range index on User.email and a unique constraint, and apply it.",
+  "assertions": [
+    {"text": "Response mentions `runic init` to scaffold the directory", "passed": null, "evidence": ""},
+    {"text": "env.py example references 'socialnet' as graph_name or FALKORDB_GRAPH", "passed": null, "evidence": ""},
+    {"text": "env.py shows context.configure(adapter) call", "passed": null, "evidence": ""},
+    {"text": "Migration upgrade body calls op.create_range_index for User.email", "passed": null, "evidence": ""},
+    {"text": "Migration upgrade body calls op.create_constraint for User email", "passed": null, "evidence": ""},
+    {"text": "Migration downgrade drops constraint before the range index", "passed": null, "evidence": ""},
+    {"text": "Response shows `runic upgrade` (with or without 'head') to apply the migration", "passed": null, "evidence": ""}
+  ]
+}

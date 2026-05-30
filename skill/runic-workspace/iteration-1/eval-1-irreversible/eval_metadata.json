@@ -1,0 +1,13 @@
+{
+  "eval_id": 1,
+  "eval_name": "irreversible-rename-migration",
+  "prompt": "I need to rename the property 'username' to 'handle' on all Person nodes in my FalkorDB graph. This migration is one-way — I can't reconstruct the old data. Write the runic migration file and tell me which flags to set.",
+  "assertions": [
+    {"text": "Migration file sets irreversible = True", "passed": null, "evidence": ""},
+    {"text": "Migration file sets snapshot = True", "passed": null, "evidence": ""},
+    {"text": "upgrade() calls op.rename_property('Person', 'username', 'handle')", "passed": null, "evidence": ""},
+    {"text": "downgrade() raises an error or clearly states irreversible / snapshot restore", "passed": null, "evidence": ""},
+    {"text": "Property names are 'username' (old) and 'handle' (new), not reversed", "passed": null, "evidence": ""},
+    {"text": "Uses --preview flag (not --dry-run) for dry-run mode", "passed": null, "evidence": ""}
+  ]
+}

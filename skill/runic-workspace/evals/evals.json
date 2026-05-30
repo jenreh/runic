@@ -1,0 +1,93 @@
+{
+  "skill_name": "runic",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I'm adding runic to my FalkorDB-backed Python app. The graph is called 'socialnet' and runs on localhost:6379. Walk me through the full setup: init the environment, configure env.py, create a first migration that adds a range index on User.email and a unique constraint, and apply it.",
+      "expected_output": "Step-by-step showing: runic init, correct env.py with FALKORDB_URL/FALKORDB_GRAPH, runic revision -m '...', a complete migration file with correct upgrade/downgrade (constraint after index in upgrade, constraint before index in downgrade), and runic upgrade head.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "mentions-runic-init",
+          "description": "Response mentions `runic init` to scaffold the directory"
+        },
+        {
+          "name": "env-py-has-socialnet",
+          "description": "env.py example references 'socialnet' as graph_name or FALKORDB_GRAPH"
+        },
+        {
+          "name": "env-py-has-context-configure",
+          "description": "env.py shows context.configure(adapter) call"
+        },
+        {
+          "name": "migration-has-create-range-index",
+          "description": "Migration upgrade body calls op.create_range_index for User.email"
+        },
+        {
+          "name": "migration-has-create-constraint",
+          "description": "Migration upgrade body calls op.create_constraint for User email"
+        },
+        {
+          "name": "downgrade-drops-constraint-before-index",
+          "description": "Migration downgrade drops the constraint before dropping the range index"
+        },
+        {
+          "name": "mentions-runic-upgrade-head",
+          "description": "Response shows `runic upgrade head` to apply the migration"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "I need to rename the property 'username' to 'handle' on all Person nodes in my FalkorDB graph. This migration is one-way — I can't reconstruct the old data. Write the runic migration file and tell me which flags to set.",
+      "expected_output": "A complete migration file with irreversible=True, snapshot=True, upgrade using op.rename_property('Person', 'username', 'handle'), downgrade raising NotImplementedError or clearly explaining the snapshot restore mechanism.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "sets-irreversible-true",
+          "description": "Migration file sets irreversible = True"
+        },
+        {
+          "name": "sets-snapshot-true",
+          "description": "Migration file sets snapshot = True"
+        },
+        {
+          "name": "uses-rename-property",
+          "description": "upgrade() calls op.rename_property('Person', 'username', 'handle')"
+        },
+        {
+          "name": "downgrade-raises-or-explains",
+          "description": "downgrade() raises an error or clearly states this is irreversible / uses snapshot restore"
+        },
+        {
+          "name": "correct-property-names",
+          "description": "Property names are 'username' (old) and 'handle' (new), not reversed"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "My team has two branches each with a new runic migration based on the same head revision. 'runic heads' shows two entries: abc123 and def456. How do I resolve this and what does the merge revision file look like?",
+      "expected_output": "Explains runic merge abc123 def456 -m '...', shows the resulting merge revision file with down_revision as a tuple ('abc123', 'def456'), and explains runic upgrade head to apply it.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "uses-runic-merge-command",
+          "description": "Response shows the `runic merge abc123 def456 -m \"...\"` command"
+        },
+        {
+          "name": "down-revision-is-tuple",
+          "description": "Merge revision file shows down_revision as a tuple, e.g. (\"abc123\", \"def456\")"
+        },
+        {
+          "name": "mentions-upgrade-head-after-merge",
+          "description": "Explains to run `runic upgrade head` after creating the merge revision"
+        },
+        {
+          "name": "does-not-suggest-editing-files",
+          "description": "Does NOT suggest manually editing existing migration files as the resolution strategy"
+        }
+      ]
+    }
+  ]
+}
