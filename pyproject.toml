@@ -101,6 +101,16 @@ filename = "docs/source/index.rst"
 search = 'Documentation for version: {current_version}.'
 replace = 'Documentation for version: {new_version}.'
 
+[[tool.bumpversion.files]]
+filename = "docs/source/conf.py"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "docs/source/conf.py"
+search = 'release = "{current_version}"'
+replace = 'release = "{new_version}"'
+
 [tool.ruff]
 cache-dir = ".cache/ruff"
 indent-width = 4

@@ -6,8 +6,8 @@ sys.path.insert(0, os.path.abspath("../.."))
 project = "Runic"
 copyright = "2026, Jens Rehpöhler"
 author = "Jens Rehpöhler"
-release = "1.0.0"
-version = "1.0"
+release = "0.1.2"
+version = "0.1.2"
 
 extensions = [
     "sphinx.ext.autodoc",
