@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -83,3 +84,155 @@ def test_upgrade_missing_config_exits(tmp_path: Path) -> None:
         app, ["upgrade", "--config", str(tmp_path / "nonexistent" / "env.py")]
     )
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# upgrade --preview
+# ---------------------------------------------------------------------------
+
+
+def _patched_ctx(preview_log: list[str] | None = None) -> MagicMock:
+    mock_ctx = MagicMock()
+    mock_ctx.preview_log = preview_log or []
+    return mock_ctx
+
+
+def test_upgrade_preview_with_ops(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = _patched_ctx(["CYPHER: CREATE INDEX FOR (n:Person) ON (n.email)"])
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["upgrade", "--preview", "--config", str(env)])
+
+    assert result.exit_code == 0, result.output
+    assert "CYPHER" in result.output
+    mock_ctx.enable_preview.assert_called_once()
+
+
+def test_upgrade_preview_no_ops(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = _patched_ctx([])
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["upgrade", "--preview", "--config", str(env)])
+
+    assert result.exit_code == 0
+    assert "nothing to upgrade" in result.output
+
+
+# ---------------------------------------------------------------------------
+# downgrade --preview
+# ---------------------------------------------------------------------------
+
+
+def test_downgrade_preview_with_ops(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = _patched_ctx(["DROP RANGE INDEX: DROP INDEX ON :Person(email)"])
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(
+            app, ["downgrade", "base", "--preview", "--config", str(env)]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "DROP" in result.output
+    mock_ctx.enable_preview.assert_called_once()
+
+
+def test_downgrade_preview_no_ops(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = _patched_ctx([])
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(
+            app, ["downgrade", "base", "--preview", "--config", str(env)]
+        )
+
+    assert result.exit_code == 0
+    assert "nothing to downgrade" in result.output
+
+
+# ---------------------------------------------------------------------------
+# current — with message
+# ---------------------------------------------------------------------------
+
+
+def test_current_shows_message_when_present(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = MagicMock()
+    mock_ctx.current.return_value = "aabbcc112233"
+    mock_ctx.get_revision_message.return_value = "add email index"
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["current", "--config", str(env)])
+
+    assert result.exit_code == 0
+    assert "aabbcc112233" in result.output
+    assert "add email index" in result.output
+
+
+def test_current_shows_none_when_no_revision(tmp_path: Path) -> None:
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = MagicMock()
+    mock_ctx.current.return_value = None
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["current", "--config", str(env)])
+
+    assert result.exit_code == 0
+    assert "<none>" in result.output
+
+
+def test_current_shows_only_id_when_no_message(tmp_path: Path) -> None:
+    """When get_revision_message returns None, current shows id only (no dash)."""
+    env = tmp_path / "env.py"
+    env.write_text("# stub")
+    mock_ctx = MagicMock()
+    mock_ctx.current.return_value = "aabbcc112233"
+    mock_ctx.get_revision_message.return_value = None
+
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["current", "--config", str(env)])
+
+    assert result.exit_code == 0
+    assert "aabbcc112233" in result.output
+    assert "—" not in result.output
+
+
+def test_exec_env_executes_real_script(tmp_path: Path) -> None:
+    """_exec_env runs the env.py and any side-effects take place."""
+    from runic.cli import _exec_env
+
+    sentinel = tmp_path / "ran.txt"
+    env = tmp_path / "env.py"
+    env.write_text(f"open({str(sentinel)!r}, 'w').close()\n")
+
+    _exec_env(env)
+    assert sentinel.exists()

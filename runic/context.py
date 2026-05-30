@@ -5,17 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from runic.config import Config
-from runic.exceptions import MultipleHeadsError
+from runic.manifest import SchemaManifest
 from runic.operations import GraphOperations, _bind_op
 from runic.script import RevisionNotFound, ScriptDirectory
 from runic.version import VersionNode
 
 log = logging.getLogger(__name__)
-
-_MULTIPLE_HEADS_MSG = (
-    "Multiple heads detected — run `runic heads` to inspect. "
-    "Use `merge` to resolve or specify an explicit target revision."
-)
 
 
 class IrreversibleMigrationError(Exception):
@@ -29,12 +24,14 @@ class MigrationContext:
         db: Any,
         graph: Any,
         preview: bool = False,
+        target_manifest: SchemaManifest | None = None,
     ) -> None:
         self._config = config
         self._db = db
         self._graph = graph
         self._graph_name: str = graph.name
         self._preview = preview
+        self._target_manifest = target_manifest
         self._version_node = VersionNode(graph)
         self._script_dir = ScriptDirectory.load(config.script_location)
         self._ops = GraphOperations(graph, db, preview=preview)
@@ -57,20 +54,60 @@ class MigrationContext:
     def current(self) -> str | None:
         return self._version_node.get_single()
 
-    def upgrade(self, target: str = "head") -> None:
-        resolved_target: str | None = target
-        if target == "head":
-            heads = self._script_dir.get_heads()
-            if len(heads) > 1:
-                raise MultipleHeadsError(_MULTIPLE_HEADS_MSG)
-            resolved_target = heads[0].revision if heads else None
-            if resolved_target is None:
-                log.info("no revisions found, nothing to upgrade")
-                return
+    def _resolve_upgrade_target(self, target: str) -> str:
+        """Resolve +N relative target to an absolute revision id."""
+        if not target.startswith("+"):
+            return target
+        try:
+            n = int(target[1:])
+        except ValueError:
+            return target
+        if n == 0:
+            return self._version_node.get_single() or "base"
+        current_revs = self._version_node.get()
+        heads = self._script_dir.get_heads()
+        if not heads:
+            return "head"
+        from runic.exceptions import MultipleHeadsError
 
+        if len(heads) > 1:
+            raise MultipleHeadsError(
+                "Cannot use +N with multiple heads — specify an explicit revision."
+            )
+        head_rev = heads[0].revision
+        remaining = self._script_dir.topological_upgrade_path(current_revs or None, head_rev)
+        if not remaining:
+            return head_rev
+        return remaining[min(n, len(remaining)) - 1].revision
+
+    def _resolve_downgrade_target(self, target: str) -> str:
+        """Resolve -N relative target to an absolute revision id or 'base'."""
+        if not target.startswith("-"):
+            return target
+        try:
+            n = int(target[1:])
+        except ValueError:
+            return target
+        if n == 0:
+            return self._version_node.get_single() or "base"
         current = self._version_node.get_single()
-        assert resolved_target is not None
-        revisions = self._script_dir.iterate_revisions(current, resolved_target)
+        if current is None:
+            return "base"
+        all_to_head = self._script_dir.iterate_revisions(None, current)
+        # all_to_head is in upgrade order: [base, ..., current]
+        # reversed gives [current, parent, grandparent, ...]
+        chain = list(reversed(all_to_head))
+        if n >= len(chain):
+            return "base"
+        return chain[n].revision
+
+    def upgrade(self, target: str = "head") -> None:
+        from_revs = self._version_node.get()
+        resolved_target = self._resolve_upgrade_target(target)
+
+        revisions = self._script_dir.topological_upgrade_path(
+            from_revs or None, resolved_target
+        )
 
         if not revisions:
             log.info("already at target revision: %s", resolved_target)
@@ -92,14 +129,14 @@ class MigrationContext:
                     )
                     self._ops.restore_snapshot(snap_name)
                 log.error(
-                    "upgrade failed at revision %s; database remains at %s",
+                    "upgrade failed at revision %s; database was at %s",
                     rev.revision,
-                    current,
+                    from_revs,
                 )
                 raise
             if not self._preview:
                 self._version_node.set(rev.revision)
-            current = rev.revision
+            from_revs = [rev.revision]
 
     def downgrade(self, target: str, *, force: bool = False) -> None:
         current = self._version_node.get_single()
@@ -107,12 +144,14 @@ class MigrationContext:
             log.info("nothing to downgrade, no current revision")
             return
 
-        if target == "base":
+        resolved_target = self._resolve_downgrade_target(target)
+
+        if resolved_target == "base":
             revisions = list(
                 reversed(self._script_dir.iterate_revisions(None, current))
             )
         else:
-            revisions = self._script_dir.iterate_revisions(current, target)
+            revisions = self._script_dir.iterate_revisions(current, resolved_target)
 
         for rev in revisions:
             if rev.irreversible and not force:
@@ -182,6 +221,7 @@ def configure(
     version_strategy: str = "node",
     preview: bool = False,
     *,
+    target_manifest: SchemaManifest | None = None,
     _env_path: Path | None = None,
 ) -> None:
     global _context
@@ -191,7 +231,9 @@ def configure(
     if loc is None:
         loc = Path("runic")
     cfg = Config(script_location=loc, version_strategy=version_strategy)
-    _context = MigrationContext(cfg, connection, graph, preview=preview)
+    _context = MigrationContext(
+        cfg, connection, graph, preview=preview, target_manifest=target_manifest
+    )
     log.debug("context configured: script_location=%s", loc)
 
 

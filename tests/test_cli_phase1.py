@@ -201,6 +201,61 @@ def test_stamp_calls_no_migration_functions(tmp_path: Path) -> None:
     mock_ctx.downgrade.assert_not_called()
 
 
+def test_history_verbose_shows_create_date(tmp_path: Path) -> None:
+    env = _make_env(tmp_path)
+    result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
+    assert result.exit_code == 0, result.output
+    assert "create_date" in result.output
+
+
+def test_history_verbose_shows_down_revision(tmp_path: Path) -> None:
+    env = _make_env(tmp_path)
+    result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
+    assert result.exit_code == 0, result.output
+    assert "down_revision" in result.output
+
+
+def test_branches_no_branches_outputs_nothing(tmp_path: Path) -> None:
+    """Linear chain has no branch points — branches command outputs nothing."""
+    env = _make_env(tmp_path)
+    result = runner.invoke(app, ["branches", "--config", str(env)])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == ""
+
+
+def test_branches_shows_branch_point(tmp_path: Path) -> None:
+    """When two revisions share the same down_revision, branches shows it."""
+    runic_dir = tmp_path / "runic2"
+    runic_dir.mkdir()
+    versions = runic_dir / "versions"
+    versions.mkdir()
+
+    (versions / "aaaaaaaaaaaa_base.py").write_text(
+        'revision = "aaaaaaaaaaaa"\ndown_revision = None\nbranch_labels = []\n'
+        'depends_on = []\nirreversible = False\nsnapshot = False\nmessage = "base"\n'
+        "from datetime import datetime\ncreate_date = datetime(2026, 1, 1)\n"
+        "def upgrade(op): pass\ndef downgrade(op): pass\n"
+    )
+    (versions / "bbbbbbbbbbbb_b1.py").write_text(
+        'revision = "bbbbbbbbbbbb"\ndown_revision = "aaaaaaaaaaaa"\nbranch_labels = []\n'
+        'depends_on = []\nirreversible = False\nsnapshot = False\nmessage = "b1"\n'
+        "from datetime import datetime\ncreate_date = datetime(2026, 1, 2)\n"
+        "def upgrade(op): pass\ndef downgrade(op): pass\n"
+    )
+    (versions / "cccccccccccc_b2.py").write_text(
+        'revision = "cccccccccccc"\ndown_revision = "aaaaaaaaaaaa"\nbranch_labels = []\n'
+        'depends_on = []\nirreversible = False\nsnapshot = False\nmessage = "b2"\n'
+        "from datetime import datetime\ncreate_date = datetime(2026, 1, 3)\n"
+        "def upgrade(op): pass\ndef downgrade(op): pass\n"
+    )
+    (runic_dir / "env.py").write_text("# stub")
+
+    env = runic_dir / "env.py"
+    result = runner.invoke(app, ["branches", "--config", str(env)])
+    assert result.exit_code == 0, result.output
+    assert "aaaaaaaaaaaa" in result.output
+
+
 def test_stamp_purge_flag(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
 

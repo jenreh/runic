@@ -4,7 +4,10 @@ Revision ID: ${up_revision}
 Revises: ${down_revision}
 Create Date: ${create_date}
 """
-from runic import op
+from datetime import UTC, datetime
+
+message = ${repr(message)}
+create_date = datetime.fromisoformat(${repr(create_date.isoformat())})
 
 revision = ${repr(up_revision)}
 down_revision = ${repr(down_revision)}
@@ -15,8 +18,8 @@ snapshot = False
 
 
 def upgrade(op) -> None:
-    pass
+${upgrade_body}
 
 
 def downgrade(op) -> None:
-    pass
+${downgrade_body}

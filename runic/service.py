@@ -61,11 +61,18 @@ class RunicService:
         message: str,
         head: str | None = None,
         rev_id: str | None = None,
+        branch_labels: list[str] | None = None,
+        depends_on: list[str] | None = None,
     ) -> Path:
         """Create a new migration revision script and return its path."""
         resolved_head = head if head is not None else self._sd.head()
         return self._sd.create(
-            message, resolved_head, self._script_location, rev_id=rev_id
+            message,
+            resolved_head,
+            self._script_location,
+            branch_labels=branch_labels,
+            depends_on=depends_on,
+            rev_id=rev_id,
         )
 
     def show_revision(self, rev: str) -> Revision:
