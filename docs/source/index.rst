@@ -8,15 +8,15 @@ Graph Schema Migrations for FalkorDB
 |PyPI| |Python| |License|
 
 
-.. |PyPI| image:: https://img.shields.io/pypi/v/runic-migrate
+.. |PyPI| image:: https://img.shields.io/pypi/v/runic-migrate.svg
    :target: https://pypi.org/project/runic-migrate/
    :alt: PyPI
 
-.. |Python| image:: https://img.shields.io/pypi/pyversions/runic-migrate
-   :target: https://pypi.org/project/runic-migrate/
+.. |Python| image:: https://img.shields.io/badge/python-3.14%2B-orange.svg
+   :target: https://www.python.org
    :alt: Python Support
 
-.. |License| image:: https://img.shields.io/github/license/jenreh/runic
+.. |License| image:: https://img.shields.io/badge/license-MIT-green.svg
    :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
    :alt: License
 
