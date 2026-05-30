@@ -1,9 +1,28 @@
 .. runic documentation master file
 
-runic — Graph Schema Migrations for FalkorDB
-=============================================
+Welcome to **Runic**
+====================
 
-.. rubric:: version 1.0.0 · Python 3.14 · MIT License
+Graph Schema Migrations for FalkorDB
+
+|PyPI| |Python| |License|
+
+
+.. |PyPI| image:: https://img.shields.io/pypi/v/runic
+   :target: https://pypi.org/project/runic/
+   :alt: PyPI
+
+.. |Python| image:: https://img.shields.io/pypi/pyversions/runic
+   :target: https://pypi.org/project/runic/
+   :alt: Python Support
+
+.. |License| image:: https://img.shields.io/github/license/jenreh/runic
+   :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
+   :alt: License
+
+Documentation for version: 1.0.0.
+
+-----
 
 **runic** is a lightweight, Alembic-style migration framework for
 `FalkorDB <https://falkordb.com>`_ graph databases.  It tracks every change

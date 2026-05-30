@@ -5,7 +5,7 @@
    ============================================================ */
 
 /* ── Fonts (Inter + JetBrains Mono via Google Fonts) ── */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:ital,wght@0,100..900;1,100..900&family=Geist:ital,wght@0,100..900;1,100..900&family=Stack+Sans+Notch:wght@200..700&display=swap');
 
 /* ── Root variables not covered by furo's CSS vars ── */
 :root {
@@ -14,6 +14,62 @@
     --runic-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
     --runic-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
     --runic-transition: 150ms ease;
+    --font-stack--headings: "Stack Sans Notch", sans-serif;
+}
+
+body {
+    /* Override Furo brand colors (Matches logo: #354853) */
+    --color-brand-primary: #354853;
+    --color-brand-content: #254855;
+    --color-brand-visited: #254754;
+
+    /* Link colors */
+    --color-link: var(--color-brand-primary);
+    --color-link--hover: var(--color-brand-content);
+    --color-link-underline: transparent;
+    --color-link-underline--hover: var(--color-brand-primary);
+    --color-link--visited: var(--color-brand-visited);
+    --color-link--visited--hover: var(--color-brand-primary);
+
+    /* Admonition overrides */
+    --color-admonition-title: var(--color-brand-primary);
+    --color-admonition-title-background: rgba(53, 72, 83, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) {
+        /* Lighter blue-grey for dark mode */
+        --color-brand-primary: #87afc2;
+        --color-brand-content: #95b8c9;
+        --color-brand-visited: #83aabf;
+
+        --color-link: var(--color-brand-content);
+        --color-link--hover: #cae3ef;
+        --color-link-underline: transparent;
+        --color-link-underline--hover: var(--color-brand-content);
+        --color-link--visited: var(--color-brand-visited);
+        --color-link--visited--hover: var(--color-brand-content);
+
+        --color-admonition-title: var(--color-brand-primary);
+        --color-admonition-title-background: rgba(135, 175, 194, 0.15);
+    }
+}
+
+body[data-theme="dark"] {
+    /* Lighter blue-grey for dark mode */
+    --color-brand-primary: #87afc2;
+    --color-brand-content: #95b8c9;
+    --color-brand-visited: #83aabf;
+
+    --color-link: var(--color-brand-content);
+    --color-link--hover: #cae3ef;
+    --color-link-underline: transparent;
+    --color-link-underline--hover: var(--color-brand-content);
+    --color-link--visited: var(--color-brand-visited);
+    --color-link--visited--hover: var(--color-brand-content);
+
+    --color-admonition-title: var(--color-brand-primary);
+    --color-admonition-title-background: rgba(135, 175, 194, 0.15);
 }
 
 /* ============================================================
@@ -47,8 +103,9 @@ img.sidebar-logo {
 /* Brand text next to the logo */
 .sidebar-brand-text,
 .sidebar-brand-name {
+    font-family: var(--font-stack--headings);
     font-size: 1.05rem;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: -0.01em;
     color: var(--color-sidebar-brand-text);
     line-height: 1;
@@ -101,33 +158,37 @@ body {
 }
 
 /* Headings */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-stack--headings);
+}
+
 h1 {
-    font-size: 2rem;
-    font-weight: 700;
-    letter-spacing: -0.03em;
+    font-size: 2.2rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
     line-height: 1.2;
     margin-top: 0;
 }
 
 h2 {
-    font-size: 1.35rem;
-    font-weight: 600;
-    letter-spacing: -0.015em;
+    font-size: 1.6rem;
+    font-weight: 400;
+    letter-spacing: 0.03em;
     border-bottom: 1px solid var(--color-background-border);
     padding-bottom: 0.3rem;
     margin-top: 2.25rem;
 }
 
 h3 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 1.3rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
     margin-top: 1.75rem;
 }
 
 h4, h5, h6 {
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 1.1rem;
+    font-weight: 400;
     margin-top: 1.25rem;
 }
 
@@ -239,7 +300,7 @@ button.copybtn {
     border-radius: var(--runic-radius);
     border: none;
     border-left: 4px solid var(--color-brand-primary);
-    background: var(--color-background-secondary);
+    background: #f4f5f7; /* Very light gray */
     padding: 0.9rem 1.1rem;
     margin: 1.25rem 0;
     box-shadow: var(--runic-shadow);
@@ -358,11 +419,14 @@ dl.exception > dt.sig {
     background: var(--color-background-secondary);
     border: 1px solid var(--color-background-border);
     border-radius: var(--runic-radius);
-    padding: 0.55em 0.9em;
+    padding: 0.55em 0.9em 0.55em 3.4em;
+    text-indent: -2.5em;
     font-family: var(--font-stack--monospace);
     font-size: 0.88em;
     line-height: 1.4;
     margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
     word-break: break-word;
 }
 
@@ -444,6 +508,10 @@ table.docutils tbody tr:hover {
    SEARCH
    ============================================================ */
 
+.sidebar-search-container {
+    margin-right: 2rem !important;
+}
+
 .sidebar-search-container input[type="search"] {
     border-radius: var(--runic-radius-sm);
     font-size: 0.85rem;
@@ -452,6 +520,10 @@ table.docutils tbody tr:hover {
 
 .sidebar-search-container input[type="search"]:focus {
     box-shadow: 0 0 0 2px var(--color-brand-primary);
+}
+
+.sidebar-search {
+    border: 1px solid var(--color-sidebar-search-border) !important;
 }
 
 /* ============================================================
@@ -473,8 +545,55 @@ table.docutils tbody tr:hover {
 }
 
 /* ============================================================
-   TOC  (right-hand "on this page")
+   TOC  (right-hand "on this page") & SIDEBAR LAYOUT
    ============================================================ */
+
+/* Main content padding (gap to sidebars) */
+.content {
+    padding: 0 2rem !important; /* 2rem gap overrides Furo's 0 3em */
+}
+
+/* Left sidebar base widths */
+.sidebar-container {
+    width: 18rem !important;
+}
+.sidebar-drawer {
+    min-width: 18rem !important;
+    max-width: 22rem !important;
+    /* Furo aligns right edge to content. Content is 46em. Half = 23. + 2rem padding = 25 */
+    width: calc(50% - 22rem) !important;
+}
+
+.sidebar-tree {
+    padding-right: 2rem !important;
+}
+
+/* Right TOC hide breakpoint (82em in Furo) */
+@media (min-width: 82em) {
+    .toc-drawer {
+        width: 22rem !important;
+        min-width: 22rem !important;
+        flex: 0 0 22rem !important;
+    }
+}
+@media (max-width: 82em) {
+    .toc-drawer {
+        width: 22rem !important;
+        right: -22rem !important;
+    }
+}
+
+/* Left sidebar hide breakpoint (63em in Furo) */
+@media (max-width: 63em) {
+    .sidebar-drawer {
+        left: -22rem !important;
+        width: 22rem !important;
+        max-width: 22rem !important;
+    }
+    #__navigation:checked ~ .page .sidebar-drawer {
+        left: 0 !important;
+    }
+}
 
 /* Smaller font + no mid-word breaks */
 .toc-drawer {

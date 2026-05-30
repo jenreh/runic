@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../.."))
 
-project = "runic"
+project = "Runic"
 copyright = "2026, Jens Rehpöhler"
 author = "Jens Rehpöhler"
 release = "1.0.0"
@@ -26,7 +26,7 @@ html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 html_logo = "_static/runic.svg"
 html_favicon = "_static/runic.svg"
-html_title = "runic"
+html_title = "Runic"
 
 # Brand palette derived from logo (#354853, #254855, #254754)
 _BRAND_LIGHT = "#0e7d92"      # vibrant teal — logo hue, lifted for legibility
@@ -44,7 +44,7 @@ html_theme_options = {
         # Sidebar
         "color-sidebar-background": "#f0f7f8",
         "color-sidebar-background--top": "#e4f2f4",
-        "color-sidebar-background--border": "#c8e3e8",
+        "color-sidebar-background--border": "#4d7580",
         "color-sidebar-brand-text": "#1a3540",
         "color-sidebar-caption-text": "#4d7580",
         "color-sidebar-link-text": "#1a3540",
@@ -56,15 +56,15 @@ html_theme_options = {
         "color-sidebar-search-text": "#1a3540",
         "color-sidebar-search-background": "#ffffff",
         "color-sidebar-search-background--focus": "#ffffff",
-        "color-sidebar-search-border": "#a3cdd4",
+        "color-sidebar-search-border": "#4d7580",
         "color-sidebar-search-icon": "#4d7580",
         # Admonitions
         "color-admonition-background": "transparent",
         # Highlighted code
         "color-highlight-on-target": "#e4f2f4",
         # Font
-        "font-stack": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-        "font-stack--monospace": "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+        "font-stack": "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        "font-stack--monospace": "'Geist Mono', 'Fira Code', 'Cascadia Code', monospace",
     },
     "dark_css_variables": {
         "color-brand-primary": _BRAND_DARK,

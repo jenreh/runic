@@ -9,6 +9,9 @@ includes:
     vars:
       PROJECT: "{{.PROJECT}}"
   release: ./tasks/Taskfile.release.yml
+  docs:
+    taskfile: ./tasks/Taskfile.docs.yml
+    dir: .
   # db: ./tasks/Taskfile.db.yml
   # docker:
   #   taskfile: ./tasks/Taskfile.docker.yml
