@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 import importlib.util
 import logging
 import re
 import secrets
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Literal
 
 from mako.template import Template
+
+from runic.exceptions import MultipleBasesError, MultipleHeadsError
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +29,7 @@ class AmbiguousRevision(Exception):
 @dataclass
 class Revision:
     revision: str
-    down_revision: str | None
+    down_revision: str | tuple[str, ...] | None
     branch_labels: list[str]
     depends_on: list[str]
     irreversible: bool
@@ -35,6 +40,16 @@ class Revision:
     module: Any = field(default=None, repr=False)
 
 
+@dataclass
+class RevisionInfo:
+    revision: str
+    down_revision: str | tuple[str, ...] | None
+    message: str
+    create_date: datetime
+    is_head: bool
+    is_branch_point: bool
+
+
 def _load_module(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None
@@ -42,6 +57,14 @@ def _load_module(path: Path) -> ModuleType:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[attr-defined]
     return mod
+
+
+def _down_revision_parents(rev: Revision) -> set[str]:
+    if rev.down_revision is None:
+        return set()
+    if isinstance(rev.down_revision, tuple):
+        return set(rev.down_revision)
+    return {rev.down_revision}
 
 
 class ScriptDirectory:
@@ -78,7 +101,102 @@ class ScriptDirectory:
                 raise
         return sd
 
+    # ------------------------------------------------------------------
+    # DAG queries
+    # ------------------------------------------------------------------
+
+    def get_heads(self) -> list[Revision]:
+        """All revisions not referenced as down_revision by any other."""
+        referenced: set[str] = set()
+        for rev in self._revisions.values():
+            referenced.update(_down_revision_parents(rev))
+        heads = [r for r in self._revisions.values() if r.revision not in referenced]
+        return sorted(heads, key=lambda r: r.create_date, reverse=True)
+
+    def get_base(self) -> Revision:
+        """Revision with down_revision is None; raises MultipleBasesError if >1."""
+        bases = [r for r in self._revisions.values() if r.down_revision is None]
+        if len(bases) > 1:
+            raise MultipleBasesError(
+                f"multiple base revisions: {[r.revision for r in bases]!r}"
+            )
+        if not bases:
+            raise RevisionNotFound("no base revision found")
+        return bases[0]
+
+    def get_branch_points(self) -> list[Revision]:
+        """Revisions that appear as down_revision in two or more scripts."""
+        parent_count: dict[str, int] = {}
+        for rev in self._revisions.values():
+            for parent in _down_revision_parents(rev):
+                parent_count[parent] = parent_count.get(parent, 0) + 1
+        return [
+            self._revisions[rev_id]
+            for rev_id, count in parent_count.items()
+            if count >= 2 and rev_id in self._revisions
+        ]
+
+    def walk_revisions(
+        self,
+        start: str | None,
+        end: str | None,
+        direction: Literal["up", "down"],
+    ) -> Iterator[Revision]:
+        """Yield revisions in application order between start (exclusive) and end (inclusive).
+
+        start=None → from base; end=None → to/from head.
+        Raises MultipleHeadsError when direction is "up" and end is None and multiple heads exist.
+        """
+        if end is None:
+            heads = self.get_heads()
+            if direction == "up" and len(heads) > 1:
+                raise MultipleHeadsError(
+                    "Multiple heads detected — run `runic heads` to inspect. "
+                    "Use `merge` to resolve or specify an explicit target revision."
+                )
+            end = heads[0].revision if heads else None
+
+        if end is None:
+            return
+
+        revisions = self.iterate_revisions(start, end)
+
+        if direction == "down":
+            revisions = list(reversed(revisions))
+
+        yield from revisions
+
+    def revision_history(self, verbose: bool = False) -> list[RevisionInfo]:  # noqa: ARG002
+        """Full chronological list (oldest first)."""
+        heads = {r.revision for r in self.get_heads()}
+        branch_points = {r.revision for r in self.get_branch_points()}
+        all_revs = sorted(self._revisions.values(), key=lambda r: r.create_date)
+        return [
+            RevisionInfo(
+                revision=r.revision,
+                down_revision=r.down_revision,
+                message=r.message,
+                create_date=r.create_date,
+                is_head=r.revision in heads,
+                is_branch_point=r.revision in branch_points,
+            )
+            for r in all_revs
+        ]
+
     def get_revision(self, rev_id: str) -> Revision:
+        """Look up a revision by id, unique prefix, or the symbols 'head' / 'base'."""
+        if rev_id == "head":
+            heads = self.get_heads()
+            if len(heads) > 1:
+                raise MultipleHeadsError(
+                    "Multiple heads detected — use `runic heads` to inspect. "
+                    "Use `merge` to resolve or specify an explicit target."
+                )
+            if not heads:
+                raise RevisionNotFound("no revisions found")
+            return heads[0]
+        if rev_id == "base":
+            return self.get_base()
         if rev_id in self._revisions:
             return self._revisions[rev_id]
         matches = [r for r in self._revisions if r.startswith(rev_id)]
@@ -88,37 +206,38 @@ class ScriptDirectory:
             raise AmbiguousRevision(f"prefix {rev_id!r} matches: {matches}")
         raise RevisionNotFound(f"revision {rev_id!r} not found")
 
+    # ------------------------------------------------------------------
+    # Phase 0 compatibility
+    # ------------------------------------------------------------------
+
     def head(self) -> str | None:
-        down_revisions = {
-            r.down_revision for r in self._revisions.values() if r.down_revision
-        }
-        heads = [r for r in self._revisions if r not in down_revisions]
-        return heads[0] if heads else None
+        heads = self.get_heads()
+        return heads[0].revision if heads else None
 
     def iterate_revisions(
         self, base_rev: str | None, target_rev: str
     ) -> list[Revision]:
         """Return ordered revisions between base_rev and target_rev.
 
-        Upgrade path (base_rev is ancestor of target_rev): returns ascending order.
-        Downgrade path (base_rev is descendant of target_rev): returns descending order
-        (revisions to be downgraded, starting from base_rev).
+        Upgrade path: returns ascending order.
+        Downgrade path: returns descending order (revisions to downgrade).
         """
         target = self.get_revision(target_rev)
 
-        # Try upgrade path: walk from target back toward base_rev/root.
         upgrade_chain: list[Revision] = []
         cur: Revision | None = target
         found_base = False
         while cur is not None:
             upgrade_chain.append(cur)
-            if cur.down_revision is None:
+            parents = _down_revision_parents(cur)
+            if not parents:
                 found_base = base_rev is None
                 break
-            if base_rev and cur.down_revision == base_rev:
+            if base_rev and base_rev in parents:
                 found_base = True
                 break
-            cur = self._revisions.get(cur.down_revision)
+            parent_id = next(iter(parents))
+            cur = self._revisions.get(parent_id)
 
         if found_base or base_rev is None:
             upgrade_chain.reverse()
@@ -126,7 +245,6 @@ class ScriptDirectory:
                 upgrade_chain = [r for r in upgrade_chain if r.revision != base_rev]
             return upgrade_chain
 
-        # Downgrade path: base_rev is a descendant; walk from base_rev down to target.
         base = self.get_revision(base_rev)
         down_chain: list[Revision] = []
         cur = base
@@ -134,18 +252,34 @@ class ScriptDirectory:
             if cur.revision == target_rev:
                 break
             down_chain.append(cur)
-            if cur.down_revision is None:
+            parents = _down_revision_parents(cur)
+            if not parents:
                 break
-            cur = self._revisions.get(cur.down_revision)
+            parent_id = next(iter(parents))
+            cur = self._revisions.get(parent_id)
 
         return down_chain
+
+    def get_children(self, rev_id: str) -> list[str]:
+        """Return revision ids whose down_revision includes rev_id."""
+        return [
+            r.revision
+            for r in self._revisions.values()
+            if rev_id in _down_revision_parents(r)
+        ]
 
     @staticmethod
     def generate_revision_id() -> str:
         return secrets.token_hex(6)
 
-    def create(self, message: str, head: str | None, script_location: Path) -> Path:
-        rev_id = self.generate_revision_id()
+    def create(
+        self,
+        message: str,
+        head: str | None,
+        script_location: Path,
+        rev_id: str | None = None,
+    ) -> Path:
+        rev_id = rev_id or self.generate_revision_id()
         slug = re.sub(r"[^\w]", "_", message.lower())[:40]
         filename = f"{rev_id}_{slug}.py"
 
