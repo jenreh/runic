@@ -1,0 +1,568 @@
+/* ============================================================
+   Runic docs — custom theme layer
+   Colors derived from logo: #354853 / #254855 / #254754
+   Style inspired by pydantic.dev (Inter font, clean layout)
+   ============================================================ */
+
+/* ── Fonts (Inter + JetBrains Mono via Google Fonts) ── */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ── Root variables not covered by furo's CSS vars ── */
+:root {
+    --runic-radius: 8px;
+    --runic-radius-sm: 4px;
+    --runic-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+    --runic-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+    --runic-transition: 150ms ease;
+}
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+
+/* ── Sidebar brand: logo + name on ONE ROW ── */
+a.sidebar-brand {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.65rem;
+    padding: 1rem 1rem 0.75rem;
+    text-decoration: none;
+}
+
+/* Logo container — don't let it push text below */
+.sidebar-logo-container {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+img.sidebar-logo {
+    height: 36px !important;
+    width: auto !important;
+    max-height: 36px !important;
+    display: block;
+}
+
+/* Brand text next to the logo */
+.sidebar-brand-text,
+.sidebar-brand-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-sidebar-brand-text);
+    line-height: 1;
+}
+
+/* Section captions (e.g. "Getting started", "Reference") */
+.sidebar-caption span {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-sidebar-caption-text);
+}
+
+/* Nav links */
+.sidebar-tree a {
+    font-size: 0.88rem;
+    font-weight: 400;
+    border-radius: var(--runic-radius-sm);
+    transition: background var(--runic-transition), color var(--runic-transition);
+}
+
+.sidebar-tree .current > a,
+.sidebar-tree .current-page > a {
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+/* Expander chevrons — smooth rotate */
+.sidebar-tree .toctree-expand {
+    transition: transform var(--runic-transition);
+}
+
+/* Collapse button (sidebar toggle) */
+.sidebar-toggle-button {
+    border-radius: var(--runic-radius-sm);
+    transition: background var(--runic-transition);
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+
+body {
+    font-family: var(--font-stack);
+    font-size: 15.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings */
+h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    margin-top: 0;
+}
+
+h2 {
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    border-bottom: 1px solid var(--color-background-border);
+    padding-bottom: 0.3rem;
+    margin-top: 2.25rem;
+}
+
+h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-top: 1.75rem;
+}
+
+h4, h5, h6 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-top: 1.25rem;
+}
+
+/* Page title rubric (version badge) */
+.rubric {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--color-foreground-muted);
+    margin-top: -0.8rem;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.01em;
+}
+
+/* ============================================================
+   CONTENT LAYOUT
+   ============================================================ */
+
+/* Content layout: wider and more breathing room */
+.content-container {
+    max-width: 1280px;
+}
+
+/* Top margin for the article content area */
+article.bd-article,
+.bd-article-container {
+    padding: 0 1rem;
+}
+
+/* Furo article wrapper — push the content down from the header */
+div.article-container {
+    padding-top: 2rem;
+}
+
+/* Page title block */
+section > h1:first-child,
+article > section > h1:first-child {
+    margin-top: 0.5rem;
+}
+
+/* ============================================================
+   INLINE CODE & CODE BLOCKS
+   ============================================================ */
+
+/* Inline code */
+code.literal,
+p code,
+li code,
+td code {
+    font-family: var(--font-stack--monospace);
+    font-size: 0.85em;
+    font-weight: 500;
+    padding: 0.15em 0.4em;
+    border-radius: var(--runic-radius-sm);
+    background: var(--color-background-secondary);
+    border: 1px solid var(--color-background-border);
+}
+
+/* Code blocks */
+.highlight {
+    border-radius: var(--runic-radius) !important;
+    overflow: hidden;
+    box-shadow: var(--runic-shadow);
+    margin: 1rem 0;
+}
+
+div[class*="highlight"] {
+    border-radius: var(--runic-radius) !important;
+}
+
+pre {
+    font-family: var(--font-stack--monospace) !important;
+    font-size: 0.85em !important;
+    line-height: 1.6;
+    padding: 1em 1.2em !important;
+    margin: 0 !important;
+    overflow-x: auto;
+}
+
+/* Code block filename / title bar */
+div.code-block-caption {
+    background: var(--color-background-secondary);
+    border-bottom: 1px solid var(--color-background-border);
+    padding: 0.4em 1em;
+    font-size: 0.78em;
+    font-weight: 500;
+    font-family: var(--font-stack--monospace);
+    color: var(--color-foreground-muted);
+    border-radius: var(--runic-radius) var(--runic-radius) 0 0;
+}
+
+/* Copy button */
+button.copybtn {
+    top: 0.5em !important;
+    right: 0.5em !important;
+    border-radius: var(--runic-radius-sm) !important;
+    opacity: 0;
+    transition: opacity var(--runic-transition), background var(--runic-transition) !important;
+}
+
+.highlight:hover button.copybtn {
+    opacity: 1;
+}
+
+/* ============================================================
+   ADMONITIONS  (note / tip / warning / important / danger)
+   ============================================================ */
+
+.admonition {
+    border-radius: var(--runic-radius);
+    border: none;
+    border-left: 4px solid var(--color-brand-primary);
+    background: var(--color-background-secondary);
+    padding: 0.9rem 1.1rem;
+    margin: 1.25rem 0;
+    box-shadow: var(--runic-shadow);
+}
+
+.admonition > .admonition-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+    color: var(--color-brand-primary);
+}
+
+.admonition > .admonition-title::before {
+    content: "";
+    display: none;  /* remove default icon */
+}
+
+/* Warning / danger get amber / red accents */
+.admonition.warning {
+    border-left-color: #d97706;
+}
+.admonition.warning > .admonition-title {
+    color: #d97706;
+}
+
+.admonition.danger,
+.admonition.error {
+    border-left-color: #dc2626;
+}
+.admonition.danger > .admonition-title,
+.admonition.error > .admonition-title {
+    color: #dc2626;
+}
+
+.admonition.tip,
+.admonition.hint {
+    border-left-color: #059669;
+}
+.admonition.tip > .admonition-title,
+.admonition.hint > .admonition-title {
+    color: #059669;
+}
+
+/* ============================================================
+   SPHINX-DESIGN CARDS  (used on index page grid)
+   ============================================================ */
+
+.sd-card {
+    border-radius: var(--runic-radius) !important;
+    border: 1px solid var(--color-background-border) !important;
+    box-shadow: var(--runic-shadow) !important;
+    transition: box-shadow var(--runic-transition), border-color var(--runic-transition);
+    background: var(--color-background-primary) !important;
+}
+
+.sd-card:hover {
+    box-shadow: var(--runic-shadow-md) !important;
+    border-color: var(--color-brand-primary) !important;
+}
+
+.sd-card-title {
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    color: var(--color-brand-primary) !important;
+}
+
+.sd-card-body p {
+    font-size: 0.88rem;
+    color: var(--color-foreground-secondary);
+    margin: 0;
+}
+
+/* ============================================================
+   SPHINX-DESIGN DROPDOWNS (collapsible sections)
+   ============================================================ */
+
+details.sd-dropdown {
+    border-radius: var(--runic-radius) !important;
+    border: 1px solid var(--color-background-border) !important;
+    margin: 0.75rem 0;
+    background: var(--color-background-secondary);
+}
+
+details.sd-dropdown summary.sd-summary-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0.65rem 1rem;
+    cursor: pointer;
+    user-select: none;
+    border-radius: var(--runic-radius);
+    transition: background var(--runic-transition);
+    color: var(--color-brand-primary);
+}
+
+details.sd-dropdown summary.sd-summary-title:hover {
+    background: var(--color-background-hover);
+}
+
+details.sd-dropdown > .sd-summary-content {
+    padding: 0 1rem 0.75rem;
+    font-size: 0.9rem;
+}
+
+/* ============================================================
+   API DOCS  (autoclass, autofunction, etc.)
+   ============================================================ */
+
+/* Method / class signature bar */
+dl.class > dt.sig,
+dl.function > dt.sig,
+dl.method > dt.sig,
+dl.attribute > dt.sig,
+dl.exception > dt.sig {
+    background: var(--color-background-secondary);
+    border: 1px solid var(--color-background-border);
+    border-radius: var(--runic-radius);
+    padding: 0.55em 0.9em;
+    font-family: var(--font-stack--monospace);
+    font-size: 0.88em;
+    line-height: 1.4;
+    margin-bottom: 0;
+    word-break: break-word;
+}
+
+/* Signature: class/method name */
+dl.class > dt.sig .sig-name,
+dl.function > dt.sig .sig-name,
+dl.method > dt.sig .sig-name {
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+/* Parameter annotations */
+dl.class > dt.sig .sig-param,
+dl.function > dt.sig .sig-param {
+    color: var(--color-foreground-secondary);
+}
+
+/* Description body — keep flush-left, no extra indent */
+dl.class > dd,
+dl.function > dd,
+dl.method > dd {
+    margin-top: 0.4rem;
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+}
+
+/* Field lists (Parameters, Returns, etc.) */
+.field-list > dt {
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+    color: var(--color-foreground-secondary);
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+
+table.docutils {
+    border-radius: var(--runic-radius);
+    overflow: hidden;
+    box-shadow: var(--runic-shadow);
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.88rem;
+}
+
+table.docutils thead tr {
+    background: var(--color-background-secondary);
+    border-bottom: 2px solid var(--color-background-border);
+}
+
+table.docutils thead th {
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.6rem 0.9rem;
+    color: var(--color-foreground-secondary);
+}
+
+table.docutils tbody td {
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid var(--color-background-border);
+    vertical-align: top;
+}
+
+table.docutils tbody tr:last-child td {
+    border-bottom: none;
+}
+
+table.docutils tbody tr:hover {
+    background: var(--color-background-hover);
+}
+
+/* ============================================================
+   SEARCH
+   ============================================================ */
+
+.sidebar-search-container input[type="search"] {
+    border-radius: var(--runic-radius-sm);
+    font-size: 0.85rem;
+    transition: border-color var(--runic-transition), box-shadow var(--runic-transition);
+}
+
+.sidebar-search-container input[type="search"]:focus {
+    box-shadow: 0 0 0 2px var(--color-brand-primary);
+}
+
+/* ============================================================
+   CONTENT NAVIGATION  (prev / next page)
+   ============================================================ */
+
+.prev-next-area {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-background-border);
+}
+
+.prev-next-info .ref-type {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-foreground-muted);
+}
+
+/* ============================================================
+   TOC  (right-hand "on this page")
+   ============================================================ */
+
+/* Smaller font + no mid-word breaks */
+.toc-drawer {
+    font-size: 0.75rem;
+}
+
+.toc-title {
+    font-size: 0.68rem !important;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-foreground-muted);
+}
+
+.toc-tree li {
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+
+.toc-tree a {
+    color: var(--color-foreground-secondary);
+    transition: color var(--runic-transition);
+    /* Truncate long entries instead of mid-letter breaking */
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.toc-tree a:hover {
+    color: var(--color-brand-primary);
+    overflow: visible;
+    white-space: normal;
+}
+
+.toc-tree li.scroll-current > a {
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+/* ============================================================
+   DARK MODE OVERRIDES
+   ============================================================ */
+
+@media (prefers-color-scheme: dark) {
+    .admonition {
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .sd-card {
+        background: var(--color-background-secondary) !important;
+    }
+}
+
+/* furo's dark-mode toggle activates this */
+body[data-theme="dark"] .admonition {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="dark"] .sd-card {
+    background: var(--color-background-secondary) !important;
+}
+
+/* ============================================================
+   MISC
+   ============================================================ */
+
+/* External link icon — smaller */
+.reference.external::after {
+    font-size: 0.7em;
+    vertical-align: super;
+}
+
+/* hr separator */
+.rst-content hr,
+article hr {
+    border: none;
+    border-top: 1px solid var(--color-background-border);
+    margin: 2rem 0;
+}
+
+/* Kbd shortcut rendering */
+kbd {
+    font-family: var(--font-stack--monospace);
+    font-size: 0.8em;
+    padding: 0.15em 0.45em;
+    border-radius: var(--runic-radius-sm);
+    border: 1px solid var(--color-background-border);
+    background: var(--color-background-secondary);
+    box-shadow: 0 1px 1px rgb(0 0 0 / 0.1);
+}

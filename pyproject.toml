@@ -40,6 +40,10 @@ dev = [
     "mypy==2.1.0",
     "types-PyYAML==6.0.12.20260510",
     "falkordblite>=0.10.0",
+    "sphinx>=9.1.0",
+    "furo>=2025.12.19",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.7.0",
 ]
 
 [project.scripts]
