@@ -43,10 +43,10 @@ def init(
     force: Annotated[bool, typer.Option("--force", help="Overwrite if exists")] = False,
 ) -> None:
     """Scaffold a new runic migration environment."""
-    from runic.service import RunicService
+    from runic.service import init as _init
 
     try:
-        RunicService.init(directory, force=force)
+        _init(directory, force=force)
     except FileExistsError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -72,7 +72,6 @@ def revision(
 ) -> None:
     """Create a new migration revision script."""
     from runic.script import ScriptDirectory
-    from runic.service import RunicService
 
     script_location = _get_script_location(config)
 
@@ -82,14 +81,14 @@ def revision(
         from runic.context import get as _get_ctx
 
         ctx = _get_ctx()
-        if ctx._target_manifest is None:  # noqa: SLF001
+        if ctx.target_manifest is None:
             typer.echo(
                 "Error: --autogenerate requires target_manifest to be set in env.py",
                 err=True,
             )
             raise typer.Exit(code=1)
-        live = introspect.read_live_schema(ctx._graph)  # noqa: SLF001
-        ops = autogen.diff_schema(ctx._target_manifest, live)  # noqa: SLF001
+        live = introspect.read_live_schema(ctx.graph)
+        ops = autogen.diff_schema(ctx.target_manifest, live)
         if not ops:
             typer.echo("No schema changes detected.")
             raise typer.Exit(code=0)
@@ -108,13 +107,15 @@ def revision(
         )
         typer.echo(f"Created revision: {path}  [CANDIDATE — review before applying]")
     else:
-        svc = RunicService(script_location)
-        path = svc.create_revision(
+        sd = ScriptDirectory.load(script_location)
+        resolved_head = head if head is not None else sd.head()
+        path = sd.create(
             message,
-            head,
-            rev_id=rev_id,
+            resolved_head,
+            script_location,
             branch_labels=[branch_label] if branch_label else None,
             depends_on=list(depends_on) or None,
+            rev_id=rev_id,
         )
         typer.echo(f"Created revision: {path}")
 
@@ -218,10 +219,10 @@ def history(
     ] = None,
 ) -> None:
     """Print all revisions chronologically (newest first)."""
-    from runic.service import RunicService
+    from runic.script import ScriptDirectory
 
     script_location = _get_script_location(config)
-    svc = RunicService(script_location)
+    sd = ScriptDirectory.load(script_location)
 
     current_rev: str | None = None
     if indicate_current:
@@ -230,9 +231,33 @@ def history(
 
         current_rev = get().current()
 
-    history_items = svc.get_history(range_)
+    if range_:
+        parts = range_.split(":")
+        start = parts[0].strip() or None
+        end = parts[1].strip() if len(parts) > 1 else None
+        heads_set = {r.revision for r in sd.get_heads()}
+        bp_set = {r.revision for r in sd.get_branch_points()}
+        from runic.script import RevisionInfo
 
-    for info in history_items:
+        items = list(
+            reversed(
+                [
+                    RevisionInfo(
+                        revision=r.revision,
+                        down_revision=r.down_revision,
+                        message=r.message,
+                        create_date=r.create_date,
+                        is_head=r.revision in heads_set,
+                        is_branch_point=r.revision in bp_set,
+                    )
+                    for r in sd.walk_revisions(start, end, "up")
+                ]
+            )
+        )
+    else:
+        items = list(reversed(sd.revision_history()))
+
+    for info in items:
         tags = []
         if info.is_head:
             tags.append("head")
@@ -254,11 +279,11 @@ def heads(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
 ) -> None:
     """Print all head revisions."""
-    from runic.service import RunicService
+    from runic.script import ScriptDirectory
 
     script_location = _get_script_location(config)
-    svc = RunicService(script_location)
-    heads_list = svc.get_heads()
+    sd = ScriptDirectory.load(script_location)
+    heads_list = sd.get_heads()
 
     suffix = (
         "(single head)"
@@ -274,12 +299,13 @@ def branches(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
 ) -> None:
     """Print all branch-point revisions."""
-    from runic.service import RunicService
+    from runic.script import ScriptDirectory
 
     script_location = _get_script_location(config)
-    svc = RunicService(script_location)
+    sd = ScriptDirectory.load(script_location)
 
-    for bp, children in svc.get_branch_points():
+    for bp in sd.get_branch_points():
+        children = sd.get_children(bp.revision)
         typer.echo(f"{bp.revision}  {bp.message}  {children}")
 
 
@@ -310,14 +336,13 @@ def show(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
 ) -> None:
     """Print full metadata for a single revision."""
-    from runic.script import RevisionNotFound
-    from runic.service import RunicService
+    from runic.script import RevisionNotFound, ScriptDirectory
 
     script_location = _get_script_location(config)
-    svc = RunicService(script_location)
+    sd = ScriptDirectory.load(script_location)
 
     try:
-        revision = svc.show_revision(rev)
+        revision = sd.get_revision(rev)
     except RevisionNotFound as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -368,8 +393,7 @@ def migration_test_cmd(
     graph_name: Annotated[str | None, typer.Option("--graph")] = None,
 ) -> None:
     """Round-trip test a revision: upgrade → downgrade → upgrade (idempotency)."""
-    from runic.config import Config
-    from runic.context import MigrationContext
+    from runic.context import Runic
     from runic.script import ScriptDirectory
 
     script_location = _get_script_location(config)
@@ -387,15 +411,14 @@ def migration_test_cmd(
         from runic.context import get as _get_ctx
 
         existing_ctx = _get_ctx()
-        db = existing_ctx._db  # noqa: SLF001
-        source_graph_name = existing_ctx._graph_name  # noqa: SLF001
+        db = existing_ctx.connection
+        source_graph_name = existing_ctx.graph.name
 
     token = secrets.token_hex(4)
     ephemeral_name = f"{source_graph_name}__test_{rev_id}_{token}"
     ephemeral_graph = db.select_graph(ephemeral_name)
 
-    cfg = Config(script_location=script_location)
-    ctx = MigrationContext(cfg, db, ephemeral_graph)
+    ctx = Runic(db, ephemeral_graph, script_location)
 
     sep = "─" * 45
     typer.echo(f"runic test {rev_id}")
@@ -507,7 +530,7 @@ def check_cmd(
     from runic.context import get as _get_ctx
 
     ctx = _get_ctx()
-    if ctx._target_manifest is None:  # noqa: SLF001
+    if ctx.target_manifest is None:
         typer.echo(
             "Error: check requires target_manifest to be set in env.py via "
             "context.configure(..., target_manifest=...)",
@@ -515,8 +538,8 @@ def check_cmd(
         )
         raise typer.Exit(code=1)
 
-    live = introspect.read_live_schema(ctx._graph)  # noqa: SLF001
-    ops = autogen.diff_schema(ctx._target_manifest, live)  # noqa: SLF001
+    live = introspect.read_live_schema(ctx.graph)
+    ops = autogen.diff_schema(ctx.target_manifest, live)
 
     if not ops:
         typer.echo("Schema up-to-date.")

@@ -1,4 +1,4 @@
-"""Unit tests for Phase-3 snapshot wiring in MigrationContext."""
+"""Unit tests for Phase-3 snapshot wiring in Runic."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.config import Config
-from runic.context import MigrationContext
+from runic.context import Runic
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,7 +35,7 @@ def _make_ctx(
     graph: MagicMock | None = None,
     db: MagicMock | None = None,
     versions: dict[str, str] | None = None,
-) -> MigrationContext:
+) -> Runic:
     if graph is None:
         graph = _make_graph()
     if db is None:
@@ -50,8 +49,7 @@ def _make_ctx(
             (versions_dir / filename).write_text(textwrap.dedent(content))
 
     graph.ro_query.return_value.result_set = []
-    cfg = Config(script_location=tmp_path)
-    return MigrationContext(cfg, db, graph)
+    return Runic(db, graph, tmp_path)
 
 
 _REV_A = "aaaaaaaaaaaa"
@@ -101,8 +99,7 @@ def test_upgrade_calls_snapshot_when_flag_set(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     ctx.upgrade(_REV_A)
 
@@ -120,8 +117,7 @@ def test_upgrade_no_snapshot_when_flag_false(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=False)
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     ctx.upgrade(_REV_A)
 
@@ -138,8 +134,7 @@ def test_upgrade_restores_snapshot_on_failure(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     # Make upgrade() raise
     ctx._script_dir.get_revision(_REV_A).module.upgrade = lambda op: (
@@ -177,8 +172,7 @@ def test_downgrade_uses_snapshot_when_exists(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     # Track whether module.downgrade was called
     downgrade_called = []
@@ -207,8 +201,7 @@ def test_downgrade_fallback_when_no_snapshot(tmp_path: Path) -> None:
     versions_dir.mkdir()
     _write_revision(versions_dir, _REV_A, snapshot=True)
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     downgrade_called = []
     ctx._script_dir.get_revision(_REV_A).module.downgrade = lambda op: (

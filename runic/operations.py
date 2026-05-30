@@ -272,27 +272,3 @@ class GraphOperations:
         snap_graph.copy(graph_name)
         snap_graph.delete()
         log.debug("snapshot restored: %s → %s", snap_name, graph_name)
-
-
-_op: GraphOperations | None = None
-
-
-def _get_op() -> GraphOperations:
-    if _op is None:
-        raise RuntimeError("op not bound — call context.configure() first")
-    return _op
-
-
-def _bind_op(ops: GraphOperations) -> None:
-    global _op
-    _op = ops
-
-
-class _OpProxy:
-    """Module-level op proxy delegating to the bound GraphOperations instance."""
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(_get_op(), name)
-
-
-op = _OpProxy()

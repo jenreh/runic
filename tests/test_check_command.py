@@ -16,8 +16,8 @@ runner = CliRunner()
 
 def _make_ctx(manifest: SchemaManifest | None = None) -> MagicMock:
     ctx = MagicMock()
-    ctx._target_manifest = manifest
-    ctx._graph = MagicMock()
+    ctx.target_manifest = manifest
+    ctx.graph = MagicMock()
     return ctx
 
 

@@ -17,8 +17,7 @@ import pytest
 
 pytest.importorskip("redislite", reason="falkordblite (redislite) not installed")
 
-from runic.config import Config  # noqa: E402
-from runic.context import IrreversibleMigrationError, MigrationContext  # noqa: E402
+from runic.context import IrreversibleMigrationError, Runic  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -75,10 +74,10 @@ def _versions_dir(tmp_path: Path) -> Path:
     return vd
 
 
-def _make_ctx(db: Any, graph: Any, tmp_path: Path) -> MigrationContext:
-    """Create a MigrationContext; call AFTER writing migration scripts."""
+def _make_ctx(db: Any, graph: Any, tmp_path: Path) -> Runic:
+    """Create a Runic instance; call AFTER writing migration scripts."""
     script_location = tmp_path / "runic"
-    return MigrationContext(Config(script_location=script_location), db, graph)
+    return Runic(db, graph, script_location)
 
 
 _R1 = "aa11bb22cc33"

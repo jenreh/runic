@@ -5,13 +5,14 @@ from unittest.mock import MagicMock
 import pytest
 
 import runic.context as ctx_module
-from runic.config import Config
-from runic.context import IrreversibleMigrationError, MigrationContext
+from runic.context import IrreversibleMigrationError, Runic
 
 
 @pytest.fixture
 def mock_graph() -> MagicMock:
-    return MagicMock()
+    graph = MagicMock()
+    graph.name = "test_graph"
+    return graph
 
 
 @pytest.fixture
@@ -74,9 +75,8 @@ def _make_ctx(
     mock_db: MagicMock,
     tmp_versions: Path,
     preview: bool = False,
-) -> MigrationContext:
-    cfg = Config(script_location=tmp_versions)
-    return MigrationContext(cfg, mock_db, mock_graph, preview=preview)
+) -> Runic:
+    return Runic(mock_db, mock_graph, tmp_versions, preview=preview)
 
 
 def test_current_returns_none_initially(
@@ -183,7 +183,7 @@ def test_module_configure_and_get(
         script_location=tmp_versions,
     )
     ctx = ctx_module.get()
-    assert isinstance(ctx, MigrationContext)
+    assert isinstance(ctx, Runic)
 
 
 def test_module_get_raises_when_not_configured() -> None:
@@ -209,7 +209,7 @@ def test_module_configure_with_env_path(
         _env_path=env_path,
     )
     ctx = ctx_module.get()
-    assert ctx._config.script_location == tmp_path / "runic"
+    assert ctx.script_location == tmp_path / "runic"
 
 
 # ---------------------------------------------------------------------------
@@ -342,10 +342,7 @@ def test_upgrade_relative_multiple_heads_raises(
             """)
         )
 
-    from runic.config import Config
-
-    cfg = Config(script_location=branched_dir)
     mock_graph.ro_query.return_value.result_set = []
-    ctx = MigrationContext(cfg, mock_db, mock_graph)
+    ctx = Runic(mock_db, mock_graph, branched_dir)
     with pytest.raises(MultipleHeadsError):
         ctx.upgrade("+1")

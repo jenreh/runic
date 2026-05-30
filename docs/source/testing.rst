@@ -57,23 +57,22 @@ Or use ``falkordblite`` for an embedded server (no Docker required).  Configure
    from pathlib import Path
    from redislite import FalkorDB
    from runic import context
-   from runic.adapters.falkordb import FalkorDBAdapter
 
    db = FalkorDB(protocol=2)
-   adapter = FalkorDBAdapter(db, db.select_graph("test"))
-   context.configure(adapter, script_location=Path("runic"))
+   graph = db.select_graph("test")
+   context.configure(connection=db, graph=graph, script_location=Path("runic"))
 
 Then run ``runic test 3f9a12c1`` without any ``--url`` flag.
 
 pytest fixtures
 ----------------
 
-``runic.testing`` exports three pytest fixtures for use in your own test suite.
+``runic.testing`` exports two pytest fixtures for use in your own test suite.
 Add to your ``conftest.py``:
 
 .. code-block:: python
 
-   from runic.testing import falkordb_graph, falkordb_adapter, runic_context  # noqa: F401
+   from runic.testing import falkordb_graph, runic_context  # noqa: F401
 
 Or import directly in test files:
 
@@ -107,18 +106,19 @@ graph is deleted after the test.
 ``runic_context`` fixture
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Yields a fully configured :class:`~runic.context.MigrationContext` backed by
+Yields a fully configured :class:`~runic.context.Runic` instance backed by
 an ephemeral embedded graph and a temporary ``versions/`` directory.  Use this
 to test upgrade/downgrade logic end-to-end.
 
 .. code-block:: python
 
    from pathlib import Path
+   from runic.context import Runic
    from runic.testing import runic_context
 
    def test_full_migration(runic_context, tmp_path) -> None:
        ctx = runic_context
-       versions = ctx._config.script_location / "versions"
+       versions = ctx.script_location / "versions"
 
        # Write a migration script programmatically
        (versions / "0001_test_index.py").write_text("""
@@ -139,15 +139,14 @@ to test upgrade/downgrade logic end-to-end.
        op.drop_range_index("Person", "email")
    """)
 
-       # Reload script directory and run
-       from runic.script import ScriptDirectory
-       ctx._script_dir = ScriptDirectory.load(ctx._config.script_location)
+       # Create a fresh Runic instance to pick up the new revision file
+       ctx2 = Runic(ctx.connection, ctx.graph, ctx.script_location)
 
-       ctx.upgrade("head")
-       assert ctx.current() == "0001"
+       ctx2.upgrade("head")
+       assert ctx2.current() == "0001"
 
-       ctx.downgrade("base")
-       assert ctx.current() is None
+       ctx2.downgrade("base")
+       assert ctx2.current() is None
 
 Writing testable migration scripts
 ------------------------------------

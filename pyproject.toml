@@ -253,7 +253,7 @@ exclude = [
 [tool.coverage.run]
 branch = true
 source = ["app", "runic"]
-omit = []
+omit = ["runic/adapters/*"]
 
 [tool.coverage.report]
 exclude_lines = ["if TYPE_CHECKING:", "if __name__ == .__main__.:", "pragma: no cover"]

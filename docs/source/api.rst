@@ -6,22 +6,18 @@ code or extending it.
 
 ----
 
-runic.context
--------------
+runic.Runic
+-----------
 
-The ``runic.context`` module manages the module-level singleton used by
-``env.py`` and provides the ``MigrationContext`` class for programmatic
-access.
+:class:`~runic.context.Runic` is the single class a developer needs.  It
+combines all DB-connected operations (upgrade, downgrade, stamp, current) with
+offline DAG queries (history, heads, revision creation) in one coherent API.
 
-.. autofunction:: runic.context.configure
-
-.. autofunction:: runic.context.get
-
-.. autofunction:: runic.context.is_preview
-
-.. autoclass:: runic.context.MigrationContext
-   :members: current, upgrade, downgrade, stamp, enable_preview, preview_log,
-             get_revision_message
+.. autoclass:: runic.context.Runic
+   :members: upgrade, downgrade, stamp, current, enable_preview, preview_log,
+             get_revision_message, get_history, get_heads, get_branch_points,
+             create_revision, show_revision,
+             connection, graph, target_manifest, script_location
    :show-inheritance:
 
 .. autoexception:: runic.context.IrreversibleMigrationError
@@ -33,52 +29,45 @@ Programmatic usage example
 .. code-block:: python
 
    from pathlib import Path
-   from runic.adapters.falkordb import FalkorDBAdapter
-   from runic.context import configure, get
+   from falkordb import FalkorDB
+   from runic import Runic
 
-   adapter = FalkorDBAdapter.from_url("falkor://localhost:6379", "my_graph")
-   configure(adapter, script_location=Path("runic"))
-   ctx = get()
+   db = FalkorDB.from_url("falkor://localhost:6379")
+   graph = db.select_graph("my_graph")
 
-   ctx.upgrade("head")
-   print("current:", ctx.current())
+   runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
 
-   ctx.downgrade("base")
+   runic.upgrade("head")
+   print("current:", runic.current())
 
-----
+   history = runic.get_history()
+   for entry in history:
+       print(entry.revision, entry.message)
 
-runic.adapters
---------------
-
-The adapter layer decouples runic's core from any specific database client.
-The ``GraphAdapter`` protocol defines the interface every backend must satisfy.
-``FalkorDBAdapter`` is the built-in implementation for FalkorDB.
-
-.. autoclass:: runic.adapters.GraphAdapter
-   :members:
-   :show-inheritance:
-
-.. autoclass:: runic.adapters.falkordb.FalkorDBAdapter
-   :members: from_url, fork
-   :show-inheritance:
-
-.. autoexception:: runic.adapters.falkordb.ConstraintFailedError
-   :show-inheritance:
-
-.. autoexception:: runic.adapters.falkordb.ConstraintTimeoutError
-   :show-inheritance:
+   runic.downgrade("base")
 
 ----
 
-runic.service
--------------
+runic.init
+----------
 
-``RunicService`` is a facade for operations that do **not** require a database
-connection: creating revisions, querying history, and inspecting the DAG.
+.. autofunction:: runic.service.init
 
-.. autoclass:: runic.service.RunicService
-   :members:
-   :show-inheritance:
+----
+
+runic.context (env.py singleton)
+---------------------------------
+
+The ``runic.context`` module also exposes a module-level singleton API that
+``env.py`` uses so the CLI can discover the configured context after executing
+the file.  **SDK users should prefer instantiating** :class:`~runic.context.Runic`
+**directly** rather than using this API.
+
+.. autofunction:: runic.context.configure
+
+.. autofunction:: runic.context.get
+
+.. autofunction:: runic.context.is_preview
 
 ----
 
@@ -87,6 +76,12 @@ runic.operations
 
 .. autoclass:: runic.operations.GraphOperations
    :members:
+   :show-inheritance:
+
+.. autoexception:: runic.operations.ConstraintFailedError
+   :show-inheritance:
+
+.. autoexception:: runic.operations.ConstraintTimeoutError
    :show-inheritance:
 
 ----
@@ -132,9 +127,8 @@ usage examples.
 runic.script
 ------------
 
-.. autoclass:: runic.script.ScriptDirectory
-   :members:
-   :show-inheritance:
+Internal revision DAG types.  These are returned by methods on
+:class:`~runic.context.Runic` but you rarely need to construct them directly.
 
 .. autoclass:: runic.script.Revision
    :members:
@@ -169,7 +163,5 @@ runic.testing
 Pytest fixtures for integration tests.  Requires ``falkordblite``.
 
 .. autofunction:: runic.testing.falkordb_graph
-
-.. autofunction:: runic.testing.falkordb_adapter
 
 .. autofunction:: runic.testing.runic_context

@@ -37,7 +37,7 @@ def falkordb_graph() -> Any:
 
 @pytest.fixture
 def runic_context(falkordb_graph: Any, tmp_path: Path) -> Any:
-    """Yield a configured MigrationContext backed by an ephemeral falkordblite graph."""
+    """Yield a configured Runic instance backed by an ephemeral falkordblite graph."""
     from runic.context import configure, get
 
     db, graph = falkordb_graph

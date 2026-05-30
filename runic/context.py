@@ -4,10 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from runic.config import Config
 from runic.manifest import SchemaManifest
-from runic.operations import GraphOperations, _bind_op
-from runic.script import RevisionNotFound, ScriptDirectory
+from runic.operations import GraphOperations
+from runic.script import Revision, RevisionInfo, RevisionNotFound, ScriptDirectory
 from runic.version import VersionNode
 
 log = logging.getLogger(__name__)
@@ -17,31 +16,63 @@ class IrreversibleMigrationError(Exception):
     pass
 
 
-class MigrationContext:
+class Runic:
+    """The single SDK entry point for runic migrations.
+
+    Handles both DB-connected operations (upgrade, downgrade, stamp, current)
+    and offline DAG queries (get_history, get_heads, create_revision, …).
+
+    Example::
+
+        from pathlib import Path
+        from runic import Runic
+
+        runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
+        runic.upgrade("head")
+    """
+
     def __init__(
         self,
-        config: Config,
-        db: Any,
+        connection: Any,
         graph: Any,
+        script_location: Path,
+        *,
         preview: bool = False,
         target_manifest: SchemaManifest | None = None,
     ) -> None:
-        self._config = config
-        self._db = db
+        self._connection = connection
         self._graph = graph
         self._graph_name: str = graph.name
+        self._script_location = script_location
         self._preview = preview
         self._target_manifest = target_manifest
         self._version_node = VersionNode(graph)
-        self._script_dir = ScriptDirectory.load(config.script_location)
-        self._ops = GraphOperations(graph, db, preview=preview)
-        _bind_op(self._ops)
+        self._script_dir = ScriptDirectory.load(script_location)
+        self._ops = GraphOperations(graph, connection, preview=preview)
 
-    def get_revision_message(self, rev_id: str) -> str | None:
-        try:
-            return self._script_dir.get_revision(rev_id).message
-        except Exception:
-            return None
+    # ------------------------------------------------------------------
+    # Public properties (safe for callers — no private access needed)
+    # ------------------------------------------------------------------
+
+    @property
+    def connection(self) -> Any:
+        return self._connection
+
+    @property
+    def graph(self) -> Any:
+        return self._graph
+
+    @property
+    def target_manifest(self) -> SchemaManifest | None:
+        return self._target_manifest
+
+    @property
+    def script_location(self) -> Path:
+        return self._script_location
+
+    # ------------------------------------------------------------------
+    # Preview
+    # ------------------------------------------------------------------
 
     def enable_preview(self) -> None:
         self._preview = True
@@ -51,8 +82,18 @@ class MigrationContext:
     def preview_log(self) -> list[str]:
         return self._ops.preview_log
 
+    # ------------------------------------------------------------------
+    # DB-connected runtime operations
+    # ------------------------------------------------------------------
+
     def current(self) -> str | None:
         return self._version_node.get_single()
+
+    def get_revision_message(self, rev_id: str) -> str | None:
+        try:
+            return self._script_dir.get_revision(rev_id).message
+        except Exception:
+            return None
 
     def _resolve_upgrade_target(self, target: str) -> str:
         """Resolve +N relative target to an absolute revision id."""
@@ -75,7 +116,9 @@ class MigrationContext:
                 "Cannot use +N with multiple heads — specify an explicit revision."
             )
         head_rev = heads[0].revision
-        remaining = self._script_dir.topological_upgrade_path(current_revs or None, head_rev)
+        remaining = self._script_dir.topological_upgrade_path(
+            current_revs or None, head_rev
+        )
         if not remaining:
             return head_rev
         return remaining[min(n, len(remaining)) - 1].revision
@@ -165,7 +208,7 @@ class MigrationContext:
             used_snapshot = False
 
             if rev.snapshot and not self._preview:
-                existing = self._db.list_graphs()
+                existing = self._connection.list_graphs()
                 if snap_name in existing:
                     log.info("restoring snapshot for revision %s", rev.revision)
                     self._ops.restore_snapshot(snap_name)
@@ -206,19 +249,82 @@ class MigrationContext:
             self._version_node.set(rev.revision)
             log.info("stamped: %s", rev.revision)
 
+    # ------------------------------------------------------------------
+    # Offline DAG queries (no DB connection needed)
+    # ------------------------------------------------------------------
+
+    def get_history(self, range_: str | None = None) -> list[RevisionInfo]:
+        """Return revision history newest-first.
+
+        *range_* accepts the ``start:end`` format (either side may be omitted
+        to mean base / head respectively).
+        """
+        if range_:
+            parts = range_.split(":")
+            start = parts[0].strip() or None
+            end = parts[1].strip() if len(parts) > 1 else None
+            heads_set = {r.revision for r in self._script_dir.get_heads()}
+            bp_set = {r.revision for r in self._script_dir.get_branch_points()}
+            items: list[RevisionInfo] = [
+                RevisionInfo(
+                    revision=r.revision,
+                    down_revision=r.down_revision,
+                    message=r.message,
+                    create_date=r.create_date,
+                    is_head=r.revision in heads_set,
+                    is_branch_point=r.revision in bp_set,
+                )
+                for r in self._script_dir.walk_revisions(start, end, "up")
+            ]
+            return list(reversed(items))
+        return list(reversed(self._script_dir.revision_history()))
+
+    def get_heads(self) -> list[Revision]:
+        """Return all head revisions (not referenced as any down_revision)."""
+        return self._script_dir.get_heads()
+
+    def get_branch_points(self) -> list[tuple[Revision, list[str]]]:
+        """Return each branch-point revision paired with its direct child revision ids."""
+        return [
+            (bp, self._script_dir.get_children(bp.revision))
+            for bp in self._script_dir.get_branch_points()
+        ]
+
+    def create_revision(
+        self,
+        message: str,
+        head: str | None = None,
+        rev_id: str | None = None,
+        branch_labels: list[str] | None = None,
+        depends_on: list[str] | None = None,
+    ) -> Path:
+        """Create a new migration revision script and return its path."""
+        resolved_head = head if head is not None else self._script_dir.head()
+        return self._script_dir.create(
+            message,
+            resolved_head,
+            self._script_location,
+            branch_labels=branch_labels,
+            depends_on=depends_on,
+            rev_id=rev_id,
+        )
+
+    def show_revision(self, rev: str) -> Revision:
+        """Return full metadata for a single revision (by id or unique prefix)."""
+        return self._script_dir.get_revision(rev)
+
 
 # ---------------------------------------------------------------------------
 # Module-level singleton API (called from user's env.py)
 # ---------------------------------------------------------------------------
 
-_context: MigrationContext | None = None
+_context: Runic | None = None
 
 
 def configure(
     connection: Any,
     graph: Any,
     script_location: Path | None = None,
-    version_strategy: str = "node",
     preview: bool = False,
     *,
     target_manifest: SchemaManifest | None = None,
@@ -230,14 +336,13 @@ def configure(
         loc = _env_path.parent
     if loc is None:
         loc = Path("runic")
-    cfg = Config(script_location=loc, version_strategy=version_strategy)
-    _context = MigrationContext(
-        cfg, connection, graph, preview=preview, target_manifest=target_manifest
+    _context = Runic(
+        connection, graph, loc, preview=preview, target_manifest=target_manifest
     )
     log.debug("context configured: script_location=%s", loc)
 
 
-def get() -> MigrationContext:
+def get() -> Runic:
     if _context is None:
         raise RuntimeError("runic context not configured — was env.py executed?")
     return _context
@@ -250,8 +355,8 @@ def is_preview() -> bool:
 # Re-export RevisionNotFound so env.py users can import from runic.context
 __all__ = [
     "IrreversibleMigrationError",
-    "MigrationContext",
     "RevisionNotFound",
+    "Runic",
     "configure",
     "get",
     "is_preview",
