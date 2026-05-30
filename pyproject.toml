@@ -98,13 +98,6 @@ replace = '![Version](https://img.shields.io/badge/version-{new_version}-blue)'
 
 [[tool.bumpversion.files]]
 filename = "docs/source/index.rst"
-search = '''.. |PyPI| image:: https://img.shields.io/pypi/v{current_version}
-    :target: https://pypi.org/project/runic-migrate/'''
-replace = '''.. |PyPI| image:: https://img.shields.io/pypi/v{new_version}
-    :target: https://pypi.org/project/runic-migrate/'''
-
-[[tool.bumpversion.files]]
-filename = "docs/source/index.rst"
 search = 'Documentation for version: {current_version}.'
 replace = 'Documentation for version: {new_version}.'
 
