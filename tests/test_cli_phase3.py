@@ -51,8 +51,7 @@ def _write_rev(
 @pytest.mark.integration
 def test_migration_test_round_trip(falkordb_graph: Any, tmp_path: Path) -> None:
     """Upgrade → downgrade → re-upgrade produces consistent entity counts."""
-    from runic.config import Config
-    from runic.context import MigrationContext
+    from runic.context import Runic
 
     db, graph = falkordb_graph
     runic_dir = tmp_path / "runic"
@@ -69,8 +68,7 @@ def test_migration_test_round_trip(falkordb_graph: Any, tmp_path: Path) -> None:
 
     ephemeral_name = f"{graph.name}__test_{rev}_{secrets.token_hex(4)}"
     ephemeral_graph = db.select_graph(ephemeral_name)
-    cfg = Config(script_location=runic_dir)
-    ctx = MigrationContext(cfg, db, ephemeral_graph)
+    ctx = Runic(db, ephemeral_graph, runic_dir)
 
     try:
         # Phase A — upgrade

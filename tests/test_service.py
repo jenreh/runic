@@ -1,17 +1,25 @@
-"""SDK-level tests for RunicService — no CLI involved."""
+"""SDK-level tests for the standalone init() function and Runic DAG methods."""
 
 from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from runic.service import RunicService
+from runic.context import Runic
+from runic.service import init
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _make_graph() -> MagicMock:
+    graph = MagicMock()
+    graph.name = "test_graph"
+    return graph
 
 
 def _scaffold_two_revisions(script_location: Path) -> tuple[str, str]:
@@ -63,7 +71,7 @@ def _scaffold_two_revisions(script_location: Path) -> tuple[str, str]:
 
 def test_init_creates_expected_files(tmp_path: Path) -> None:
     target = tmp_path / "runic"
-    RunicService.init(target)
+    init(target)
     assert (target / "env.py").exists()
     assert (target / "script.py.mako").exists()
     assert (target / "versions").is_dir()
@@ -72,7 +80,7 @@ def test_init_creates_expected_files(tmp_path: Path) -> None:
 
 def test_init_env_py_contains_falkordb_stub(tmp_path: Path) -> None:
     target = tmp_path / "runic"
-    RunicService.init(target)
+    init(target)
     content = (target / "env.py").read_text()
     assert "FalkorDB" in content
     assert "context.configure" in content
@@ -82,13 +90,13 @@ def test_init_raises_if_exists_without_force(tmp_path: Path) -> None:
     target = tmp_path / "runic"
     target.mkdir()
     with pytest.raises(FileExistsError):
-        RunicService.init(target)
+        init(target)
 
 
 def test_init_force_overwrites(tmp_path: Path) -> None:
     target = tmp_path / "runic"
     target.mkdir()
-    RunicService.init(target, force=True)
+    init(target, force=True)
     assert (target / "env.py").exists()
 
 
@@ -98,32 +106,30 @@ def test_init_force_overwrites(tmp_path: Path) -> None:
 
 
 def test_create_revision_returns_path(tmp_path: Path) -> None:
-    RunicService.init(tmp_path / "runic")
-    svc = RunicService(tmp_path / "runic")
-    path = svc.create_revision("add email index")
+    init(tmp_path / "runic")
+    r = Runic(MagicMock(), _make_graph(), tmp_path / "runic")
+    path = r.create_revision("add email index")
     assert path.exists()
     assert "add email index" in path.read_text()
 
 
 def test_create_revision_links_to_head(tmp_path: Path) -> None:
-    RunicService.init(tmp_path / "runic")
-    svc = RunicService(tmp_path / "runic")
-    path1 = svc.create_revision("first")
-    # reload so second revision sees first as head
-    svc2 = RunicService(tmp_path / "runic")
-    path2 = svc2.create_revision("second")
+    init(tmp_path / "runic")
+    r1 = Runic(MagicMock(), _make_graph(), tmp_path / "runic")
+    path1 = r1.create_revision("first")
+    # Reload so second sees first as head
+    r2 = Runic(MagicMock(), _make_graph(), tmp_path / "runic")
+    path2 = r2.create_revision("second")
     assert path1.exists()
     assert path2.exists()
-    content = path2.read_text()
-    # down_revision of second must reference the first revision's id
     first_rev_id = path1.stem.split("_")[0]
-    assert first_rev_id in content
+    assert first_rev_id in path2.read_text()
 
 
 def test_create_revision_accepts_custom_rev_id(tmp_path: Path) -> None:
-    RunicService.init(tmp_path / "runic")
-    svc = RunicService(tmp_path / "runic")
-    path = svc.create_revision("custom", rev_id="deadbeef1234")
+    init(tmp_path / "runic")
+    r = Runic(MagicMock(), _make_graph(), tmp_path / "runic")
+    path = r.create_revision("custom", rev_id="deadbeef1234")
     assert "deadbeef1234" in path.name
 
 
@@ -134,24 +140,24 @@ def test_create_revision_accepts_custom_rev_id(tmp_path: Path) -> None:
 
 def test_get_history_newest_first(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    history = svc.get_history()
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    history = r.get_history()
     assert history[0].revision == "bbbbbbbbbbbb"
     assert history[1].revision == "aaaaaaaaaaaa"
 
 
 def test_get_history_marks_head(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    history = svc.get_history()
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    history = r.get_history()
     assert history[0].is_head is True
     assert history[1].is_head is False
 
 
 def test_get_history_range(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    history = svc.get_history(range_=":bbbbbbbbbbbb")
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    history = r.get_history(range_=":bbbbbbbbbbbb")
     revisions = [h.revision for h in history]
     assert "aaaaaaaaaaaa" in revisions
     assert "bbbbbbbbbbbb" in revisions
@@ -164,8 +170,8 @@ def test_get_history_range(tmp_path: Path) -> None:
 
 def test_get_heads_returns_single_head(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    heads = svc.get_heads()
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    heads = r.get_heads()
     assert len(heads) == 1
     assert heads[0].revision == "bbbbbbbbbbbb"
 
@@ -177,8 +183,8 @@ def test_get_heads_returns_single_head(tmp_path: Path) -> None:
 
 def test_get_branch_points_empty_for_linear_chain(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    assert svc.get_branch_points() == []
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    assert r.get_branch_points() == []
 
 
 def test_get_branch_points_detects_fork(tmp_path: Path) -> None:
@@ -201,8 +207,8 @@ def test_get_branch_points_detects_fork(tmp_path: Path) -> None:
             def downgrade(op): pass
         """)
     )
-    svc = RunicService(tmp_path)
-    bps = svc.get_branch_points()
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    bps = r.get_branch_points()
     assert len(bps) == 1
     bp_rev, children = bps[0]
     assert bp_rev.revision == rev1
@@ -216,23 +222,23 @@ def test_get_branch_points_detects_fork(tmp_path: Path) -> None:
 
 def test_show_revision_by_full_id(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    rev = svc.show_revision("bbbbbbbbbbbb")
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    rev = r.show_revision("bbbbbbbbbbbb")
     assert rev.revision == "bbbbbbbbbbbb"
     assert rev.message == "add email index"
 
 
 def test_show_revision_by_prefix(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
-    rev = svc.show_revision("bbbb")
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
+    rev = r.show_revision("bbbb")
     assert rev.revision == "bbbbbbbbbbbb"
 
 
 def test_show_revision_unknown_raises(tmp_path: Path) -> None:
     _scaffold_two_revisions(tmp_path)
-    svc = RunicService(tmp_path)
+    r = Runic(MagicMock(), _make_graph(), tmp_path)
     from runic.script import RevisionNotFound
 
     with pytest.raises(RevisionNotFound):
-        svc.show_revision("zzzzzzzzzzzz")
+        r.show_revision("zzzzzzzzzzzz")

@@ -154,8 +154,7 @@ def test_upgrade_context_merges_version_node(tmp_path: Path) -> None:
     _write_rev(vd, _C, _A)
     _write_rev(vd, _M, (_B, _C))
 
-    from runic.config import Config
-    from runic.context import MigrationContext
+    from runic.context import Runic
 
     # Mock DB and graph
     graph = MagicMock()
@@ -169,8 +168,7 @@ def test_upgrade_context_merges_version_node(tmp_path: Path) -> None:
     graph.ro_query.return_value = get_result
     graph.query.return_value = MagicMock(result_set=[[0]])
 
-    cfg = Config(script_location=tmp_path)
-    ctx = MigrationContext(cfg, db, graph)
+    ctx = Runic(db, graph, tmp_path)
 
     with patch.object(ctx._version_node, "set_multiple") as mock_set_multiple:  # noqa: SLF001
         ctx.upgrade(_M)

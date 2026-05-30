@@ -64,22 +64,24 @@ Revision ID: 1975ea83b712
 Revises: None
 Create Date: 2026-05-30 14:00:00.000000
 """
+from datetime import UTC, datetime
 
-from runic import op
-
-# revision identifiers, used by Runic.
 revision = "1975ea83b712"
 down_revision = None
+message = "create user index"
+create_date = datetime.fromisoformat("2026-05-30T14:00:00+00:00")
+branch_labels = []
+depends_on = []
+irreversible = False
+snapshot = False
 
 
-def upgrade() -> None:
-    # Use Cypher to create an index
-    op.run_cypher("CREATE INDEX ON :User(email)")
+def upgrade(op) -> None:
+    op.create_range_index("User", "email")
 
 
-def downgrade() -> None:
-    # Safely revert the operation
-    op.run_cypher("DROP INDEX ON :User(email)")
+def downgrade(op) -> None:
+    op.drop_range_index("User", "email")
 ```
 
 Then apply your changes:
@@ -87,6 +89,31 @@ Then apply your changes:
 ```bash
 runic upgrade head
 ```
+
+## Programmatic SDK
+
+Use runic directly in Python — no CLI, no `env.py` needed:
+
+```python
+from pathlib import Path
+from falkordb import FalkorDB
+from runic import Runic, init
+
+# One-time setup: scaffold the migration directory
+init(Path("runic/"))
+
+# Connect and run
+db = FalkorDB.from_url("falkor://localhost:6379")
+graph = db.select_graph("my_graph")
+
+runic = Runic(connection=db, graph=graph, script_location=Path("runic/"))
+runic.upgrade("head")
+
+print("current:", runic.current())
+print("history:", runic.get_history())
+```
+
+`Runic` is the single class you need. It handles upgrades, downgrades, stamping, history queries, and revision creation in one coherent API.
 
 ## Documentation
 

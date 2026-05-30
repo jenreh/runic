@@ -70,8 +70,8 @@ Pass ``target_manifest`` to ``context.configure()``:
 
    # runic/env.py
    import os
+   from falkordb import FalkorDB
    from runic import context
-   from runic.adapters.falkordb import FalkorDBAdapter
    from runic.manifest import RangeIndex, SchemaManifest, UniqueConstraint
 
    TARGET = SchemaManifest(
@@ -79,11 +79,9 @@ Pass ``target_manifest`` to ``context.configure()``:
        constraints=[UniqueConstraint("NODE", "Person", ["email"])],
    )
 
-   adapter = FalkorDBAdapter.from_url(
-       os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
-       os.getenv("FALKORDB_GRAPH", "my_graph"),
-   )
-   context.configure(adapter, target_manifest=TARGET)
+   db = FalkorDB.from_url(os.getenv("FALKORDB_URL", "falkor://localhost:6379"))
+   graph = db.select_graph(os.getenv("FALKORDB_GRAPH", "my_graph"))
+   context.configure(connection=db, graph=graph, target_manifest=TARGET)
 
 Generating a migration script
 ------------------------------

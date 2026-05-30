@@ -139,7 +139,9 @@ def test_create_round_trip_message_and_date(tmp_versions: Path) -> None:
 
     sd = ScriptDirectory.load(tmp_versions)
     before = datetime.now(UTC)
-    path = sd.create("my migration msg", head="bbbbbbbbbbbb", script_location=tmp_versions)
+    path = sd.create(
+        "my migration msg", head="bbbbbbbbbbbb", script_location=tmp_versions
+    )
     after = datetime.now(UTC) + timedelta(seconds=1)
 
     # Reload the ScriptDirectory to pick up the new file

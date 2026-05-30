@@ -6,8 +6,6 @@ from runic.operations import (
     ConstraintFailedError,
     ConstraintTimeoutError,
     GraphOperations,
-    _bind_op,
-    op,
 )
 
 
@@ -127,22 +125,6 @@ def test_polling_raises_on_timeout(mock_graph: MagicMock, mock_db: MagicMock) ->
 def test_run_cypher_no_params(ops: GraphOperations, mock_graph: MagicMock) -> None:
     ops.run_cypher("MATCH (n) RETURN n")
     mock_graph.query.assert_called_once_with("MATCH (n) RETURN n")
-
-
-def test_op_proxy_raises_when_unbound() -> None:
-    import runic.operations as ops_module
-
-    ops_module._op = None
-    with pytest.raises(RuntimeError, match="not bound"):
-        _ = op.run_cypher
-
-
-def test_op_proxy_delegates_when_bound(
-    mock_graph: MagicMock, mock_db: MagicMock
-) -> None:
-    bound = GraphOperations(mock_graph, mock_db)
-    _bind_op(bound)
-    assert op.preview_log == []
 
 
 def test_preview_create_range_index_rel(

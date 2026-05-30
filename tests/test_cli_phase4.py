@@ -194,7 +194,7 @@ def test_revision_autogenerate_no_manifest_exits(tmp_path: Path) -> None:
     config = target / "env.py"
 
     ctx = MagicMock()
-    ctx._target_manifest = None
+    ctx.target_manifest = None
 
     with (
         patch("runic.cli._exec_env"),
@@ -216,8 +216,8 @@ def test_revision_autogenerate_no_diff_exits_0(tmp_path: Path) -> None:
     from runic.manifest import SchemaManifest
 
     ctx = MagicMock()
-    ctx._target_manifest = SchemaManifest()
-    ctx._graph = MagicMock()
+    ctx.target_manifest = SchemaManifest()
+    ctx.graph = MagicMock()
 
     with (
         patch("runic.cli._exec_env"),
@@ -242,8 +242,8 @@ def test_revision_autogenerate_with_diff_creates_file(tmp_path: Path) -> None:
     from runic.manifest import SchemaManifest
 
     ctx = MagicMock()
-    ctx._target_manifest = SchemaManifest()
-    ctx._graph = MagicMock()
+    ctx.target_manifest = SchemaManifest()
+    ctx.graph = MagicMock()
 
     op = DiffOp(
         action="create",

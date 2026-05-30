@@ -1,5 +1,5 @@
 from runic import context
-from runic.context import IrreversibleMigrationError
+from runic.context import IrreversibleMigrationError, Runic
 from runic.exceptions import MultipleBasesError, MultipleHeadsError
 from runic.manifest import (
     FulltextIndex,
@@ -9,9 +9,9 @@ from runic.manifest import (
     UniqueConstraint,
     VectorIndex,
 )
-from runic.operations import ConstraintFailedError, ConstraintTimeoutError, op
+from runic.operations import ConstraintFailedError, ConstraintTimeoutError
 from runic.script import AmbiguousRevision, RevisionNotFound
-from runic.service import RunicService
+from runic.service import init
 
 __all__ = [
     "AmbiguousRevision",
@@ -24,10 +24,10 @@ __all__ = [
     "MultipleHeadsError",
     "RangeIndex",
     "RevisionNotFound",
-    "RunicService",
+    "Runic",
     "SchemaManifest",
     "UniqueConstraint",
     "VectorIndex",
     "context",
-    "op",
+    "init",
 ]

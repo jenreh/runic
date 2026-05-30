@@ -4,15 +4,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.config import Config
-from runic.context import MigrationContext
+from runic.context import Runic
 from runic.exceptions import MultipleHeadsError
 from runic.script import RevisionNotFound
 
 
 @pytest.fixture
 def mock_graph() -> MagicMock:
-    return MagicMock()
+    graph = MagicMock()
+    graph.name = "test_graph"
+    return graph
 
 
 @pytest.fixture
@@ -84,11 +85,8 @@ def tmp_two_heads(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _make_ctx(
-    mock_graph: MagicMock, mock_db: MagicMock, path: Path
-) -> MigrationContext:
-    cfg = Config(script_location=path)
-    return MigrationContext(cfg, mock_db, mock_graph)
+def _make_ctx(mock_graph: MagicMock, mock_db: MagicMock, path: Path) -> Runic:
+    return Runic(mock_db, mock_graph, path)
 
 
 # ------------------------------------------------------------------
