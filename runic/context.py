@@ -33,6 +33,7 @@ class MigrationContext:
         self._config = config
         self._db = db
         self._graph = graph
+        self._graph_name: str = graph.name
         self._preview = preview
         self._version_node = VersionNode(graph)
         self._script_dir = ScriptDirectory.load(config.script_location)
@@ -76,10 +77,20 @@ class MigrationContext:
             return
 
         for rev in revisions:
+            snap_name = f"{self._graph_name}__premig_{rev.revision}"
+            if rev.snapshot and not self._preview:
+                self._ops.snapshot(snap_name)
+
             log.info("upgrading to revision: %s — %s", rev.revision, rev.message)
             try:
                 rev.module.upgrade(self._ops)
             except Exception:
+                if rev.snapshot and not self._preview:
+                    log.warning(
+                        "upgrade failed, restoring snapshot for revision %s",
+                        rev.revision,
+                    )
+                    self._ops.restore_snapshot(snap_name)
                 log.error(
                     "upgrade failed at revision %s; database remains at %s",
                     rev.revision,
@@ -111,12 +122,24 @@ class MigrationContext:
                 )
 
         for rev in revisions:
-            log.info("downgrading revision: %s — %s", rev.revision, rev.message)
-            try:
-                rev.module.downgrade(self._ops)
-            except Exception:
-                log.error("downgrade failed at revision %s", rev.revision)
-                raise
+            snap_name = f"{self._graph_name}__premig_{rev.revision}"
+            used_snapshot = False
+
+            if rev.snapshot and not self._preview:
+                existing = self._db.list_graphs()
+                if snap_name in existing:
+                    log.info("restoring snapshot for revision %s", rev.revision)
+                    self._ops.restore_snapshot(snap_name)
+                    used_snapshot = True
+
+            if not used_snapshot:
+                log.info("downgrading revision: %s — %s", rev.revision, rev.message)
+                try:
+                    rev.module.downgrade(self._ops)
+                except Exception:
+                    log.error("downgrade failed at revision %s", rev.revision)
+                    raise
+
             if not self._preview:
                 if rev.down_revision is None:
                     self._version_node.clear()

@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+# Expose falkordblite-backed fixtures for all tests that need a live graph.
+from runic.testing import falkordb_graph, runic_context  # noqa: F401
+
 
 @pytest.fixture
 def tmp_versions(tmp_path: Path) -> Path:

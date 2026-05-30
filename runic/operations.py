@@ -246,6 +246,33 @@ class GraphOperations:
         log.info("seeding %d rows", len(rows))
         self._graph.query(query, {"rows": rows})
 
+    # ------------------------------------------------------------------
+    # Phase 3 — snapshot / restore
+    # ------------------------------------------------------------------
+
+    def snapshot(self, snap_name: str) -> None:
+        graph_name = self._graph.name
+        if self._preview:
+            self._log_preview(f"SNAPSHOT: copy {graph_name} → {snap_name}")
+            return
+        # GRAPH.COPY fails on an empty key; initialize graph if it doesn't exist yet
+        if graph_name not in self._db.list_graphs():
+            self._graph.query("RETURN 1")
+        self._graph.copy(snap_name)
+        log.debug("snapshot taken: %s → %s", graph_name, snap_name)
+
+    def restore_snapshot(self, snap_name: str) -> None:
+        graph_name = self._graph.name
+        if self._preview:
+            self._log_preview(f"RESTORE SNAPSHOT: {snap_name} → {graph_name}")
+            return
+        snap_graph = self._db.select_graph(snap_name)
+        # GRAPH.COPY errors if destination exists; delete live graph first
+        self._graph.delete()
+        snap_graph.copy(graph_name)
+        snap_graph.delete()
+        log.debug("snapshot restored: %s → %s", snap_name, graph_name)
+
 
 _op: GraphOperations | None = None
 
