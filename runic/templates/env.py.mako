@@ -1,7 +1,8 @@
 import os
 
-from runic import context
 from runic.adapters import create_adapter
+
+from runic import context
 
 adapter = create_adapter(
     "falkordb",

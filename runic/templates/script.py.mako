@@ -4,7 +4,9 @@ Revision ID: ${up_revision}
 Revises: ${down_revision}
 Create Date: ${create_date}
 """
+
 from datetime import UTC, datetime
+from typing import Any
 
 message = ${repr(message)}
 create_date = datetime.fromisoformat(${repr(create_date.isoformat())})
@@ -17,9 +19,9 @@ irreversible = False
 snapshot = False
 
 
-def upgrade(op) -> None:
+def upgrade(op: Any) -> None:
 ${upgrade_body}
 
 
-def downgrade(op) -> None:
+def downgrade(op: Any) -> None:
 ${downgrade_body}
