@@ -1,0 +1,14 @@
+{
+  "eval_id": 1,
+  "eval_name": "irreversible-rename-migration",
+  "run": "with_skill",
+  "expectations": [
+    {"text": "Migration file sets irreversible = True", "passed": true, "evidence": "irreversible = True  # downgrade blocked unless --force is passed"},
+    {"text": "Migration file sets snapshot = True", "passed": true, "evidence": "snapshot = True  # runic GRAPH.COPYs the graph before upgrade; restores on failure"},
+    {"text": "upgrade() calls op.rename_property('Person', 'username', 'handle')", "passed": true, "evidence": "op.rename_property(\"Person\", \"username\", \"handle\") in upgrade body"},
+    {"text": "downgrade() raises an error or clearly states irreversible / snapshot restore", "passed": true, "evidence": "raises NotImplementedError with explanation about snapshot restore"},
+    {"text": "Property names are 'username' (old) and 'handle' (new), not reversed", "passed": true, "evidence": "rename_property('Person', 'username', 'handle') — correct direction"},
+    {"text": "Uses --preview flag (not --dry-run) for dry-run mode", "passed": true, "evidence": "`runic upgrade head --preview` shown in How to apply section"}
+  ],
+  "pass_rate": 1.0
+}

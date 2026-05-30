@@ -1,0 +1,13 @@
+{
+  "eval_id": 2,
+  "eval_name": "merge-diverged-branches",
+  "run": "without_skill",
+  "expectations": [
+    {"text": "Response shows the `runic merge abc123 def456 -m \"...\"` command", "passed": true, "evidence": "runic merge abc123 def456 -m \"merge_branch_a_and_branch_b\" shown"},
+    {"text": "Merge revision file shows down_revision as a tuple, e.g. (\"abc123\", \"def456\")", "passed": true, "evidence": "down_revision = (\"abc123\", \"def456\")   # tuple — both parents"},
+    {"text": "Explains to run `runic upgrade head` after creating the merge revision", "passed": true, "evidence": "runic upgrade head shown in Step 2"},
+    {"text": "Does NOT suggest manually editing existing migration files as the resolution strategy", "passed": true, "evidence": "Only creates a new merge revision via runic merge command"},
+    {"text": "Merge revision function signature is def upgrade(op) -> None: (not using MigrationContext)", "passed": false, "evidence": "Uses `def upgrade(context: MigrationContext) -> None:` with wrong import `from runic import MigrationContext` — hallucinated API"}
+  ],
+  "pass_rate": 0.8
+}

@@ -1,0 +1,39 @@
+{
+  "skill_name": "runic",
+  "iteration": 1,
+  "configurations": [
+    {
+      "name": "with_skill",
+      "evals": [
+        {"eval_id": 0, "eval_name": "full-setup-walkthrough",     "pass_rate": 1.0,   "total_tokens": 23795, "duration_ms": 58776},
+        {"eval_id": 1, "eval_name": "irreversible-rename-migration","pass_rate": 1.0,  "total_tokens": 21297, "duration_ms": 55116},
+        {"eval_id": 2, "eval_name": "merge-diverged-branches",    "pass_rate": 1.0,   "total_tokens": 19906, "duration_ms": 49943}
+      ],
+      "mean_pass_rate": 1.0,
+      "mean_tokens": 21666,
+      "mean_duration_ms": 54612
+    },
+    {
+      "name": "without_skill",
+      "evals": [
+        {"eval_id": 0, "eval_name": "full-setup-walkthrough",     "pass_rate": 1.0,   "total_tokens": 37948, "duration_ms": 81737},
+        {"eval_id": 1, "eval_name": "irreversible-rename-migration","pass_rate": 0.833,"total_tokens": 25388, "duration_ms": 47840},
+        {"eval_id": 2, "eval_name": "merge-diverged-branches",    "pass_rate": 0.8,   "total_tokens": 14370, "duration_ms": 27700}
+      ],
+      "mean_pass_rate": 0.878,
+      "mean_tokens": 25902,
+      "mean_duration_ms": 52426
+    }
+  ],
+  "delta": {
+    "pass_rate": "+0.122",
+    "tokens": "-4236 (-16%)",
+    "duration_ms": "+2186ms"
+  },
+  "analyst_observations": [
+    "Eval 0 is non-discriminating: both configs scored 7/7. The baseline had access to the codebase (17 tool calls vs 9 for with-skill) which explains parity — in a context without the project files, the baseline would likely fail several assertions.",
+    "The real discriminating value of the skill shows in evals 1 and 2: baseline failed on runic-specific details (wrong --dry-run flag, hallucinated MigrationContext import/signature) while with-skill was 100% correct.",
+    "With-skill used 16% fewer tokens overall despite the skill file loading, because it needed fewer exploratory tool calls.",
+    "Eval 2 baseline failure is notable: it hallucinated `from runic import MigrationContext` — a non-existent import — and used the wrong function signature `def upgrade(context: MigrationContext)`. The skill cleanly prevents this."
+  ]
+}
