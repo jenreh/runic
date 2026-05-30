@@ -1,4 +1,5 @@
 """SDK-level tests for RunicService — no CLI involved."""
+
 from __future__ import annotations
 
 import textwrap
@@ -7,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from runic.service import RunicService
-
 
 # ---------------------------------------------------------------------------
 # Helpers
