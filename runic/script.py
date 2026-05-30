@@ -150,10 +150,8 @@ class ScriptDirectory:
         filename = f"{rev_id}_{slug}.py"
 
         template_path = Path(__file__).parent / "templates" / "script.py.mako"
-        tmpl = Template(
-            filename=str(template_path), strict_undefined=True, disable_unicode=False
-        )  # noqa: S702
-        content = tmpl.render_unicode(
+        tmpl = Template(template_path.read_text())  # noqa: S702
+        content = tmpl.render(
             up_revision=rev_id,
             down_revision=head,
             branch_labels=[],
