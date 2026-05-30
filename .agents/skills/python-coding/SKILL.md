@@ -67,7 +67,7 @@ async def handler(value: str) -> AsyncGenerator[Any, Any]:
 
 No Python file may exceed **1000 lines**. When approaching the limit, apply clean code refactoring strategies.
 
-**Design patterns & refactoring strategies:** See [references/clean-code.md](references/clean-code.md).
+**Design patterns & refactoring strategies:** See skill [python-clean-code](../python-clean-code/SKILL.md).
 
 ## Testing
 
