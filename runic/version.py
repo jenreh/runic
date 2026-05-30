@@ -21,7 +21,13 @@ class VersionNode:
         self._graph = graph
 
     def get(self) -> list[str]:
-        result = self._graph.ro_query(_GET_QUERY)
+        try:
+            result = self._graph.ro_query(_GET_QUERY)
+        except Exception as exc:
+            # Embedded FalkorDB raises on an empty key; treat as "no version yet"
+            if "empty key" in str(exc).lower():
+                return []
+            raise
         rows = result.result_set
         if not rows:
             return []

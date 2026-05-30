@@ -38,6 +38,7 @@ dev = [
     "ruff==0.15.15",
     "mypy==2.1.0",
     "types-PyYAML==6.0.12.20260510",
+    "falkordblite>=0.10.0",
 ]
 
 [project.scripts]
@@ -127,6 +128,7 @@ ignore = [
     "PYI034",
     "S101",
     "PLR0912",
+    "PLR0915",
     "ASYNC109",
     "ARG001",
     "PLR2004",
@@ -214,6 +216,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "sonos_live: requires real Sonos hardware on the network",
+    "integration: requires falkordblite (embedded FalkorDB, no external server)",
 ]
 
 [tool.mypy]
