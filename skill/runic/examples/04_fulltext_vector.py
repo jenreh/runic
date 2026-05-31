@@ -4,7 +4,7 @@ Revision ID: d4e5f6789abc
 Revises: c3d4e5f67890
 Create Date: 2026-05-30T17:00:00+00:00
 """
-from datetime import UTC, datetime
+from datetime import datetime
 
 message = "add fulltext and vector indexes for search"
 create_date = datetime.fromisoformat("2026-05-30T17:00:00+00:00")

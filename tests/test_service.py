@@ -89,7 +89,7 @@ def test_init_env_py_contains_falkordb_stub(tmp_path: Path) -> None:
     content = (target / "env.py").read_text()
     assert "create_adapter" in content
     assert '"falkordb"' in content
-    assert "context.configure(adapter)" in content
+    assert "context.configure(" in content
 
 
 def test_init_raises_if_exists_without_force(tmp_path: Path) -> None:

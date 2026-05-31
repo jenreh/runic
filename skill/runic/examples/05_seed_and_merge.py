@@ -4,7 +4,7 @@ Revision ID: e5f6789abcde
 Revises: d4e5f6789abc
 Create Date: 2026-05-30T18:00:00+00:00
 """
-from datetime import UTC, datetime
+from datetime import datetime
 
 message = "seed role reference data"
 create_date = datetime.fromisoformat("2026-05-30T18:00:00+00:00")

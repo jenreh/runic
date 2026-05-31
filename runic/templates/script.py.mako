@@ -15,8 +15,8 @@ revision = ${repr(up_revision)}
 down_revision = ${repr(down_revision)}
 branch_labels = ${repr(branch_labels)}
 depends_on = ${repr(depends_on)}
-irreversible = False
-snapshot = False
+irreversible = False  # set True to block `runic downgrade` unless --force is passed
+snapshot = False      # set True to GRAPH.COPY before upgrade and auto-restore on failure
 
 
 def upgrade(op: Any) -> None:

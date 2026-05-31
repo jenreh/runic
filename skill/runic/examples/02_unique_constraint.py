@@ -4,7 +4,7 @@ Revision ID: ae1027a6acf0
 Revises: 1975ea83b712
 Create Date: 2026-05-30T15:00:00+00:00
 """
-from datetime import UTC, datetime
+from datetime import datetime
 
 message = "add unique email constraint on User"
 create_date = datetime.fromisoformat("2026-05-30T15:00:00+00:00")

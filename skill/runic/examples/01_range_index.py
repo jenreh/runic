@@ -4,7 +4,7 @@ Revision ID: 1975ea83b712
 Revises: None
 Create Date: 2026-05-30T14:00:00+00:00
 """
-from datetime import UTC, datetime
+from datetime import datetime
 
 message = "add email index on User nodes"
 create_date = datetime.fromisoformat("2026-05-30T14:00:00+00:00")

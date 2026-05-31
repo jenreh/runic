@@ -121,6 +121,7 @@ extend-exclude = [
     "build",
     "dist",
     "docs",
+    "skill",
 ]
 
 [tool.ruff.lint]
