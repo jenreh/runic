@@ -10,13 +10,13 @@ runic checks for a ``.runic`` marker file in the current directory and resolves
 the path from it.  ``runic init <custom-dir>`` writes this file automatically.
 
 Commands that do **not** require a database connection
-(``init``, ``revision``, ``history``, ``heads``, ``branches``, ``show``,
+(``init``, ``revision``, ``heads``, ``branches``, ``show``,
 ``merge``, ``info --mode LOCAL``)
 read the script directory from ``--config``'s parent directory and never
 execute ``env.py``.
 
 Commands that **do** require a connection
-(``upgrade``, ``downgrade``, ``current``, ``stamp``, ``test``,
+(``upgrade``, ``downgrade``, ``current``, ``history``, ``stamp``, ``test``,
 ``check``, ``validate``, ``run``, ``info``)
 execute ``env.py`` which calls ``context.configure()``.
 
@@ -177,10 +177,10 @@ Apply migrations up to ``TARGET`` (default: ``head``).
 .. code-block:: bash
 
    $ runic upgrade               # apply all pending revisions
-   Upgraded to: head
+   Upgraded to: 7b3d9e2f
 
-   $ runic upgrade 3f9a12c1      # apply up to a specific revision
-   Upgraded to: 3f9a12c1
+   $ runic upgrade 3f9         # apply up to a specific revision (prefix ok)
+   Upgraded to: 3f9a12c1ab4e
 
    $ runic upgrade +1            # apply the next revision only
    Upgraded to: 7b3d9e2f
@@ -198,14 +198,15 @@ downgrade
 
 .. code-block:: bash
 
-   runic downgrade TARGET [--config PATH] [--force] [--preview]
+   runic downgrade [TARGET] [--config PATH] [--force] [--preview]
 
-Revert migrations to ``TARGET``.
+Revert migrations down by one step, or to ``TARGET``.
 
 **Arguments**
 
 ``TARGET``
-    Required.  Revision ID, unique prefix, ``base``, or relative ``-N``.
+    Optional.  Revision ID, unique prefix, ``base``, or relative ``-N``.
+    Defaults to ``-1`` (undo the most recently applied revision).
 
 **Options**
 
@@ -222,14 +223,17 @@ Revert migrations to ``TARGET``.
 
 .. code-block:: bash
 
+   $ runic downgrade                  # undo last applied revision (default: -1)
+   Downgraded to: 3f9a12c1ab4e
+
    $ runic downgrade base             # revert all
    Downgraded to: base
 
-   $ runic downgrade 3f9a12c1         # revert to a specific revision
-   Downgraded to: 3f9a12c1
+   $ runic downgrade 3f9              # revert to a specific revision (prefix ok)
+   Downgraded to: 3f9a12c1ab4e
 
-   $ runic downgrade -1               # undo the most recent revision
-   Downgraded to: 3f9a12c1
+   $ runic downgrade -2               # undo the last two revisions
+   Downgraded to: 3f9a12c1ab4e
 
    $ runic downgrade base --force     # force past irreversible markers
 
@@ -266,23 +270,18 @@ history
 
 .. code-block:: bash
 
-   runic history [--config PATH] [--verbose] [--indicate-current] [--range START:END]
+   runic history [--config PATH] [--verbose] [--range START:END]
 
-Print all revisions, newest first.  Does not require a database connection
-unless ``--indicate-current`` is used.
+Print all revisions, newest first.  Requires a database connection —
+the currently applied revision is marked ``(head)`` in the output.
 
 **Options**
 
 ``--config PATH``
-    Path to ``env.py`` (used as script location source; db only needed with
-    ``--indicate-current``).
+    Path to ``env.py``.
 
 ``--verbose``
     Include ``create_date`` and ``down_revision`` for each entry.
-
-``--indicate-current``
-    Mark the currently applied revision as ``current`` in the output.
-    Requires a database connection.
 
 ``--range START:END``
     Restrict output to an inclusive revision range.  Either side may be
@@ -293,14 +292,24 @@ unless ``--indicate-current`` is used.
 
 .. code-block:: bash
 
-   $ runic history --verbose --indicate-current
-   7b3d9e2f         (head, current)       add email fulltext index
+   $ runic history
+   7b3d9e2f         (head)                add email fulltext index
+   3f9a12c1                               add person email index
+
+   $ runic history --verbose
+   7b3d9e2f         (head)                add email fulltext index
        create_date:   2026-05-30 10:00:00+00:00
        down_revision: 3f9a12c1ab4e
 
    3f9a12c1                               add person email index
        create_date:   2026-05-30 09:00:00+00:00
        down_revision: None
+
+.. note::
+
+   ``(head)`` marks the currently applied revision in the database, not the
+   tip of the file-based revision chain.  Use ``runic heads`` to see which
+   revision is at the tip of the chain.
 
 ----
 

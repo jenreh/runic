@@ -87,7 +87,9 @@ def downgrade(op) -> None:
 Then apply your changes:
 
 ```bash
-runic upgrade head
+runic upgrade            # apply all pending revisions
+runic downgrade          # roll back one step (default target: -1)
+runic downgrade 1975e    # roll back to a revision — prefix is enough
 ```
 
 ## Programmatic SDK
