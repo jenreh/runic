@@ -20,7 +20,7 @@ Graph Schema Migrations for FalkorDB
    :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
    :alt: License
 
-Documentation for version: 0.1.9.
+Documentation for version: 0.1.10.
 
 -----
 
