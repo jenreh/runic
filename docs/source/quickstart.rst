@@ -152,7 +152,7 @@ Step 5 — Apply the migration
 .. code-block:: bash
 
    $ runic upgrade
-   Upgraded to: head
+   Upgraded to: 3f9a12c1ab4e
 
 Step 6 — Check the current revision
 --------------------------------------
