@@ -60,7 +60,7 @@ class FalkorDBAdapter(GraphAdapter):
     ) -> FalkorDBAdapter:
         from falkordb import FalkorDB
 
-        kwargs: dict = {}
+        kwargs: dict = {"protocol": 2}
         if username is not None:
             kwargs["username"] = username
         if password is not None:

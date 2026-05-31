@@ -250,7 +250,7 @@ class ScriptDirectory:
         down_chain: list[Revision] = []
         cur = base
         while cur is not None:
-            if cur.revision == target_rev:
+            if cur.revision == target.revision:
                 break
             down_chain.append(cur)
             parents = _down_revision_parents(cur)
@@ -308,9 +308,8 @@ class ScriptDirectory:
             if not heads:
                 return []
             to_rev = heads[0].revision
-
-        if to_rev not in self._revisions:
-            raise RevisionNotFound(f"revision {to_rev!r} not found")
+        else:
+            to_rev = self.get_revision(to_rev).revision
 
         from_set = set(from_revs or [])
 

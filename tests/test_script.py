@@ -117,6 +117,24 @@ def test_iterate_revisions_downgrade_order(tmp_versions: Path) -> None:
     assert [r.revision for r in revs] == ["bbbbbbbbbbbb"]
 
 
+def test_iterate_revisions_downgrade_partial_target(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    revs = sd.iterate_revisions("bbbbbbbbbbbb", "aaaa")
+    assert [r.revision for r in revs] == ["bbbbbbbbbbbb"]
+
+
+def test_iterate_revisions_upgrade_partial_target(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    revs = sd.iterate_revisions(None, "bbbb")
+    assert [r.revision for r in revs] == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]
+
+
+def test_topological_upgrade_path_partial_target(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    revs = sd.topological_upgrade_path(None, "bbbb")
+    assert [r.revision for r in revs] == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]
+
+
 def test_generate_revision_id_length() -> None:
     rev_id = ScriptDirectory.generate_revision_id()
     assert len(rev_id) == 12

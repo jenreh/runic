@@ -345,3 +345,27 @@ def test_upgrade_relative_multiple_heads_raises(
     ctx = Runic(FalkorDBAdapter(mock_db, mock_graph), branched_dir)
     with pytest.raises(MultipleHeadsError):
         ctx.upgrade("+1")
+
+
+def test_upgrade_partial_revision_id(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    """upgrade() resolves a partial revision id prefix to the full id."""
+    mock_graph.ro_query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.upgrade("bbbb")
+    query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
+    assert len(stamp_calls) == 2
+
+
+def test_downgrade_partial_revision_id(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    """downgrade() resolves a partial revision id prefix to the full id."""
+    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.downgrade("aaaa")
+    query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
+    assert len(stamp_calls) == 1
