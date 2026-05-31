@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from runic.cli import app
@@ -85,6 +86,81 @@ def test_upgrade_missing_config_exits(tmp_path: Path) -> None:
         app, ["upgrade", "--config", str(tmp_path / "nonexistent" / "env.py")]
     )
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# _resolve_config — .runic marker file
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_config_returns_existing_path(tmp_path: Path) -> None:
+    from runic.cli import _resolve_config
+
+    env = tmp_path / "runic" / "env.py"
+    env.parent.mkdir(parents=True)
+    env.write_text("# stub")
+    assert _resolve_config(env) == env
+
+
+def test_resolve_config_uses_marker_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from runic.cli import _resolve_config
+
+    custom = tmp_path / "migrations"
+    custom.mkdir()
+    env = custom / "env.py"
+    env.write_text("# stub")
+    (tmp_path / ".runic").write_text(str(env) + "\n")
+
+    monkeypatch.chdir(tmp_path)
+    assert _resolve_config(Path("runic/env.py")) == env
+
+
+def test_resolve_config_no_marker_returns_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from runic.cli import _resolve_config
+
+    monkeypatch.chdir(tmp_path)
+    original = Path("runic/env.py")
+    assert _resolve_config(original) == original
+
+
+def test_init_writes_marker_for_custom_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "migrations"])
+    assert result.exit_code == 0, result.output
+    marker = tmp_path / ".runic"
+    assert marker.exists()
+    assert "migrations/env.py" in marker.read_text()
+
+
+def test_init_no_marker_for_default_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "runic"])
+    assert result.exit_code == 0, result.output
+    assert not (tmp_path / ".runic").exists()
+
+
+def test_info_local_uses_marker_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """runic info --mode LOCAL resolves via .runic when dir != runic/."""
+    custom = tmp_path / "migrations"
+    (custom / "versions").mkdir(parents=True)
+    env = custom / "env.py"
+    env.write_text("# stub")
+    (tmp_path / ".runic").write_text(str(env) + "\n")
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["info", "--mode", "LOCAL"])
+    assert result.exit_code == 0, result.output
+    assert "Local revisions" in result.output
 
 
 # ---------------------------------------------------------------------------

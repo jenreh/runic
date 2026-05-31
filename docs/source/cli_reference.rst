@@ -5,14 +5,20 @@ The runic CLI is installed as the ``runic`` command.  Every command accepts
 ``--config <path>`` (default: ``runic/env.py``) to override the location of
 ``env.py``.
 
-Commands that do **not** require a database connection (``init``,
-``revision``, ``history``, ``heads``, ``branches``, ``show``, ``merge``)
+**Config auto-resolution** — if the default ``runic/env.py`` does not exist,
+runic checks for a ``.runic`` marker file in the current directory and resolves
+the path from it.  ``runic init <custom-dir>`` writes this file automatically.
+
+Commands that do **not** require a database connection
+(``init``, ``revision``, ``history``, ``heads``, ``branches``, ``show``,
+``merge``, ``info --mode LOCAL``)
 read the script directory from ``--config``'s parent directory and never
 execute ``env.py``.
 
-Commands that **do** require a connection (``upgrade``, ``downgrade``,
-``current``, ``stamp``, ``test``, ``check``) execute ``env.py`` which calls
-``context.configure()``.
+Commands that **do** require a connection
+(``upgrade``, ``downgrade``, ``current``, ``stamp``, ``test``,
+``check``, ``validate``, ``run``, ``info``)
+execute ``env.py`` which calls ``context.configure()``.
 
 ----
 
@@ -40,6 +46,8 @@ Scaffold a new runic migration environment.
 * ``<DIRECTORY>/env.py`` — connection script template
 * ``<DIRECTORY>/script.py.mako`` — migration file template
 * ``<DIRECTORY>/versions/`` — empty directory for revision scripts
+* ``.runic`` — config pointer (written only when DIRECTORY is not the default
+  ``runic``; commit this file so the rest of the team can omit ``--config``)
 
 **Example**
 
@@ -51,8 +59,14 @@ Scaffold a new runic migration environment.
      runic/script.py.mako
      runic/versions/
 
-   $ runic init migrations --force
+   $ runic init migrations
    Created runic environment at migrations/
+     migrations/env.py
+     migrations/script.py.mako
+     migrations/versions/
+     .runic  (config pointer — commit this file)
+
+   $ runic init migrations --force   # overwrite existing directory
 
 ----
 
@@ -129,6 +143,7 @@ upgrade
 .. code-block:: bash
 
    runic upgrade [TARGET] [--config PATH] [--preview]
+                 [--validate-on-migrate] [--installed-by TEXT]
 
 Apply migrations up to ``TARGET`` (default: ``head``).
 
@@ -145,6 +160,18 @@ Apply migrations up to ``TARGET`` (default: ``head``).
 ``--preview``
     Print operations without executing them.  Version node is not updated.
 
+``--validate-on-migrate``
+    Before applying any pending revisions, verify that the checksums of all
+    already-applied scripts still match their stored values.  Aborts if any
+    mismatch is found.  Requires ``track_checksums=True`` in ``env.py``
+    (the default).
+
+``--installed-by TEXT``
+    Override the user/system recorded as having applied this upgrade.
+    If omitted, the value is resolved from the ``RUNIC_INSTALLED_BY``
+    environment variable, then falls back to the OS username.
+    Has no effect when ``track_installed_by=False`` in ``env.py``.
+
 **Examples**
 
 .. code-block:: bash
@@ -160,6 +187,9 @@ Apply migrations up to ``TARGET`` (default: ``head``).
 
    $ runic upgrade --preview
    CREATE RANGE INDEX: CREATE INDEX FOR (n:Person) ON (n.email) params=None
+
+   $ runic upgrade --validate-on-migrate --installed-by "ci-bot"
+   Upgraded to: head
 
 ----
 
@@ -470,6 +500,136 @@ Create a merge revision combining two branch heads.  See :doc:`branching`.
 
    $ runic merge 7b3d9e2f c1d2e3f4 -m "merge feature-x into main"
    Created revision: runic/versions/fa2b3c4d_merge_feature_x_into_main.py
+
+----
+
+validate
+--------
+
+.. code-block:: bash
+
+   runic validate [--config PATH]
+
+Verify that the local files for all applied revisions still match the
+checksums recorded at apply-time.  Exits 0 when all checksums are valid;
+exits 1 and lists mismatches otherwise.
+
+Requires ``track_checksums=True`` in ``env.py`` (the default).  Revisions
+applied before checksum tracking was introduced are silently skipped.
+
+**Options**
+
+``--config PATH``
+    Path to ``env.py``.
+
+**Output**
+
+.. code-block:: bash
+
+   # All good:
+   $ runic validate
+   All checksums valid.
+
+   # A script was modified after being applied:
+   $ runic validate
+     x 3f9a12c1ab4e (add person email index): checksum mismatch — script was modified after being applied
+   $ echo $?
+   1
+
+----
+
+run
+---
+
+.. code-block:: bash
+
+   runic run SCRIPT [SCRIPT ...] [--config PATH]
+
+Execute one or more Python migration scripts against the database **without**
+recording them in the migration chain.  Useful for one-off operational tasks
+(data patches, manual seed loads) where you explicitly do not want a revision
+record.
+
+Each ``SCRIPT`` must be a ``.py`` file that defines an ``upgrade(op)``
+function.  The function receives the same :class:`~runic.operations.GraphOperations`
+object as a normal migration.
+
+**Arguments**
+
+``SCRIPT``
+    One or more ``.py`` files.
+
+**Options**
+
+``--config PATH``
+    Path to ``env.py``.
+
+**Example**
+
+.. code-block:: bash
+
+   $ runic run patches/backfill_user_roles.py
+   Executed: backfill_user_roles.py
+
+   $ runic run patch_a.py patch_b.py
+   Executed: patch_a.py
+   Executed: patch_b.py
+
+----
+
+info
+----
+
+.. code-block:: bash
+
+   runic info [--config PATH] [--mode MODE]
+
+Show migration status.  Three modes are available:
+
+``COMPARE`` (default)
+    Compare the live database state against local revision files.  Shows the
+    current revision, how many revisions are applied vs total, and lists any
+    pending migrations.  Requires a database connection.
+
+``LOCAL``
+    Count local revision files and list heads.  Does **not** require a database
+    connection — safe for offline or CI use.
+
+``REMOTE``
+    Show only what the database knows (the currently applied revision ID).
+    Requires a database connection.
+
+**Options**
+
+``--config PATH``
+    Path to ``env.py``.
+
+``--mode TEXT``
+    ``COMPARE`` | ``LOCAL`` | ``REMOTE`` (default: ``COMPARE``).
+
+**Examples**
+
+.. code-block:: bash
+
+   # Default COMPARE view:
+   $ runic info
+   Database : my_graph
+   Current  : 7b3d9e2f  add email fulltext index
+   Applied  : 2 of 3
+   Pending  : 1
+
+   Pending migrations:
+     c1d2e3f4  add vector index
+
+   # Offline — no database needed:
+   $ runic info --mode LOCAL
+   Local revisions : 3
+   Heads           : 1
+     c1d2e3f4  add vector index
+
+   # Database state only:
+   $ runic info --mode REMOTE
+   Applied : 7b3d9e2f  add email fulltext index
 
 ----
 

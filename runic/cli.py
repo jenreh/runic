@@ -18,21 +18,55 @@ app = typer.Typer(
 )
 
 _DEFAULT_CONFIG = Path("runic/env.py")
+_MARKER_FILE = Path(".runic")
+
+
+def _resolve_config(config: Path) -> Path:
+    """Return *config* as-is when it exists; otherwise check the .runic marker file."""
+    if config.exists():
+        return config
+    if _MARKER_FILE.exists():
+        candidate = Path(_MARKER_FILE.read_text().strip())
+        if candidate.exists():
+            log.debug("resolved config from .runic: %s", candidate)
+            return candidate
+    return config
+
+
+_DB_CONNECTION_ERROR_NAMES = frozenset(
+    {"AuthenticationError", "ConnectionError", "TimeoutError"}
+)
 
 
 def _exec_env(config: Path, preview: bool = False) -> None:  # noqa: ARG001
+    config = _resolve_config(config)
     if not config.exists():
         typer.echo(
-            f"Error: config not found at {config}. Run `runic init` first.",
+            f"Error: config not found at {config}. "
+            "Run `runic init` first, or pass --config <dir>/env.py.",
             err=True,
         )
         raise typer.Exit(code=1)
     namespace: dict = {"__file__": str(config), "__name__": "__main__"}
-    exec(config.read_text(), namespace)  # noqa: S102
+    try:
+        exec(config.read_text(), namespace)  # noqa: S102
+    except SystemExit, KeyboardInterrupt, typer.Exit:
+        raise
+    except Exception as exc:
+        if type(exc).__name__ in _DB_CONNECTION_ERROR_NAMES or isinstance(
+            exc, ConnectionRefusedError
+        ):
+            typer.echo(f"Error: database connection failed — {exc}", err=True)
+            typer.echo(
+                "  Check FALKORDB_URL (and FALKORDB_USERNAME / FALKORDB_PASSWORD if auth is required).",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        raise
 
 
 def _get_script_location(config: Path) -> Path:
-    return config.parent
+    return _resolve_config(config).parent
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +94,10 @@ def init(
     typer.echo(f"  {directory}/env.py")
     typer.echo(f"  {directory}/script.py.mako")
     typer.echo(f"  {directory}/versions/")
+
+    if (directory / "env.py") != _DEFAULT_CONFIG:
+        _MARKER_FILE.write_text(str(directory / "env.py") + "\n")
+        typer.echo(f"  {_MARKER_FILE}  (config pointer — commit this file)")
 
 
 @app.command()
@@ -133,7 +171,7 @@ def revision(
                 check=True,
                 capture_output=True,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             log.warning("ruff format failed or ruff not installed; skipping")
 
 

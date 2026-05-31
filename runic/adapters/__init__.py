@@ -83,24 +83,43 @@ class GraphAdapter(Protocol):
 def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter:
     """Instantiate a named adapter from keyword arguments.
 
-    Supported backends and their required kwargs:
+    Two connection variants are supported for ``"falkordb"``:
 
-    ``"falkordb"``
-        ``url`` (str) — connection URL, e.g. ``"falkor://localhost:6379"``
-        ``graph_name`` (str) — name of the graph
+    **URL variant** — credentials embedded in the connection string::
 
-    Example::
+        create_adapter(
+            "falkordb", url="falkor://:mypassword@localhost:6379", graph_name="my_graph"
+        )
 
-        from runic.adapters import create_adapter
+    **Params variant** — explicit host/port/auth kwargs::
 
-        adapter = create_adapter(
-            "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
+        create_adapter(
+            "falkordb",
+            host="localhost",
+            port=6379,
+            username="myuser",
+            password="mypassword",
+            graph_name="my_graph",
         )
     """
     if backend == "falkordb":
         from runic.adapters.falkordb import FalkorDBAdapter
 
-        return FalkorDBAdapter.from_url(kwargs["url"], kwargs["graph_name"])
+        graph_name = kwargs["graph_name"]
+        if "url" in kwargs:
+            return FalkorDBAdapter.from_url(
+                kwargs["url"],
+                graph_name,
+                username=kwargs.get("username"),
+                password=kwargs.get("password"),
+            )
+        return FalkorDBAdapter.from_params(
+            graph_name,
+            host=kwargs.get("host", "localhost"),
+            port=int(kwargs.get("port", 6379)),
+            username=kwargs.get("username"),
+            password=kwargs.get("password"),
+        )
     raise KeyError(f"Unknown adapter backend {backend!r}. Supported: 'falkordb'")
 
 

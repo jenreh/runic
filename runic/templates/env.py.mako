@@ -4,17 +4,32 @@ from runic.adapters import create_adapter
 from runic import context
 
 # ---------------------------------------------------------------------------
-# Connection
-# Override via environment variables or edit the defaults below.
+# Connection — two variants, pick one.
 #
-# FALKORDB_URL   — connection string, e.g. falkor://user:pass@host:6379
-# FALKORDB_GRAPH — graph name in FalkorDB
+# Variant A: URL  (embed credentials directly in the connection string)
+#   No auth:             falkor://localhost:6379
+#   Password only:       falkor://:mypassword@localhost:6379
+#   User + password:     falkor://myuser:mypassword@localhost:6379
+#
+# Variant B: explicit host / port / credentials
 # ---------------------------------------------------------------------------
+
+# Variant A — URL (active by default)
 adapter = create_adapter(
     "falkordb",
     url=os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
     graph_name=os.getenv("FALKORDB_GRAPH", "my_graph"),
 )
+
+# Variant B — explicit params (comment out Variant A above and uncomment this)
+# adapter = create_adapter(
+#     "falkordb",
+#     host=os.getenv("FALKORDB_HOST", "localhost"),
+#     port=int(os.getenv("FALKORDB_PORT", "6379")),
+#     username=os.getenv("FALKORDB_USERNAME") or None,
+#     password=os.getenv("FALKORDB_PASSWORD") or None,
+#     graph_name=os.getenv("FALKORDB_GRAPH", "my_graph"),
+# )
 
 # ---------------------------------------------------------------------------
 # Optional: target schema manifest
