@@ -4,7 +4,7 @@ Revision ID: c3d4e5f67890
 Revises: ae1027a6acf0
 Create Date: 2026-05-30T16:00:00+00:00
 """
-from datetime import UTC, datetime
+from datetime import datetime
 
 message = "rename Person.name to full_name — irreversible data migration"
 create_date = datetime.fromisoformat("2026-05-30T16:00:00+00:00")

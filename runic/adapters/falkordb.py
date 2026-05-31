@@ -20,6 +20,26 @@ _SET_VERSION_QUERY = (
     f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
     " SET v.revisions = $revisions, v.applied_at = timestamp()"
 )
+_GET_TRACKING_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.checksums, v.installed_by"
+_SET_TRACKING_QUERY = (
+    f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
+    " SET v.checksums = $checksums, v.installed_by = $installed_by"
+)
+
+
+def _parse_kv_list(items: list | None) -> dict[str, str]:
+    if not items:
+        return {}
+    result: dict[str, str] = {}
+    for item in items:
+        if item:
+            k, _, v = str(item).partition(":")
+            result[k] = v
+    return result
+
+
+def _encode_kv_list(d: dict[str, str]) -> list[str]:
+    return [f"{k}:{v}" for k, v in d.items()]
 
 
 class FalkorDBAdapter(GraphAdapter):
@@ -249,6 +269,52 @@ class FalkorDBAdapter(GraphAdapter):
 
     def snapshot_exists(self, snap_name: str) -> bool:
         return snap_name in self._db.list_graphs()
+
+    # ------------------------------------------------------------------
+    # Checksum & attribution tracking
+    # ------------------------------------------------------------------
+
+    def _get_tracking(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Return (checksums, installed_by) dicts from the version node."""
+        try:
+            result = self._graph.ro_query(_GET_TRACKING_QUERY)
+        except Exception as exc:
+            if "empty key" in str(exc).lower():
+                return {}, {}
+            raise
+        rows = result.result_set
+        if not rows:
+            return {}, {}
+        row = rows[0]
+        checksums = _parse_kv_list(row[0] if row[0] is not None else None)
+        installed = _parse_kv_list(
+            row[1] if len(row) > 1 and row[1] is not None else None
+        )
+        return checksums, installed
+
+    def get_checksums(self) -> dict[str, str]:
+        checksums, _ = self._get_tracking()
+        return checksums
+
+    def get_installed_by(self) -> dict[str, str]:
+        _, installed = self._get_tracking()
+        return installed
+
+    def set_checksum(
+        self, rev_id: str, checksum: str, installed_by: str | None = None
+    ) -> None:
+        checksums, installed = self._get_tracking()
+        checksums[rev_id] = checksum
+        if installed_by is not None:
+            installed[rev_id] = installed_by
+        self._graph.query(
+            _SET_TRACKING_QUERY,
+            {
+                "checksums": _encode_kv_list(checksums),
+                "installed_by": _encode_kv_list(installed),
+            },
+        )
+        log.debug("recorded checksum for revision %s", rev_id)
 
     def delete_graph(self) -> None:
         """Delete the underlying graph (used for ephemeral test cleanup)."""

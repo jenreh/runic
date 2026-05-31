@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 from pathlib import Path
 
 from runic.adapters import GraphAdapter
@@ -40,11 +42,15 @@ class Runic:
         *,
         preview: bool = False,
         target_manifest: SchemaManifest | None = None,
+        track_checksums: bool = True,
+        track_installed_by: bool = True,
     ) -> None:
         self._adapter = adapter
         self._script_location = script_location
         self._preview = preview
         self._target_manifest = target_manifest
+        self._track_checksums = track_checksums
+        self._track_installed_by = track_installed_by
         self._version_node = VersionNode(adapter)
         self._script_dir = ScriptDirectory.load(script_location)
         self._ops = GraphOperations(adapter, preview=preview)
@@ -137,7 +143,79 @@ class Runic:
             return "base"
         return chain[n].revision
 
-    def upgrade(self, target: str = "head") -> None:
+    def validate(self) -> list[str]:
+        """Check that applied revisions' local files match their stored checksums.
+
+        Returns a list of error strings (empty means everything is valid).
+        Missing checksum entries are skipped (backward compatible with databases
+        migrated before checksum tracking was introduced).
+        Returns [] immediately when track_checksums=False.
+        """
+        if not self._track_checksums:
+            log.debug("checksum tracking disabled — skipping validate()")
+            return []
+
+        from runic.checksum import file_checksum
+
+        current_revs = self._version_node.get()
+        if not current_revs:
+            return []
+
+        stored = self._adapter.get_checksums()
+        errors: list[str] = []
+        checked: set[str] = set()
+
+        for rev_id in current_revs:
+            try:
+                chain = self._script_dir.iterate_revisions(None, rev_id)
+            except Exception as exc:
+                errors.append(f"{rev_id}: could not trace revision chain — {exc}")
+                continue
+
+            for rev in chain:
+                if rev.revision in checked:
+                    continue
+                checked.add(rev.revision)
+
+                if rev.revision not in stored:
+                    log.debug(
+                        "no checksum stored for %s (pre-checksum deployment)",
+                        rev.revision,
+                    )
+                    continue
+
+                current_hash = file_checksum(rev.path)
+                if current_hash != stored[rev.revision]:
+                    errors.append(
+                        f"{rev.revision} ({rev.message}): "
+                        "checksum mismatch — script was modified after being applied"
+                    )
+
+        return errors
+
+    def upgrade(
+        self,
+        target: str = "head",
+        *,
+        validate_on_migrate: bool = False,
+        installed_by: str | None = None,
+    ) -> None:
+        if validate_on_migrate:
+            errors = self.validate()
+            if errors:
+                raise ValueError(
+                    "Checksum validation failed before upgrade:\n"
+                    + "\n".join(f"  {e}" for e in errors)
+                )
+
+        if installed_by is None and self._track_installed_by:
+            installed_by = os.environ.get("RUNIC_INSTALLED_BY")
+            if installed_by is None:
+                import getpass
+
+                with contextlib.suppress(Exception):
+                    installed_by = getpass.getuser()
+
         from_revs = self._version_node.get()
         resolved_target = self._resolve_upgrade_target(target)
 
@@ -172,6 +250,12 @@ class Runic:
                 raise
             if not self._preview:
                 self._version_node.set(rev.revision)
+                if self._track_checksums:
+                    from runic.checksum import file_checksum
+
+                    self._adapter.set_checksum(
+                        rev.revision, file_checksum(rev.path), installed_by
+                    )
             from_revs = [rev.revision]
 
     def downgrade(self, target: str, *, force: bool = False) -> None:
@@ -322,6 +406,8 @@ def configure(
     preview: bool = False,
     *,
     target_manifest: SchemaManifest | None = None,
+    track_checksums: bool = True,
+    track_installed_by: bool = True,
     _env_path: Path | None = None,
 ) -> None:
     global _context
@@ -330,8 +416,20 @@ def configure(
         loc = _env_path.parent
     if loc is None:
         loc = Path("runic")
-    _context = Runic(adapter, loc, preview=preview, target_manifest=target_manifest)
-    log.debug("context configured: script_location=%s", loc)
+    _context = Runic(
+        adapter,
+        loc,
+        preview=preview,
+        target_manifest=target_manifest,
+        track_checksums=track_checksums,
+        track_installed_by=track_installed_by,
+    )
+    log.debug(
+        "context configured: script_location=%s track_checksums=%s track_installed_by=%s",
+        loc,
+        track_checksums,
+        track_installed_by,
+    )
 
 
 def get() -> Runic:

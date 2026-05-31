@@ -95,7 +95,7 @@ def test_upgrade_stamps_each_revision(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbbbbbbbbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 2
 
 
@@ -121,7 +121,7 @@ def test_upgrade_mid_failure_leaves_prior_stamped(
         ctx.upgrade("bbbbbbbbbbbb")
 
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 1
 
 
@@ -132,7 +132,7 @@ def test_downgrade_to_base_clears_version(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("base")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert stamp_calls
 
 
@@ -170,7 +170,7 @@ def test_upgrade_already_at_target(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbbbbbbbbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 0
 
 
@@ -224,7 +224,7 @@ def test_upgrade_relative_plus1(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     # Only one revision should be stamped (aaaaaaaaaaaa)
     assert len(stamp_calls) == 1
 
@@ -237,7 +237,7 @@ def test_upgrade_relative_plus2_reaches_head(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+2")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 2
 
 
@@ -249,7 +249,7 @@ def test_upgrade_relative_plus_exceeds_chain_stops_at_head(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+99")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 2
 
 
@@ -261,7 +261,7 @@ def test_downgrade_relative_minus1(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     # One stamp: set to aaaaaaaaaaaa
     assert len(stamp_calls) == 1
 
@@ -274,7 +274,7 @@ def test_downgrade_relative_minus_exceeds_base(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-99")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 2  # stamp for each revision downgraded
 
 
@@ -286,7 +286,7 @@ def test_upgrade_relative_zero_is_noop(
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+0")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
-    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 0
 
 

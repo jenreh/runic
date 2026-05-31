@@ -10,7 +10,12 @@ import typer
 
 log = logging.getLogger(__name__)
 
-app = typer.Typer(name="runic", help="FalkorDB migration tool", no_args_is_help=True)
+app = typer.Typer(
+    name="runic",
+    help="FalkorDB migration tool",
+    no_args_is_help=True,
+    add_completion=True,
+)
 
 _DEFAULT_CONFIG = Path("runic/env.py")
 
@@ -128,7 +133,7 @@ def revision(
                 check=True,
                 capture_output=True,
             )
-        except subprocess.CalledProcessError, FileNotFoundError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             log.warning("ruff format failed or ruff not installed; skipping")
 
 
@@ -137,6 +142,19 @@ def upgrade(
     target: Annotated[str, typer.Argument()] = "head",
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
     preview: Annotated[bool, typer.Option("--preview")] = False,
+    validate_on_migrate: Annotated[
+        bool,
+        typer.Option(
+            "--validate-on-migrate",
+            help="Abort if any already-applied script has a checksum mismatch",
+        ),
+    ] = False,
+    installed_by: Annotated[
+        str | None,
+        typer.Option(
+            "--installed-by", help="Attribution recorded with each applied revision"
+        ),
+    ] = None,
 ) -> None:
     """Apply migrations up to target (default: head)."""
     _exec_env(config)
@@ -146,7 +164,9 @@ def upgrade(
     if preview:
         ctx.enable_preview()
 
-    ctx.upgrade(target)
+    ctx.upgrade(
+        target, validate_on_migrate=validate_on_migrate, installed_by=installed_by
+    )
 
     if preview and ctx.preview_log:
         for line in ctx.preview_log:
@@ -520,6 +540,133 @@ def merge_cmd(
         branch_labels=[branch_label] if branch_label else None,
     )
     typer.echo(f"Created revision: {path}")
+
+
+@app.command(name="validate")
+def validate_cmd(
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+) -> None:
+    """Check that applied migration scripts match their stored checksums."""
+    _exec_env(config)
+    from runic.context import get
+
+    ctx = get()
+    errors = ctx.validate()
+
+    if not errors:
+        typer.echo("All checksums valid.")
+        return
+
+    for err in errors:
+        typer.echo(f"  x {err}", err=True)
+    raise typer.Exit(code=1)
+
+
+@app.command(name="run")
+def run_cmd(
+    scripts: Annotated[
+        list[Path],
+        typer.Argument(help=".py migration scripts to execute without recording"),
+    ],
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+) -> None:
+    """Execute migration script(s) against the database without recording in the chain."""
+    _exec_env(config)
+    from runic.context import get
+    from runic.operations import GraphOperations
+    from runic.script import _load_module
+
+    ctx = get()
+    ops = GraphOperations(ctx.adapter)
+
+    for script in scripts:
+        if not script.exists():
+            typer.echo(f"Error: {script} not found", err=True)
+            raise typer.Exit(code=1)
+        if script.suffix != ".py":
+            typer.echo(
+                f"Error: {script.name} is not a .py file — only Python migration scripts are supported",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        mod = _load_module(script)
+        if not hasattr(mod, "upgrade"):
+            typer.echo(f"Error: {script.name} has no upgrade() function", err=True)
+            raise typer.Exit(code=1)
+        mod.upgrade(ops)
+        typer.echo(f"Executed: {script.name}")
+
+
+@app.command(name="info")
+def info_cmd(
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+    mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            help="COMPARE (default): pending vs applied | LOCAL: offline only | REMOTE: DB state only",
+        ),
+    ] = "COMPARE",
+) -> None:
+    """Show migration status. Modes: COMPARE (default), LOCAL, REMOTE."""
+    mode = mode.upper()
+
+    if mode == "LOCAL":
+        from runic.script import ScriptDirectory
+
+        sd = ScriptDirectory.load(_get_script_location(config))
+        all_revs = sd.revision_history()
+        heads = sd.get_heads()
+        typer.echo(f"Local revisions : {len(all_revs)}")
+        typer.echo(f"Heads           : {len(heads)}")
+        for h in heads:
+            typer.echo(f"  {h.revision}  {h.message}")
+        return
+
+    _exec_env(config)
+    from runic.context import get
+
+    ctx = get()
+    current_revs = ctx._version_node.get()  # noqa: SLF001
+
+    if mode == "REMOTE":
+        if not current_revs:
+            typer.echo("Applied : <none>")
+        else:
+            for rev_id in current_revs:
+                msg = ctx.get_revision_message(rev_id) or ""
+                label = f"{rev_id}  {msg}".strip()
+                typer.echo(f"Applied : {label}")
+        return
+
+    # COMPARE (default)
+    all_revs = ctx.get_history()
+    try:
+        pending = ctx._script_dir.topological_upgrade_path(  # noqa: SLF001
+            current_revs or None, "head"
+        )
+    except Exception:
+        pending = []
+
+    applied_count = len(all_revs) - len(pending)
+
+    if not current_revs:
+        current_label = "<none>"
+    elif len(current_revs) == 1:
+        msg = ctx.get_revision_message(current_revs[0]) or ""
+        current_label = f"{current_revs[0]}  {msg}".strip()
+    else:
+        current_label = f"{len(current_revs)} heads"
+
+    typer.echo(f"Database : {ctx.adapter.name}")
+    typer.echo(f"Current  : {current_label}")
+    typer.echo(f"Applied  : {applied_count} of {len(all_revs)}")
+    typer.echo(f"Pending  : {len(pending)}")
+
+    if pending:
+        typer.echo("\nPending migrations:")
+        for rev in pending:
+            typer.echo(f"  {rev.revision}  {rev.message}")
 
 
 @app.command(name="check")

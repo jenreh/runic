@@ -298,7 +298,9 @@ def test_upgrade_calls_context(tmp_path: Path) -> None:
         result = runner.invoke(app, ["upgrade", "--config", str(config)])
 
     assert result.exit_code == 0
-    ctx.upgrade.assert_called_once_with("head")
+    ctx.upgrade.assert_called_once_with(
+        "head", validate_on_migrate=False, installed_by=None
+    )
 
 
 def test_downgrade_calls_context(tmp_path: Path) -> None:
