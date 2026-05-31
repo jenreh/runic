@@ -220,14 +220,20 @@ def test_stamp_calls_no_migration_functions(tmp_path: Path) -> None:
 
 def test_history_verbose_shows_create_date(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
+    with patch("runic.cli._exec_env"), patch(
+        "runic.context.get", return_value=_mock_ctx()
+    ):
+        result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
     assert result.exit_code == 0, result.output
     assert "create_date" in result.output
 
 
 def test_history_verbose_shows_down_revision(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
+    with patch("runic.cli._exec_env"), patch(
+        "runic.context.get", return_value=_mock_ctx()
+    ):
+        result = runner.invoke(app, ["history", "--config", str(env), "--verbose"])
     assert result.exit_code == 0, result.output
     assert "down_revision" in result.output
 
