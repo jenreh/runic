@@ -50,10 +50,42 @@ class FalkorDBAdapter(GraphAdapter):
         self._graph = graph
 
     @classmethod
-    def from_url(cls, url: str, graph_name: str) -> FalkorDBAdapter:
+    def from_url(
+        cls,
+        url: str,
+        graph_name: str,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> FalkorDBAdapter:
         from falkordb import FalkorDB
 
-        db = FalkorDB.from_url(url)
+        kwargs: dict = {}
+        if username is not None:
+            kwargs["username"] = username
+        if password is not None:
+            kwargs["password"] = password
+        db = FalkorDB.from_url(url, **kwargs)
+        return cls(db, db.select_graph(graph_name))
+
+    @classmethod
+    def from_params(
+        cls,
+        graph_name: str,
+        *,
+        host: str = "localhost",
+        port: int = 6379,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> FalkorDBAdapter:
+        from falkordb import FalkorDB
+
+        kwargs: dict = {"host": host, "port": port}
+        if username is not None:
+            kwargs["username"] = username
+        if password is not None:
+            kwargs["password"] = password
+        db = FalkorDB(**kwargs)
         return cls(db, db.select_graph(graph_name))
 
     def fork(self, graph_name: str) -> FalkorDBAdapter:

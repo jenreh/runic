@@ -14,7 +14,8 @@ combines all DB-connected operations (upgrade, downgrade, stamp, current) with
 offline DAG queries (history, heads, revision creation) in one coherent API.
 
 .. autoclass:: runic.context.Runic
-   :members: upgrade, downgrade, stamp, current, enable_preview, preview_log,
+   :members: upgrade, downgrade, stamp, current, validate,
+             enable_preview, preview_log,
              get_revision_message, get_history, get_heads, get_branch_points,
              create_revision, show_revision,
              adapter, target_manifest, script_location
@@ -32,14 +33,28 @@ Programmatic usage example
    from runic import Runic
    from runic.adapters import create_adapter
 
+   # URL variant (credentials embedded in the connection string)
    adapter = create_adapter(
        "falkordb",
-       url="falkor://localhost:6379",
+       url="falkor://:mypassword@localhost:6379",
        graph_name="my_graph",
    )
+   # Params variant (explicit host / port / auth)
+   # adapter = create_adapter(
+   #     "falkordb",
+   #     host="localhost", port=6379,
+   #     password="mypassword",
+   #     graph_name="my_graph",
+   # )
+
    runic = Runic(adapter, script_location=Path("runic/"))
 
-   runic.upgrade("head")
+   # Validate checksums before upgrading
+   errors = runic.validate()
+   if errors:
+       raise RuntimeError("\n".join(errors))
+
+   runic.upgrade("head", installed_by="deploy-bot")
    print("current:", runic.current())
 
    history = runic.get_history()

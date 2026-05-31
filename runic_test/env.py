@@ -1,7 +1,7 @@
 import os
 
-from runic.adapters import create_adapter
 from runic import context
+from runic.adapters import create_adapter
 
 # ---------------------------------------------------------------------------
 # Connection — two variants, pick one.
@@ -17,7 +17,7 @@ from runic import context
 # Variant A — URL (active by default)
 adapter = create_adapter(
     "falkordb",
-    url=os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
+    url=os.getenv("FALKORDB_URL", "falkor://:falkordb@localhost:6379"),
     graph_name=os.getenv("FALKORDB_GRAPH", "my_graph"),
 )
 
@@ -64,13 +64,10 @@ adapter = create_adapter(
 
 context.configure(
     adapter,
-
     # enable schema drift detection
     # target_manifest=target_manifest,
-
     # set False to disable checksum recording/validation
     track_checksums=True,
-
     # When track_installed_by=True, attribution resolution order:
     #   RUNIC_INSTALLED_BY env var → OS user
     #   --installed-by still overrides when False

@@ -28,6 +28,16 @@ elsewhere:
 .. code-block:: bash
 
    $ runic init migrations
+   Created runic environment at migrations/
+     migrations/env.py
+     migrations/script.py.mako
+     migrations/versions/
+     .runic  (config pointer — commit this file)
+
+When you use a custom directory, runic writes a ``.runic`` marker file in
+the current directory so that subsequent commands (``runic upgrade``,
+``runic info``, …) resolve the config automatically — no ``--config`` flag
+needed.
 
 Three files are created:
 
@@ -48,20 +58,44 @@ Step 2 — Configure your connection
 ------------------------------------
 
 Open ``runic/env.py``.  The generated file reads connection details from
-environment variables:
+environment variables.
+
+**No-auth (local dev):**
 
 .. code-block:: python
-
-   import os
-   from runic import context
-   from runic.adapters import create_adapter
 
    adapter = create_adapter(
        "falkordb",
        url=os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
        graph_name=os.getenv("FALKORDB_GRAPH", "my_graph"),
    )
-   context.configure(adapter)
+
+**With authentication** — embed credentials directly in the URL:
+
+.. code-block:: python
+
+   # password only:   falkor://:mypassword@localhost:6379
+   # user+password:   falkor://myuser:mypassword@localhost:6379
+   adapter = create_adapter(
+       "falkordb",
+       url=os.getenv("FALKORDB_URL", "falkor://:mypassword@localhost:6379"),
+       graph_name=os.getenv("FALKORDB_GRAPH", "my_graph"),
+   )
+
+Alternatively, supply explicit ``host``/``port``/``username``/``password``
+kwargs instead of a URL — see the commented-out *Variant B* block in ``env.py``.
+
+The generated ``context.configure()`` call has additional commented-out options
+you may want to enable:
+
+.. code-block:: python
+
+   context.configure(
+       adapter,
+       # target_manifest=target_manifest,  # enable schema drift detection
+       # track_checksums=True,             # set False to disable checksum recording
+       # track_installed_by=True,          # set False to skip OS-user attribution
+   )
 
 Set ``FALKORDB_URL`` and ``FALKORDB_GRAPH`` in your environment (or a
 ``.env`` file loaded by your shell).
