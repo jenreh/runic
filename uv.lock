@@ -961,7 +961,7 @@ wheels = [
 
 [[package]]
 name = "runic-migrate"
-version = "0.1.8"
+version = "0.1.9"
 source = { editable = "." }
 dependencies = [
     { name = "falkordb" },
