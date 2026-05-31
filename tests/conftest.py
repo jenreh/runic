@@ -7,6 +7,18 @@ import pytest
 from runic.testing import falkordb_graph, runic_context  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _restore_runic_marker() -> None:
+    """Prevent test runs from contaminating the project-root .runic marker file."""
+    marker = Path(".runic")
+    original = marker.read_text() if marker.exists() else None
+    yield  # type: ignore[misc]
+    if original is None:
+        marker.unlink(missing_ok=True)
+    else:
+        marker.write_text(original)
+
+
 @pytest.fixture
 def tmp_versions(tmp_path: Path) -> Path:
     versions = tmp_path / "versions"

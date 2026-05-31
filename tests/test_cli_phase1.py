@@ -67,9 +67,19 @@ def _make_env(tmp_path: Path) -> Path:
 # ------------------------------------------------------------------
 
 
+def _mock_ctx(current: str | None = None) -> MagicMock:
+    ctx = MagicMock()
+    ctx.current.return_value = current
+    return ctx
+
+
 def test_history_contains_both_revisions(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(app, ["history", "--config", str(env)])
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=_mock_ctx()),
+    ):
+        result = runner.invoke(app, ["history", "--config", str(env)])
     assert result.exit_code == 0, result.output
     assert "aaaaaaaaaaaa" in result.output
     assert "bbbbbbbbbbbb" in result.output
@@ -77,43 +87,50 @@ def test_history_contains_both_revisions(tmp_path: Path) -> None:
 
 def test_history_newest_first(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(app, ["history", "--config", str(env)])
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=_mock_ctx()),
+    ):
+        result = runner.invoke(app, ["history", "--config", str(env)])
     assert result.exit_code == 0
     pos_bb = result.output.index("bbbbbbbbbbbb")
     pos_aa = result.output.index("aaaaaaaaaaaa")
     assert pos_bb < pos_aa
 
 
-def test_history_head_marker(tmp_path: Path) -> None:
+def test_history_marks_applied_revision_as_head(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(app, ["history", "--config", str(env)])
-    assert "(head" in result.output
-
-
-def test_history_indicate_current(tmp_path: Path) -> None:
-    env = _make_env(tmp_path)
-
-    mock_ctx = MagicMock()
-    mock_ctx.current.return_value = "bbbbbbbbbbbb"
-
     with (
         patch("runic.cli._exec_env"),
-        patch("runic.context.get", return_value=mock_ctx),
+        patch("runic.context.get", return_value=_mock_ctx("bbbbbbbbbbbb")),
     ):
-        result = runner.invoke(
-            app, ["history", "--config", str(env), "--indicate-current"]
-        )
-
+        result = runner.invoke(app, ["history", "--config", str(env)])
     assert result.exit_code == 0, result.output
-    assert "bbbbbbbbbbbb" in result.output
-    assert "current" in result.output
+    lines = result.output.splitlines()
+    head_line = next(l for l in lines if "(head)" in l)
+    assert "bbbbbbbbbbbb" in head_line
+
+
+def test_history_no_head_marker_when_nothing_applied(tmp_path: Path) -> None:
+    env = _make_env(tmp_path)
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=_mock_ctx(None)),
+    ):
+        result = runner.invoke(app, ["history", "--config", str(env)])
+    assert result.exit_code == 0, result.output
+    assert "(head)" not in result.output
 
 
 def test_history_range(tmp_path: Path) -> None:
     env = _make_env(tmp_path)
-    result = runner.invoke(
-        app, ["history", "--config", str(env), "--range", ":bbbbbbbbbbbb"]
-    )
+    with (
+        patch("runic.cli._exec_env"),
+        patch("runic.context.get", return_value=_mock_ctx()),
+    ):
+        result = runner.invoke(
+            app, ["history", "--config", str(env), "--range", ":bbbbbbbbbbbb"]
+        )
     assert result.exit_code == 0, result.output
     assert "bbbbbbbbbbbb" in result.output
     assert "aaaaaaaaaaaa" in result.output

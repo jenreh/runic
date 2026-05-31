@@ -313,3 +313,48 @@ def test_exec_env_executes_real_script(tmp_path: Path) -> None:
 
     _exec_env(env)
     assert sentinel.exists()
+
+
+def test_exec_env_injects_env_path_via_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_exec_env sets script_location from the config's parent when resolved via .runic."""
+    import runic.context as ctx_module
+
+    custom = tmp_path / "migrations"
+    (custom / "versions").mkdir(parents=True)
+    env = custom / "env.py"
+    env.write_text(
+        "from unittest.mock import MagicMock\n"
+        "from runic import context\n"
+        "context.configure(MagicMock())\n"
+    )
+    (tmp_path / ".runic").write_text(str(env) + "\n")
+    monkeypatch.chdir(tmp_path)
+
+    from runic.cli import _exec_env
+
+    _exec_env(Path("runic/env.py"))
+
+    assert ctx_module.get()._script_location == custom  # noqa: SLF001
+
+
+def test_downgrade_via_marker_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """downgrade uses _exec_env which resolves config via .runic marker."""
+    custom = tmp_path / "migrations"
+    (custom / "versions").mkdir(parents=True)
+    env = custom / "env.py"
+    env.write_text("# stub")
+    (tmp_path / ".runic").write_text(str(env) + "\n")
+    monkeypatch.chdir(tmp_path)
+
+    ctx = MagicMock()
+    ctx.preview_log = []
+
+    with patch("runic.cli._exec_env"), patch("runic.context.get", return_value=ctx):
+        result = runner.invoke(app, ["downgrade", "base"])
+
+    assert result.exit_code == 0, result.output
+    ctx.downgrade.assert_called_once_with("base", force=False)

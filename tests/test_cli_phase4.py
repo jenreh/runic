@@ -138,7 +138,7 @@ def test_revision_with_branch_label(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     files = list((target / "versions").glob("*.py"))
     assert len(files) == 1
-    assert "branch_labels = ['feature_x']" in files[0].read_text()
+    assert "branch_labels: list[str] = ['feature_x']" in files[0].read_text()
 
 
 def test_revision_with_depends_on(tmp_path: Path) -> None:
@@ -313,6 +313,44 @@ def test_downgrade_calls_context(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     ctx.downgrade.assert_called_once_with("base", force=False)
+
+
+def test_downgrade_defaults_to_minus_one(tmp_path: Path) -> None:
+    config = tmp_path / "env.py"
+    config.write_text("")
+    ctx = _mock_ctx()
+
+    with patch("runic.cli._exec_env"), patch("runic.context.get", return_value=ctx):
+        result = runner.invoke(app, ["downgrade", "--config", str(config)])
+
+    assert result.exit_code == 0, result.output
+    ctx.downgrade.assert_called_once_with("-1", force=False)
+
+
+def test_upgrade_partial_revision_id(tmp_path: Path) -> None:
+    config = tmp_path / "env.py"
+    config.write_text("")
+    ctx = _mock_ctx()
+
+    with patch("runic.cli._exec_env"), patch("runic.context.get", return_value=ctx):
+        result = runner.invoke(app, ["upgrade", "abc1", "--config", str(config)])
+
+    assert result.exit_code == 0, result.output
+    ctx.upgrade.assert_called_once_with(
+        "abc1", validate_on_migrate=False, installed_by=None
+    )
+
+
+def test_downgrade_partial_revision_id(tmp_path: Path) -> None:
+    config = tmp_path / "env.py"
+    config.write_text("")
+    ctx = _mock_ctx()
+
+    with patch("runic.cli._exec_env"), patch("runic.context.get", return_value=ctx):
+        result = runner.invoke(app, ["downgrade", "abc1", "--config", str(config)])
+
+    assert result.exit_code == 0, result.output
+    ctx.downgrade.assert_called_once_with("abc1", force=False)
 
 
 def test_current_prints_revision(tmp_path: Path) -> None:

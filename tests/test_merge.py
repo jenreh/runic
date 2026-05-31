@@ -194,7 +194,7 @@ def test_create_with_branch_labels(tmp_path: Path) -> None:
         rev_id="ff00ff00ff00",
     )
     content = path.read_text()
-    assert "branch_labels = ['feature_x']" in content
+    assert "branch_labels: list[str] = ['feature_x']" in content
 
 
 def test_create_with_upgrade_downgrade_body(tmp_path: Path) -> None:

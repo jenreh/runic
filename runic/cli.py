@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import secrets
+from functools import wraps
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -22,10 +23,15 @@ _MARKER_FILE = Path(".runic")
 
 
 def _resolve_config(config: Path) -> Path:
-    """Return *config* as-is when it exists; otherwise check the .runic marker file."""
+    """Return *config* as-is when it exists; otherwise check the .runic marker file.
+
+    The .runic fallback only fires when the DEFAULT config path is in use.
+    An explicit --config that does not exist is returned unchanged so callers
+    can emit a meaningful "not found" error.
+    """
     if config.exists():
         return config
-    if _MARKER_FILE.exists():
+    if config == _DEFAULT_CONFIG and _MARKER_FILE.exists():
         candidate = Path(_MARKER_FILE.read_text().strip())
         if candidate.exists():
             log.debug("resolved config from .runic: %s", candidate)
@@ -47,6 +53,19 @@ def _exec_env(config: Path, preview: bool = False) -> None:  # noqa: ARG001
             err=True,
         )
         raise typer.Exit(code=1)
+
+    import runic.context as _ctx_module
+
+    _orig_configure = _ctx_module.configure
+
+    @wraps(_orig_configure)
+    def _patched_configure(
+        adapter: object, script_location: object = None, **kwargs: object
+    ) -> None:
+        kwargs.setdefault("_env_path", config)
+        return _orig_configure(adapter, script_location, **kwargs)  # type: ignore[arg-type]
+
+    _ctx_module.configure = _patched_configure  # type: ignore[assignment]
     namespace: dict = {"__file__": str(config), "__name__": "__main__"}
     try:
         exec(config.read_text(), namespace)  # noqa: S102
@@ -212,17 +231,18 @@ def upgrade(
     elif preview:
         typer.echo("(no operations — nothing to upgrade)")
     else:
-        typer.echo(f"Upgraded to: {target}")
+        current = ctx.current()
+        typer.echo(f"Upgraded to: {current or target}")
 
 
 @app.command()
 def downgrade(
-    target: Annotated[str, typer.Argument()],
+    target: Annotated[str, typer.Argument()] = "-1",
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
     force: Annotated[bool, typer.Option("--force")] = False,
     preview: Annotated[bool, typer.Option("--preview")] = False,
 ) -> None:
-    """Revert migrations to target revision (or 'base')."""
+    """Revert migrations down one step, or to TARGET revision / 'base'."""
     _exec_env(config)
     from runic.context import get
 
@@ -238,7 +258,8 @@ def downgrade(
     elif preview:
         typer.echo("(no operations — nothing to downgrade)")
     else:
-        typer.echo(f"Downgraded to: {target}")
+        current = ctx.current()
+        typer.echo(f"Downgraded to: {current or 'base'}")
 
 
 @app.command()
@@ -271,29 +292,25 @@ def current(
 def history(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
-    indicate_current: Annotated[bool, typer.Option("--indicate-current")] = False,
     range_: Annotated[
         str | None, typer.Option("--range", help="Inclusive range start:end")
     ] = None,
 ) -> None:
-    """Print all revisions chronologically (newest first)."""
+    """Print all revisions chronologically (newest first), marking the applied revision as (head)."""
     from runic.script import ScriptDirectory
 
     script_location = _get_script_location(config)
     sd = ScriptDirectory.load(script_location)
 
-    current_rev: str | None = None
-    if indicate_current:
-        _exec_env(config)
-        from runic.context import get
+    _exec_env(config)
+    from runic.context import get
 
-        current_rev = get().current()
+    current_rev = get().current()
 
     if range_:
         parts = range_.split(":")
         start = parts[0].strip() or None
         end = parts[1].strip() if len(parts) > 1 else None
-        heads_set = {r.revision for r in sd.get_heads()}
         bp_set = {r.revision for r in sd.get_branch_points()}
         from runic.script import RevisionInfo
 
@@ -305,7 +322,7 @@ def history(
                         down_revision=r.down_revision,
                         message=r.message,
                         create_date=r.create_date,
-                        is_head=r.revision in heads_set,
+                        is_head=False,
                         is_branch_point=r.revision in bp_set,
                     )
                     for r in sd.walk_revisions(start, end, "up")
@@ -317,10 +334,8 @@ def history(
 
     for info in items:
         tags = []
-        if info.is_head:
+        if current_rev == info.revision:
             tags.append("head")
-        if indicate_current and current_rev == info.revision:
-            tags.append("current")
 
         tag_str = f"({', '.join(tags)})" if tags else ""
         line = f"{info.revision:<13}  {tag_str:<20}  {info.message}"
