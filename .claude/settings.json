@@ -22,11 +22,7 @@
       "Bash(ls *)",
       "Skill(create-readme:*)",
       "Skill(writing-python-code:*)",
-      "Skill(frontend-design:*)",
-      "Bash(.venv.mac/bin/python -m pytest tests/test_integration.py::test_baseline_round_trip -v)",
-      "Bash(.venv.mac/bin/python -m pytest tests/test_integration.py -v -k \"round\" --no-header -rN)",
-      "Bash(.venv.mac/bin/python -m pytest tests/test_integration.py::test_upgrade_downgrade_round_trip -v -s)",
-      "Bash(.venv.mac/bin/python -c ' *)"
+      "Skill(frontend-design:*)"
     ],
     "defaultMode": "acceptEdits"
   }
