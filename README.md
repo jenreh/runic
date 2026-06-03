@@ -92,6 +92,52 @@ runic downgrade          # roll back one step (default target: -1)
 runic downgrade 1975e    # roll back to a revision — prefix is enough
 ```
 
+## Baselining an existing graph
+
+If you have a FalkorDB graph that was built without Runic, use `baseline` to bring it under management without re-running anything on the source:
+
+```bash
+# Introspect the live graph, generate a root revision, and stamp it as applied
+runic baseline -m "baseline"
+# Generated: runic/versions/<hex>_baseline.py
+# Stamped:   <hex>
+
+# Verify the graph is now tracked
+runic current
+# <hex>  baseline
+```
+
+The generated revision recreates all indexes and constraints from scratch — safe to replay on a fresh empty graph (CI, cloning, new tenants):
+
+```bash
+runic upgrade head   # rebuilds the full schema on an empty graph
+```
+
+Re-running `baseline` on an already-managed graph is refused:
+
+```bash
+runic baseline -m "again"
+# Error: Graph already managed by Runic. Use `runic upgrade` instead.
+```
+
+To mark an existing graph as baselined without generating a file (useful when you manage the revision file yourself):
+
+```bash
+runic baseline --stamp-only
+```
+
+### Baseline → autogenerate workflow
+
+Once you have a baseline revision, use the standard autogenerate workflow to evolve the schema:
+
+```bash
+# After changing your SchemaManifest in env.py:
+runic revision --autogenerate -m "add embedding index"
+runic upgrade head
+```
+
+The baseline revision is the root of the chain (`down_revision = None`). Future revisions chain off it normally.
+
 ## Programmatic SDK
 
 Use runic directly in Python — no CLI, no `env.py` needed:

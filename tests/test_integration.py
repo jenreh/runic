@@ -209,6 +209,47 @@ def test_snapshot_downgrade_uses_snapshot(falkordb_graph: Any, tmp_path: Path) -
 
 
 @pytest.mark.integration
+def test_baseline_round_trip(falkordb_graph: Any, tmp_path: Path) -> None:
+    """Baseline-generated revision must run cleanly upgrade→downgrade on a fresh graph.
+
+    Note: falkordblite does not support GRAPH.CONSTRAINT so only range and
+    fulltext indexes are exercised here.  Constraint-bearing schemas must be
+    verified against a standalone FalkorDB instance.
+    """
+    db, graph = falkordb_graph
+    script_location = tmp_path / "runic"
+    script_location.mkdir(parents=True, exist_ok=True)
+
+    source_adapter = FalkorDBAdapter(db, graph)
+    source_adapter.create_range_index("Movie", "title")
+    source_adapter.create_fulltext_index("Article", "body")
+
+    ctx = Runic(source_adapter, script_location)
+    generated_path = ctx.baseline("baseline")
+    assert generated_path is not None
+    assert generated_path.exists()
+    assert ctx.current() is not None
+
+    content = generated_path.read_text()
+    assert "create_range_index" in content
+    assert "create_fulltext_index" in content
+
+    fresh_graph_name = f"{graph.name}__baseline_fresh"
+    fresh_adapter = source_adapter.fork(fresh_graph_name)
+    try:
+        fresh_ctx = Runic(fresh_adapter, script_location)
+        fresh_ctx.upgrade("head")
+        assert _index_count(fresh_adapter._graph) >= 1  # noqa: SLF001
+        fresh_ctx.downgrade("base")
+        assert _index_count(fresh_adapter._graph) == 0
+    finally:
+        try:
+            fresh_adapter.delete_graph()
+        except Exception:
+            pass
+
+
+@pytest.mark.integration
 def test_irreversible_raises(falkordb_graph: Any, tmp_path: Path) -> None:
     db, graph = falkordb_graph
     vd = _versions_dir(tmp_path)

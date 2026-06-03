@@ -62,6 +62,14 @@ adapter = create_adapter(
 #     ],
 # )
 
+# max length of characters to apply to the "slug" field (default: 40)
+# truncate_slug_length = 40
+
+# template used to generate migration file names (default: "%(rev)s_%(slug)s")
+# available tokens: rev, slug, year, month, day, hour, minute
+# date-prefixed example:
+# file_template = "%(year).4d_%(month).2d_%(day).2d_%(hour).2d%(minute).2d-%(rev)s_%(slug)s"
+
 context.configure(
     adapter,
 

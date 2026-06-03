@@ -44,7 +44,7 @@ _DB_CONNECTION_ERROR_NAMES = frozenset(
 )
 
 
-def _exec_env(config: Path, preview: bool = False) -> None:  # noqa: ARG001
+def _exec_env(config: Path, preview: bool = False) -> dict:  # noqa: ARG001
     config = _resolve_config(config)
     if not config.exists():
         typer.echo(
@@ -82,6 +82,38 @@ def _exec_env(config: Path, preview: bool = False) -> None:  # noqa: ARG001
             )
             raise typer.Exit(code=1) from exc
         raise
+    return namespace
+
+
+def _get_revision_config(config: Path) -> tuple[int, str | None]:
+    """Read truncate_slug_length and file_template from env.py without requiring DB.
+
+    Connection errors are silently dropped so that `runic revision` stays
+    fully offline when the database is unavailable.
+    """
+    resolved = _resolve_config(config)
+    if not resolved.exists():
+        return 40, None
+    namespace: dict = {"__file__": str(resolved), "__name__": "__main__"}
+    try:
+        exec(resolved.read_text(), namespace)  # noqa: S102
+    except SystemExit, KeyboardInterrupt, typer.Exit:
+        raise
+    except ConnectionError, ConnectionRefusedError, OSError:
+        log.debug(
+            "connection error reading revision config from env.py — using defaults"
+        )
+    except Exception as exc:
+        if type(exc).__name__ in _DB_CONNECTION_ERROR_NAMES:
+            log.debug(
+                "connection error reading revision config from env.py — using defaults"
+            )
+        else:
+            raise
+    return (
+        int(namespace.get("truncate_slug_length", 40)),
+        namespace.get("file_template") or None,
+    )
 
 
 def _get_script_location(config: Path) -> Path:
@@ -138,7 +170,7 @@ def revision(
     script_location = _get_script_location(config)
 
     if autogenerate:
-        _exec_env(config)
+        env_ns = _exec_env(config)
         from runic import autogen
         from runic.context import get as _get_ctx
 
@@ -156,6 +188,8 @@ def revision(
             raise typer.Exit(code=0)
         upgrade_body = autogen.render_upgrade_body(ops)
         downgrade_body = autogen.render_downgrade_body(ops)
+        trunc = int(env_ns.get("truncate_slug_length", 40))
+        tmpl = env_ns.get("file_template") or None
         sd = ScriptDirectory.load(script_location)
         path = sd.create(
             message,
@@ -166,9 +200,12 @@ def revision(
             upgrade_body=upgrade_body,
             downgrade_body=downgrade_body,
             rev_id=rev_id,
+            truncate_slug_length=trunc,
+            file_template=tmpl,
         )
         typer.echo(f"Created revision: {path}  [CANDIDATE — review before applying]")
     else:
+        trunc, tmpl = _get_revision_config(config)
         sd = ScriptDirectory.load(script_location)
         resolved_head = head if head is not None else sd.head()
         path = sd.create(
@@ -178,6 +215,8 @@ def revision(
             branch_labels=[branch_label] if branch_label else None,
             depends_on=list(depends_on) or None,
             rev_id=rev_id,
+            truncate_slug_length=trunc,
+            file_template=tmpl,
         )
         typer.echo(f"Created revision: {path}")
 
@@ -722,13 +761,96 @@ def info_cmd(
             typer.echo(f"  {rev.revision}  {rev.message}")
 
 
+# ---------------------------------------------------------------------------
+# Phase 2.5 — baseline command
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def baseline(
+    message: Annotated[
+        str, typer.Option("-m", "--message", help="Revision message")
+    ] = "baseline",
+    config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
+    graph: Annotated[
+        str | None,
+        typer.Option("--graph", help="Override graph name from env config"),
+    ] = None,
+    stamp_only: Annotated[
+        bool,
+        typer.Option(
+            "--stamp-only", help="Stamp the version node without writing a file"
+        ),
+    ] = False,
+) -> None:
+    """Generate an initial migration from a live graph's schema.
+
+    Introspects the live graph, writes a root revision (down_revision=None)
+    that recreates all indexes and constraints, and stamps the version node so
+    Runic treats it as already applied.  Run on a fresh graph to reproduce the
+    schema (e.g. in CI or when cloning a tenant).
+    """
+    _exec_env(config)
+    from runic.context import get
+    from runic.exceptions import GraphAlreadyManagedError
+
+    ctx = get()
+
+    if graph is not None:
+        from runic.adapters.falkordb import FalkorDBAdapter
+        from runic.operations import GraphOperations
+        from runic.version import VersionNode
+
+        old_adapter = ctx._adapter  # noqa: SLF001
+        if isinstance(old_adapter, FalkorDBAdapter):
+            new_adapter = old_adapter.fork(graph)
+            ctx._adapter = new_adapter  # noqa: SLF001
+            ctx._version_node = VersionNode(new_adapter)  # noqa: SLF001
+            ctx._ops = GraphOperations(new_adapter)  # noqa: SLF001
+        else:
+            typer.echo(
+                "Warning: --graph override is only supported for FalkorDB adapters; "
+                "using configured graph name.",
+                err=True,
+            )
+
+    try:
+        file_path = ctx.baseline(message, stamp_only=stamp_only)
+    except GraphAlreadyManagedError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    rev_id = ctx.current()
+
+    if stamp_only:
+        typer.echo(f"Stamped:   {rev_id}")
+    else:
+        typer.echo(f"Generated: {file_path}")
+        typer.echo(f"Stamped:   {rev_id}")
+
+    if not stamp_only:
+        from runic.introspect import introspect_graph, render_manifest_code
+
+        snapshot = introspect_graph(ctx._adapter._graph)  # noqa: SLF001
+        manifest = render_manifest_code(snapshot)
+        sep = "─" * 64
+        typer.echo(
+            "\nSchema manifest — paste into env.py and pass to "
+            "context.configure(..., target_manifest=target_manifest) "
+            "to enable `runic revision --autogenerate`:"
+        )
+        typer.echo(sep)
+        typer.echo(manifest)
+        typer.echo(sep)
+
+
 @app.command(name="check")
 def check_cmd(
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
 ) -> None:
     """Exit non-zero if the live schema has pending changes vs the manifest (CI gate)."""
     _exec_env(config)
-    from runic import autogen, introspect
+    from runic import autogen
     from runic.context import get as _get_ctx
 
     ctx = _get_ctx()
@@ -740,7 +862,7 @@ def check_cmd(
         )
         raise typer.Exit(code=1)
 
-    live = introspect.read_live_schema(ctx.graph)
+    live = ctx.adapter.read_live_schema()
     ops = autogen.diff_schema(ctx.target_manifest, live)
 
     if not ops:

@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from collections import OrderedDict
 from unittest.mock import MagicMock
 
 import pytest
 
-from runic.introspect import read_live_schema
+from runic.introspect import (
+    ConstraintSpec,
+    IndexSpec,
+    SchemaSnapshot,
+    full_downgrade_ops,
+    full_upgrade_ops,
+    introspect_graph,
+    read_live_schema,
+)
 
 
 def _make_graph(index_rows: list, constraint_rows: list) -> MagicMock:
@@ -191,3 +200,212 @@ def test_multiple_indexes() -> None:
     assert len(live.range_indexes) == 1
     assert len(live.fulltext_indexes) == 1
     assert len(live.vector_indexes) == 1
+
+
+# ---------------------------------------------------------------------------
+# introspect_graph — SchemaSnapshot (Phase 2.5)
+# ---------------------------------------------------------------------------
+
+
+def _multi_fulltext_row(label: str, props: list[str]) -> list:
+    types_dict = OrderedDict({p: ["FULLTEXT"] for p in props})
+    opts_dict = OrderedDict({p: OrderedDict() for p in props})
+    return [
+        label,
+        props,
+        types_dict,
+        opts_dict,
+        "english",
+        [],
+        "NODE",
+        "OPERATIONAL",
+        OrderedDict(),
+    ]
+
+
+def test_introspect_graph_range_node() -> None:
+    graph = _make_graph([_range_row("Person", "email")], [])
+    snapshot = introspect_graph(graph)
+    assert len(snapshot.indexes) == 1
+    idx = snapshot.indexes[0]
+    assert idx.label == "Person"
+    assert idx.properties == ["email"]
+    assert idx.index_type == "RANGE"
+    assert idx.entity_type == "NODE"
+
+
+def test_introspect_graph_range_rel() -> None:
+    graph = _make_graph([_range_row("KNOWS", "since", "RELATIONSHIP")], [])
+    snapshot = introspect_graph(graph)
+    assert snapshot.indexes[0].entity_type == "RELATIONSHIP"
+    assert snapshot.indexes[0].index_type == "RANGE"
+
+
+def test_introspect_graph_fulltext_multi_prop() -> None:
+    graph = _make_graph([_multi_fulltext_row("Article", ["title", "body"])], [])
+    snapshot = introspect_graph(graph)
+    assert len(snapshot.indexes) == 1
+    idx = snapshot.indexes[0]
+    assert idx.index_type == "FULLTEXT"
+    assert sorted(idx.properties) == ["body", "title"]
+
+
+def test_introspect_graph_vector_with_options() -> None:
+    graph = _make_graph([_vector_row("Product", "embedding", 128, "cosine")], [])
+    snapshot = introspect_graph(graph)
+    assert len(snapshot.indexes) == 1
+    idx = snapshot.indexes[0]
+    assert idx.index_type == "VECTOR"
+    assert idx.options is not None
+    assert idx.options["dimension"] == 128
+    assert idx.options["similarityFunction"] == "cosine"
+
+
+def test_introspect_graph_unique_constraint() -> None:
+    graph = _make_graph([], [_constraint_row("UNIQUE", "Person", ["email"])])
+    snapshot = introspect_graph(graph)
+    assert len(snapshot.constraints) == 1
+    c = snapshot.constraints[0]
+    assert c.kind == "UNIQUE"
+    assert c.label == "Person"
+    assert c.properties == ["email"]
+    assert c.entity_type == "NODE"
+
+
+def test_introspect_graph_mandatory_constraint() -> None:
+    graph = _make_graph([], [_constraint_row("MANDATORY", "Order", ["id"])])
+    snapshot = introspect_graph(graph)
+    assert snapshot.constraints[0].kind == "MANDATORY"
+
+
+def test_introspect_graph_excludes_migration_label() -> None:
+    graph = _make_graph([_range_row("_FalkorMigrateVersion", "revision")], [])
+    snapshot = introspect_graph(graph)
+    assert snapshot.indexes == []
+
+
+def test_introspect_graph_excludes_migration_constraint() -> None:
+    graph = _make_graph(
+        [], [_constraint_row("UNIQUE", "_FalkorMigrateVersion", ["id"])]
+    )
+    snapshot = introspect_graph(graph)
+    assert snapshot.constraints == []
+
+
+def test_introspect_graph_malformed_index_row_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    graph = _make_graph([["Person"]], [])
+    with caplog.at_level(logging.WARNING):
+        snapshot = introspect_graph(graph)
+    assert snapshot.indexes == []
+    assert "skipping" in caplog.text.lower()
+
+
+def test_introspect_graph_malformed_constraint_row_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    graph = _make_graph([], [["UNIQUE"]])
+    with caplog.at_level(logging.WARNING):
+        snapshot = introspect_graph(graph)
+    assert snapshot.constraints == []
+    assert "skipping" in caplog.text.lower()
+
+
+def test_introspect_graph_empty() -> None:
+    graph = _make_graph([], [])
+    snapshot = introspect_graph(graph)
+    assert snapshot.indexes == []
+    assert snapshot.constraints == []
+
+
+# ---------------------------------------------------------------------------
+# full_upgrade_ops / full_downgrade_ops (Phase 2.5)
+# ---------------------------------------------------------------------------
+
+
+def test_full_upgrade_ops_range_node() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[IndexSpec("Person", ["email"], "RANGE", "NODE")],
+        constraints=[],
+    )
+    ops = full_upgrade_ops(snapshot)
+    assert len(ops) == 1
+    op = ops[0]
+    assert op.method == "create_range_index"
+    assert op.args == ("Person", "email")
+    assert op.kwargs == {}
+    assert op.comment is None
+
+
+def test_full_upgrade_ops_range_rel() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[IndexSpec("PURCHASED", ["purchased_at"], "RANGE", "RELATIONSHIP")],
+        constraints=[],
+    )
+    ops = full_upgrade_ops(snapshot)
+    assert ops[0].kwargs == {"rel": True}
+
+
+def test_full_upgrade_ops_fulltext_multi_prop() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[IndexSpec("Article", ["title", "body"], "FULLTEXT", "NODE")],
+        constraints=[],
+    )
+    ops = full_upgrade_ops(snapshot)
+    assert len(ops) == 1
+    op = ops[0]
+    assert op.method == "create_fulltext_index"
+    assert op.args == ("Article", "title", "body")
+
+
+def test_full_upgrade_ops_vector_is_stub() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[
+            IndexSpec(
+                "Product",
+                ["embedding"],
+                "VECTOR",
+                "NODE",
+                options={"dimension": 128, "similarityFunction": "cosine"},
+            )
+        ],
+        constraints=[],
+    )
+    ops = full_upgrade_ops(snapshot)
+    assert ops[0].method == "create_vector_index"
+    assert ops[0].comment == "verify options manually"
+
+
+def test_full_upgrade_ops_unique_constraint() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[],
+        constraints=[ConstraintSpec("UNIQUE", "Person", ["email"], "NODE")],
+    )
+    ops = full_upgrade_ops(snapshot)
+    assert ops[0].method == "create_constraint"
+    assert ops[0].args == ("UNIQUE", "NODE", "Person", ["email"])
+
+
+def test_full_downgrade_constraints_before_indexes() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[IndexSpec("Person", ["email"], "RANGE", "NODE")],
+        constraints=[ConstraintSpec("UNIQUE", "Person", ["email"], "NODE")],
+    )
+    upgrade_ops = full_upgrade_ops(snapshot)
+    downgrade_ops = full_downgrade_ops(snapshot)
+
+    assert upgrade_ops[0].method == "create_range_index"
+    assert upgrade_ops[1].method == "create_constraint"
+    assert downgrade_ops[0].method == "drop_constraint"
+    assert downgrade_ops[1].method == "drop_range_index"
+
+
+def test_full_downgrade_vector_is_stub() -> None:
+    snapshot = SchemaSnapshot(
+        indexes=[IndexSpec("Product", ["embedding"], "VECTOR", "NODE")],
+        constraints=[],
+    )
+    ops = full_downgrade_ops(snapshot)
+    assert ops[0].method == "drop_vector_index"
+    assert ops[0].comment == "verify before enabling"

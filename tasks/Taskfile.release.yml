@@ -5,8 +5,8 @@ version: "3"
 silent: true
 
 vars:
-  PROJECT: Alloq
-  IMAGE_NAME: alloq
+  PROJECT: runic
+  IMAGE_NAME: runic
   RUNNER: uv run
 
 tasks:

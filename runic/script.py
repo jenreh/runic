@@ -10,11 +10,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from mako.template import Template
 
 from runic.exceptions import MultipleBasesError, MultipleHeadsError
+
+if TYPE_CHECKING:
+    from runic.introspect import OpCall
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +69,45 @@ def _down_revision_parents(rev: Revision) -> set[str]:
     if isinstance(rev.down_revision, tuple):
         return set(rev.down_revision)
     return {rev.down_revision}
+
+
+# ---------------------------------------------------------------------------
+# Op-call rendering — used by `runic baseline` to generate script bodies
+# ---------------------------------------------------------------------------
+
+
+def _render_op_call(op: OpCall) -> str:
+    """Render a single OpCall as a Python expression string (no indentation)."""
+    parts = [repr(a) for a in op.args]
+    parts += [f"{k}={v!r}" for k, v in op.kwargs.items()]
+    call = f"op.{op.method}({', '.join(parts)})"
+    if op.comment is not None:
+        return f"# {call}  # {op.comment}"
+    return call
+
+
+def render_op_body(ops: list[OpCall]) -> str:
+    """Convert a list of OpCall objects into an indented function body.
+
+    Emits ``# --- Indexes ---`` and ``# --- Constraints ---`` section headers
+    whenever the category changes.  The input order is preserved so that
+    ``full_downgrade_ops`` (constraints-first) renders correctly — the renderer
+    must not re-sort the list.
+    """
+    if not ops:
+        return "    pass"
+
+    lines: list[str] = []
+    current_section: str | None = None
+
+    for op in ops:
+        section = "Constraints" if "constraint" in op.method else "Indexes"
+        if section != current_section:
+            lines.append(f"    # --- {section} ---")
+            current_section = section
+        lines.append(f"    {_render_op_call(op)}")
+
+    return "\n".join(lines)
 
 
 class ScriptDirectory:
@@ -367,10 +409,27 @@ class ScriptDirectory:
         upgrade_body: str = "    pass",
         downgrade_body: str = "    pass",
         rev_id: str | None = None,
+        truncate_slug_length: int = 40,
+        file_template: str | None = None,
     ) -> Path:
         rev_id = rev_id or self.generate_revision_id()
-        slug = re.sub(r"[^\w]", "_", message.lower())[:40]
-        filename = f"{rev_id}_{slug}.py"
+        slug = re.sub(r"[^\w]", "_", message.lower())[:truncate_slug_length]
+        if file_template is not None:
+            now = datetime.now(UTC)
+            filename = (
+                file_template
+                % {
+                    "rev": rev_id,
+                    "slug": slug,
+                    "year": now.year,
+                    "month": now.month,
+                    "day": now.day,
+                    "hour": now.hour,
+                    "minute": now.minute,
+                }
+            ) + ".py"
+        else:
+            filename = f"{rev_id}_{slug}.py"
 
         template_path = Path(__file__).parent / "templates" / "script.py.mako"
         tmpl = Template(template_path.read_text())  # noqa: S702

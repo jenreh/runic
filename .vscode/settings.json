@@ -88,8 +88,6 @@
     "https://taskfile.dev/schema.json": [
       "**/Taskfile.yml",
       "**/tasks/Taskfile.*.yml",
-      "file:///Users/jens/Workspace/projekte/python-kit/tasks/Taskfile.terraform.yaml",
-      "file:///Users/jens/Workspace/projekte/python-kit/tasks/Taskfile.terraform-azure.yaml"
     ]
   },
   "python-envs.defaultPackageManager": "ms-python.python:uv",

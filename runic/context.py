@@ -44,6 +44,8 @@ class Runic:
         target_manifest: SchemaManifest | None = None,
         track_checksums: bool = True,
         track_installed_by: bool = True,
+        truncate_slug_length: int = 40,
+        file_template: str | None = None,
     ) -> None:
         self._adapter = adapter
         self._script_location = script_location
@@ -51,6 +53,8 @@ class Runic:
         self._target_manifest = target_manifest
         self._track_checksums = track_checksums
         self._track_installed_by = track_installed_by
+        self._truncate_slug_length = truncate_slug_length
+        self._file_template = file_template
         self._version_node = VersionNode(adapter)
         self._script_dir = ScriptDirectory.load(script_location)
         self._ops = GraphOperations(adapter, preview=preview)
@@ -386,11 +390,71 @@ class Runic:
             branch_labels=branch_labels,
             depends_on=depends_on,
             rev_id=rev_id,
+            truncate_slug_length=self._truncate_slug_length,
+            file_template=self._file_template,
         )
 
     def show_revision(self, rev: str) -> Revision:
         """Return full metadata for a single revision (by id or unique prefix)."""
         return self._script_dir.get_revision(rev)
+
+    def baseline(
+        self, message: str = "baseline", *, stamp_only: bool = False
+    ) -> Path | None:
+        """Generate an initial migration from the live graph's schema.
+
+        Introspects indexes and constraints, writes a revision with
+        ``down_revision = None`` (root of the chain), and stamps the version
+        node so Runic treats it as already applied on the source graph.
+
+        Raises:
+            GraphAlreadyManagedError: if the version node already records a
+                revision — use ``runic upgrade`` instead.
+
+        Args:
+            message: Human-readable revision message.
+            stamp_only: Skip writing a .py file; only stamp the version node
+                with a freshly generated revision id.
+
+        Returns:
+            Path to the generated .py file, or ``None`` for ``stamp_only``.
+        """
+        from runic.exceptions import GraphAlreadyManagedError
+        from runic.introspect import (
+            full_downgrade_ops,
+            full_upgrade_ops,
+            introspect_graph,
+        )
+        from runic.script import render_op_body
+
+        current = self._version_node.get()
+        if current:
+            raise GraphAlreadyManagedError(
+                "Graph already managed by Runic. Use `runic upgrade` instead."
+            )
+
+        rev_id = ScriptDirectory.generate_revision_id()
+
+        if not stamp_only:
+            snapshot = introspect_graph(self._adapter._graph)  # noqa: SLF001
+            upgrade_ops = full_upgrade_ops(snapshot)
+            downgrade_ops = full_downgrade_ops(snapshot)
+            file_path = self._script_dir.create(
+                message,
+                None,
+                self._script_location,
+                upgrade_body=render_op_body(upgrade_ops),
+                downgrade_body=render_op_body(downgrade_ops),
+                rev_id=rev_id,
+                truncate_slug_length=self._truncate_slug_length,
+                file_template=self._file_template,
+            )
+            log.info("created baseline revision: %s at %s", rev_id, file_path)
+
+        self._version_node.set(rev_id)
+        log.info("stamped baseline revision: %s", rev_id)
+
+        return None if stamp_only else file_path
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +472,8 @@ def configure(
     target_manifest: SchemaManifest | None = None,
     track_checksums: bool = True,
     track_installed_by: bool = True,
+    truncate_slug_length: int = 40,
+    file_template: str | None = None,
     _env_path: Path | None = None,
 ) -> None:
     global _context
@@ -423,6 +489,8 @@ def configure(
         target_manifest=target_manifest,
         track_checksums=track_checksums,
         track_installed_by=track_installed_by,
+        truncate_slug_length=truncate_slug_length,
+        file_template=file_template,
     )
     log.debug(
         "context configured: script_location=%s track_checksums=%s track_installed_by=%s",

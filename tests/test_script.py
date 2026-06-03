@@ -169,3 +169,64 @@ def test_create_round_trip_message_and_date(tmp_versions: Path) -> None:
 
     assert rev.message == "my migration msg"
     assert before <= rev.create_date <= after
+
+
+def test_create_truncate_slug_length(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    path = sd.create(
+        "a very long message that exceeds forty characters easily",
+        head="bbbbbbbbbbbb",
+        script_location=tmp_versions,
+        truncate_slug_length=10,
+    )
+    # stem is "<rev_id>_<slug>"; slug must be ≤ 10 chars
+    slug_part = path.stem.split("_", 1)[1]
+    assert len(slug_part) <= 10
+
+
+def test_create_file_template_rev_and_slug(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    path = sd.create(
+        "add users",
+        head="bbbbbbbbbbbb",
+        script_location=tmp_versions,
+        rev_id="abc123",
+        file_template="migration_%(rev)s_%(slug)s",
+    )
+    assert path.name == "migration_abc123_add_users.py"
+    assert path.exists()
+
+
+def test_create_file_template_date_tokens(tmp_versions: Path) -> None:
+    import re
+    from datetime import UTC, datetime
+
+    sd = ScriptDirectory.load(tmp_versions)
+    before = datetime.now(UTC)
+    path = sd.create(
+        "init schema",
+        head="bbbbbbbbbbbb",
+        script_location=tmp_versions,
+        file_template="%(year).4d_%(month).2d_%(day).2d-%(rev)s_%(slug)s",
+    )
+    after = datetime.now(UTC)
+
+    assert re.match(r"^\d{4}_\d{2}_\d{2}-[0-9a-f]+_\w+\.py$", path.name)
+    # year in filename must match the year the test ran
+    year_in_name = int(path.name[:4])
+    assert before.year <= year_in_name <= after.year
+
+
+def test_create_file_template_month_zero_padded(tmp_versions: Path) -> None:
+    sd = ScriptDirectory.load(tmp_versions)
+    path = sd.create(
+        "fix",
+        head="bbbbbbbbbbbb",
+        script_location=tmp_versions,
+        rev_id="deadbeef1234",
+        file_template="%(year).4d%(month).2d%(day).2d-%(rev)s_%(slug)s",
+    )
+    # month portion (chars 4-5) must be exactly 2 digits
+    month_str = path.name[4:6]
+    assert len(month_str) == 2
+    assert month_str.isdigit()

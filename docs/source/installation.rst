@@ -59,6 +59,6 @@ Clone the repository and install all dev dependencies:
 
 .. code-block:: bash
 
-   git clone https://github.com/jenreh/python-kit
+   git clone https://github.com/jenreh/runic
    cd runic
    uv sync --all-groups
