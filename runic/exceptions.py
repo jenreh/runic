@@ -12,3 +12,7 @@ class ConstraintFailedError(Exception):
 
 class ConstraintTimeoutError(Exception):
     pass
+
+
+class GraphAlreadyManagedError(Exception):
+    pass

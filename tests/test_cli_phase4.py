@@ -252,7 +252,7 @@ def test_revision_autogenerate_with_diff_creates_file(tmp_path: Path) -> None:
     )
 
     with (
-        patch("runic.cli._exec_env"),
+        patch("runic.cli._exec_env", return_value={}),
         patch("runic.context.get", return_value=ctx),
         patch("runic.introspect.read_live_schema", return_value=MagicMock()),
         patch("runic.autogen.diff_schema", return_value=[op]),
