@@ -88,6 +88,8 @@ Prefer official docs; widen via web search for cross-version issues.
   # log.info(f"Loaded items: {count}") # ❌
   ```
 
+- After every code change, run `task lint` — not just at PR time.
+
 ### Quality Gates
 
 - `task lint`, `task format`.
