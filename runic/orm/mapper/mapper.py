@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from runic.orm.core.descriptors import FieldInfo
+from runic.orm.core.descriptors import _NOT_LOADED, FieldInfo
 from runic.orm.core.metadata import MetaData, NodeMeta
 from runic.orm.exceptions import MetadataError
 
@@ -126,6 +126,7 @@ class Mapper:
 
         for fi in node_meta.fields:
             if fi.field.relationship is not None:
+                instance.__dict__[fi.name] = _NOT_LOADED
                 continue
             self._decode_field(instance, fi, falkor_node.properties)
 
@@ -144,6 +145,7 @@ class Mapper:
 
         for fi in node_meta.fields:
             if fi.field.relationship is not None:
+                entity.__dict__[fi.name] = _NOT_LOADED
                 continue
             self._decode_field(entity, fi, falkor_node.properties)
 
@@ -154,6 +156,15 @@ class Mapper:
 
         entity.__dict__["_dirty"] = False
         entity.__dict__["_expired"] = False
+
+    @property
+    def meta(self) -> MetaData:
+        """Return the MetaData registry used by this Mapper."""
+        return self._meta
+
+    def require_node_meta(self, cls: type) -> NodeMeta:
+        """Public alias for ``_require_node_meta``; used by RelationshipLoader/Session."""
+        return self._require_node_meta(cls)
 
     def get_pk_value(self, entity: Any) -> Any:
         """Return the primary key value of an entity."""
