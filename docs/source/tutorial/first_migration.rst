@@ -68,7 +68,7 @@ The ``upgrade`` and ``downgrade`` functions
 --------------------------------------------
 
 Both functions receive a single argument ``op`` — a
-:class:`~runic.operations.GraphOperations` instance — that exposes all
+:class:`~runic.migrate.operations.GraphOperations` instance — that exposes all
 supported schema operations.
 
 .. code-block:: python
@@ -143,7 +143,7 @@ For destructive changes (dropping a label, deleting nodes), set
        pass   # cannot recreate deleted data
 
 Attempting to downgrade past this revision without ``--force`` raises
-:class:`~runic.context.IrreversibleMigrationError`.
+:class:`~runic.migrate.context.IrreversibleMigrationError`.
 
 Enabling snapshots
 -------------------

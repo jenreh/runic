@@ -37,15 +37,15 @@ runic/
 
 ## 3. Configure runic/env.py
 
-Open `runic/env.py` and replace its contents with the following.  
+Open `runic/env.py` and replace its contents with the following.
 The `FALKORDB_URL` and `FALKORDB_GRAPH` env vars let you override settings
 per-environment (dev / CI / prod) without touching the file.
 
 ```python
 import os
 from runic import context
-from runic.adapters import create_adapter
-from runic.manifest import SchemaManifest, RangeIndex, UniqueConstraint
+from runic.migrate.adapters import create_adapter
+from runic.migrate.manifest import SchemaManifest, RangeIndex, UniqueConstraint
 
 adapter = create_adapter(
     "falkordb",

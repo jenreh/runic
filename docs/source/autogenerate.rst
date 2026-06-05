@@ -11,7 +11,7 @@ required.
 How it works
 ------------
 
-1. You declare the target schema as a :class:`~runic.manifest.SchemaManifest`
+1. You declare the target schema as a :class:`~runic.migrate.manifest.SchemaManifest`
    object and pass it to ``context.configure()`` in ``env.py``.
 2. ``runic revision --autogenerate`` calls ``CALL db.indexes()`` and
    ``CALL db.constraints()`` to read the live schema, then diffs it against
@@ -29,7 +29,7 @@ Import the manifest classes from ``runic``:
 
 .. code-block:: python
 
-   from runic.manifest import (
+   from runic.migrate.manifest import (
        FulltextIndex,
        MandatoryConstraint,
        RangeIndex,
@@ -70,9 +70,9 @@ Pass ``target_manifest`` to ``context.configure()``:
 
    # runic/env.py
    import os
-   from runic import context
-   from runic.adapters import create_adapter
-   from runic.manifest import RangeIndex, SchemaManifest, UniqueConstraint
+   from runic.migrate import context
+   from runic.migrate.adapters import create_adapter
+   from runic.migrate.manifest import RangeIndex, SchemaManifest, UniqueConstraint
 
    TARGET = SchemaManifest(
        range_indexes=[RangeIndex("Person", "email")],
@@ -183,26 +183,26 @@ See :doc:`limitations` for a full list.  Key gaps:
 Manifest classes reference
 ---------------------------
 
-.. autoclass:: runic.manifest.SchemaManifest
+.. autoclass:: runic.migrate.manifest.SchemaManifest
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.manifest.RangeIndex
+.. autoclass:: runic.migrate.manifest.RangeIndex
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.manifest.FulltextIndex
+.. autoclass:: runic.migrate.manifest.FulltextIndex
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.manifest.VectorIndex
+.. autoclass:: runic.migrate.manifest.VectorIndex
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.manifest.UniqueConstraint
+.. autoclass:: runic.migrate.manifest.UniqueConstraint
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.manifest.MandatoryConstraint
+.. autoclass:: runic.migrate.manifest.MandatoryConstraint
    :members:
    :show-inheritance:

@@ -5,7 +5,7 @@ runic ships two distinct testing mechanisms:
 
 * **``runic test`` CLI command** — round-trip tests a single revision against
   a real graph.
-* **``runic.testing`` pytest fixtures** — utilities for writing unit and
+* **``runic.migrate.testing`` pytest fixtures** — utilities for writing unit and
   integration tests for migration scripts in your own test suite.
 
 ----
@@ -56,8 +56,8 @@ Or use ``falkordblite`` for an embedded server (no Docker required).  Configure
    # runic/env.py  (falkordblite variant)
    from pathlib import Path
    from redislite import FalkorDB
-   from runic import context
-   from runic.adapters.falkordb import FalkorDBAdapter
+   from runic.migrate import context
+   from runic.migrate.adapters.falkordb import FalkorDBAdapter
 
    db = FalkorDB(protocol=2)
    graph = db.select_graph("test")
@@ -69,19 +69,19 @@ Then run ``runic test 3f9a12c1`` without any ``--url`` flag.
 pytest fixtures
 ----------------
 
-``runic.testing`` exports two pytest fixtures for use in your own test suite.
+``runic.migrate.testing`` exports two pytest fixtures for use in your own test suite.
 Add to your ``conftest.py``:
 
 .. code-block:: python
 
-   from runic.testing import falkordb_graph, runic_context  # noqa: F401
+   from runic.migrate.testing import falkordb_graph, runic_context  # noqa: F401
 
 Or import directly in test files:
 
 .. code-block:: python
 
    import pytest
-   from runic.testing import falkordb_graph, runic_context
+   from runic.migrate.testing import falkordb_graph, runic_context
 
 The fixtures use ``falkordblite`` (installed as ``redislite``) for an
 embedded FalkorDB server that starts and stops with the test process.
@@ -108,15 +108,15 @@ graph is deleted after the test.
 ``runic_context`` fixture
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Yields a fully configured :class:`~runic.context.Runic` instance backed by
+Yields a fully configured :class:`~runic.migrate.context.Runic` instance backed by
 an ephemeral embedded graph and a temporary ``versions/`` directory.  Use this
 to test upgrade/downgrade logic end-to-end.
 
 .. code-block:: python
 
    from pathlib import Path
-   from runic.context import Runic
-   from runic.testing import runic_context
+   from runic.migrate.context import Runic
+   from runic.migrate.testing import runic_context
 
    def test_full_migration(runic_context, tmp_path) -> None:
        ctx = runic_context

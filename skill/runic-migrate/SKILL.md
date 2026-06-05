@@ -1,5 +1,5 @@
 ---
-name: runic
+name: runic-migrate
 description: |
   Expert guide for runic — an Alembic-style FalkorDB graph schema migration
   tool. Use whenever the user works with runic: CLI commands, migration file
