@@ -472,7 +472,9 @@ async def test_async_find_all_with_fetch_uses_rel_loader() -> None:
     session.mapper = MagicMock()
     session.rel_loader = MagicMock()
     session.rel_loader.build_find_all_with_fetch_query.return_value = (
-        "FETCH_Q", {}, []
+        "FETCH_Q",
+        {},
+        [],
     )
     session.rel_loader.decode_eager_columns.return_value = []
     session.register_or_get.side_effect = lambda e: e

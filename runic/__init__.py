@@ -1,4 +1,4 @@
-from runic.exceptions import (
+from runic.migrate.exceptions import (
     MultipleBasesError,
     MultipleHeadsError,
     ConstraintFailedError,
