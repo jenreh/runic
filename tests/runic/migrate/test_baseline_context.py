@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.exceptions import GraphAlreadyManagedError
 from runic.migrate.adapters.falkordb import FalkorDBAdapter
 from runic.migrate.context import Runic
+from runic.migrate.exceptions import GraphAlreadyManagedError
 
 # ---------------------------------------------------------------------------
 # Fixtures

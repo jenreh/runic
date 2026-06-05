@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mako.template import Template
 
-from runic.exceptions import MultipleBasesError, MultipleHeadsError
+from runic.migrate.exceptions import MultipleBasesError, MultipleHeadsError
 
 if TYPE_CHECKING:
     from runic.migrate.introspect import OpCall

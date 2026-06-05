@@ -94,7 +94,7 @@ def test_baseline_stamp_only_prints_stamp_only(tmp_path: Path) -> None:
 
 
 def test_baseline_already_managed_exits_nonzero(tmp_path: Path) -> None:
-    from runic.exceptions import GraphAlreadyManagedError
+    from runic.migrate.exceptions import GraphAlreadyManagedError
 
     env = _make_env(tmp_path)
     ctx = MagicMock()
@@ -117,7 +117,7 @@ def test_baseline_already_managed_exits_nonzero(tmp_path: Path) -> None:
 
 
 def test_baseline_already_managed_prints_error_message(tmp_path: Path) -> None:
-    from runic.exceptions import GraphAlreadyManagedError
+    from runic.migrate.exceptions import GraphAlreadyManagedError
 
     env = _make_env(tmp_path)
     ctx = MagicMock()
