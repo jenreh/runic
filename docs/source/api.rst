@@ -1,191 +1,130 @@
-API Reference
-=============
+ORM API Reference
+=================
 
-This page documents the public Python API for embedding runic in application
-code or extending it.
-
-----
-
-runic.migrate.Runic
------------
-
-:class:`~runic.migrate.context.Runic` is the single class a developer needs.  It
-combines all DB-connected operations (upgrade, downgrade, stamp, current) with
-offline DAG queries (history, heads, revision creation) in one coherent API.
-
-.. autoclass:: runic.migrate.context.Runic
-   :members: upgrade, downgrade, stamp, current, validate,
-             enable_preview, preview_log,
-             get_revision_message, get_history, get_heads, get_branch_points,
-             create_revision, show_revision,
-             adapter, target_manifest, script_location
-   :show-inheritance:
-
-.. autoexception:: runic.migrate.context.IrreversibleMigrationError
-   :show-inheritance:
-
-Programmatic usage example
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from pathlib import Path
-   from runic import Runic
-   from runic.migrate.adapters import create_adapter
-
-   # URL variant (credentials embedded in the connection string)
-   adapter = create_adapter(
-       "falkordb",
-       url="falkor://:mypassword@localhost:6379",
-       graph_name="my_graph",
-   )
-   # Params variant (explicit host / port / auth)
-   # adapter = create_adapter(
-   #     "falkordb",
-   #     host="localhost", port=6379,
-   #     password="mypassword",
-   #     graph_name="my_graph",
-   # )
-
-   runic = Runic(adapter, script_location=Path("runic/"))
-
-   # Validate checksums before upgrading
-   errors = runic.migrate.validate()
-   if errors:
-       raise RuntimeError("\n".join(errors))
-
-   runic.migrate.upgrade("head", installed_by="deploy-bot")
-   print("current:", runic.migrate.current())
-
-   history = runic.migrate.get_history()
-   for entry in history:
-       print(entry.revision, entry.message)
-
-   runic.migrate.downgrade("base")
+``runic.orm`` is a lightweight graph ORM that maps Python classes to FalkorDB
+nodes and edges.  It follows a SQLAlchemy-style architecture: models →
+metadata → session → repository.
 
 ----
 
-runic.migrate.init
-----------
-
-.. autofunction:: runic.migrate.service.init
-
-----
-
-runic.migrate.context (env.py singleton)
+runic.orm.core — Models & Fields
 ---------------------------------
 
-The ``runic.migrate.context`` module also exposes a module-level singleton API that
-``env.py`` uses so the CLI can discover the configured context after executing
-the file.  **SDK users should prefer instantiating** :class:`~runic.migrate.context.Runic`
-**directly** rather than using this API.
+.. autoclass:: runic.orm.core.models.Node
+   :members:
+   :show-inheritance:
 
-.. autofunction:: runic.migrate.context.configure
+.. autoclass:: runic.orm.core.models.Edge
+   :members:
+   :show-inheritance:
 
-.. autofunction:: runic.migrate.context.get
+.. autofunction:: runic.orm.core.descriptors.Field
 
-.. autofunction:: runic.migrate.context.is_preview
-
-----
-
-runic.migrate.adapters
---------------
-
-.. autofunction:: runic.migrate.adapters.create_adapter
-
-----
-
-runic.migrate.operations
-----------------
-
-.. autoclass:: runic.migrate.operations.GraphOperations
+.. autoclass:: runic.orm.core.descriptors.FieldInfo
    :members:
    :show-inheritance:
 
 ----
 
-runic.migrate.manifest
---------------
+runic.orm.core — MetaData
+--------------------------
 
-Schema manifest classes used with autogenerate.  See :doc:`autogenerate` for
-usage examples.
-
-.. autoclass:: runic.migrate.manifest.SchemaManifest
+.. autoclass:: runic.orm.core.metadata.MetaData
    :members:
    :show-inheritance:
-   :no-index:
 
-.. autoclass:: runic.migrate.manifest.RangeIndex
+.. autoclass:: runic.orm.core.metadata.NodeMeta
    :members:
    :show-inheritance:
-   :no-index:
 
-.. autoclass:: runic.migrate.manifest.FulltextIndex
+.. autoclass:: runic.orm.core.metadata.EdgeMeta
    :members:
    :show-inheritance:
-   :no-index:
 
-.. autoclass:: runic.migrate.manifest.VectorIndex
-   :members:
-   :show-inheritance:
-   :no-index:
-
-.. autoclass:: runic.migrate.manifest.UniqueConstraint
-   :members:
-   :show-inheritance:
-   :no-index:
-
-.. autoclass:: runic.migrate.manifest.MandatoryConstraint
-   :members:
-   :show-inheritance:
-   :no-index:
+.. autofunction:: runic.orm.core.metadata.get_metadata
 
 ----
 
-runic.migrate.script
-------------
+runic.orm.core — Type Converters
+----------------------------------
 
-Internal revision DAG types.  These are returned by methods on
-:class:`~runic.migrate.context.Runic` but you rarely need to construct them directly.
-
-.. autoclass:: runic.migrate.script.Revision
+.. autoclass:: runic.orm.core.types.TypeConverter
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.migrate.script.RevisionInfo
+.. autoclass:: runic.orm.core.types.DatetimeConverter
    :members:
    :show-inheritance:
 
-.. autoexception:: runic.migrate.script.RevisionNotFound
-   :show-inheritance:
-
-.. autoexception:: runic.migrate.script.AmbiguousRevision
+.. autoclass:: runic.orm.core.types.EnumConverter
+   :members:
    :show-inheritance:
 
 ----
 
-runic.migrate.exceptions
-----------------
+runic.orm.session — Session
+-----------------------------
 
-.. autoexception:: runic.migrate.exceptions.MultipleHeadsError
+.. autoclass:: runic.orm.session.session.Session
+   :members:
    :show-inheritance:
 
-.. autoexception:: runic.migrate.exceptions.MultipleBasesError
+.. autoclass:: runic.orm.session.async_session.AsyncSession
+   :members:
    :show-inheritance:
 
-.. autoexception:: runic.migrate.exceptions.ConstraintFailedError
+.. autoclass:: runic.orm.session.connection_pool.ConnectionManager
+   :members:
    :show-inheritance:
 
-.. autoexception:: runic.migrate.exceptions.ConstraintTimeoutError
+.. autoclass:: runic.orm.session.connection_pool.AsyncConnectionManager
+   :members:
    :show-inheritance:
 
 ----
 
-runic.migrate.testing
--------------
+runic.orm.repository — Repository & Pagination
+------------------------------------------------
 
-Pytest fixtures for integration tests.  Requires ``falkordblite``.
+.. autoclass:: runic.orm.repository.repository.Repository
+   :members:
+   :show-inheritance:
 
-.. autofunction:: runic.migrate.testing.falkordb_graph
+.. autoclass:: runic.orm.repository.async_repository.AsyncRepository
+   :members:
+   :show-inheritance:
 
-.. autofunction:: runic.migrate.testing.runic_context
+.. autoclass:: runic.orm.repository.pagination.Pageable
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.repository.pagination.Page
+   :members:
+   :show-inheritance:
+
+----
+
+runic.orm.exceptions
+---------------------
+
+.. autoexception:: runic.orm.exceptions.OrmError
+   :show-inheritance:
+
+.. autoexception:: runic.orm.exceptions.EntityNotFoundError
+   :show-inheritance:
+
+.. autoexception:: runic.orm.exceptions.DetachedEntityError
+   :show-inheritance:
+
+.. autoexception:: runic.orm.exceptions.LazyLoadError
+   :show-inheritance:
+
+.. autoexception:: runic.orm.exceptions.FieldValidationError
+   :show-inheritance:
+
+.. autoexception:: runic.orm.exceptions.MetadataError
+   :show-inheritance:
+
+.. seealso::
+
+   :doc:`migration/api` — Migration API reference (``runic.migrate``)

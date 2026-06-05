@@ -51,10 +51,7 @@ def _synthesize_plain_annotations(cls: type) -> None:
         if isinstance(cls.__dict__.get(name), Field):
             continue
         val = cls.__dict__.get(name, _ABSENT)
-        if val is _ABSENT:
-            field = Field()
-        else:
-            field = Field(default=val)
+        field = Field() if val is _ABSENT else Field(default=val)
         field.__set_name__(cls, name)
         setattr(cls, name, field)
 

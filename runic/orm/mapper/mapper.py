@@ -110,6 +110,70 @@ class Mapper:
 
         return cypher, {"__pk": pk}
 
+    def build_find_all_query(self, cls: type) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` to MATCH all entities of *cls*."""
+        node_meta = self._require_node_meta(cls)
+        labels_str = ":".join(node_meta.labels)
+        return f"MATCH (n:{labels_str}) RETURN n", {}
+
+    def build_find_all_by_ids_query(
+        self, cls: type, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` to MATCH a batch of entities by primary key."""
+        node_meta = self._require_node_meta(cls)
+        generated = self._is_generated_pk(node_meta)
+        labels_str = ":".join(node_meta.labels)
+
+        if generated:
+            cypher = f"MATCH (n:{labels_str}) WHERE id(n) IN $__pks RETURN n"
+        else:
+            pk_name = node_meta.pk_field_name
+            cypher = f"MATCH (n:{labels_str}) WHERE n.{pk_name} IN $__pks RETURN n"
+
+        return cypher, {"__pks": pks}
+
+    def build_count_query(self, cls: type) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` to count all entities of *cls*."""
+        node_meta = self._require_node_meta(cls)
+        labels_str = ":".join(node_meta.labels)
+        return f"MATCH (n:{labels_str}) RETURN count(n)", {}
+
+    def build_exists_query(self, cls: type, pk: Any) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` to test whether an entity with *pk* exists."""
+        node_meta = self._require_node_meta(cls)
+        generated = self._is_generated_pk(node_meta)
+        labels_str = ":".join(node_meta.labels)
+
+        if generated:
+            cypher = (
+                f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk) RETURN count(n)"
+            )
+        else:
+            pk_name = node_meta.pk_field_name
+            cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN count(n)"
+
+        return cypher, {"__pk": pk}
+
+    def build_paginated_query(
+        self, cls: type, pageable: Any
+    ) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` for a paginated MATCH with optional ORDER BY."""
+        node_meta = self._require_node_meta(cls)
+        labels_str = ":".join(node_meta.labels)
+
+        order_clause = ""
+        if pageable.sort_by:
+            direction = "ASC" if str(pageable.direction).upper() == "ASC" else "DESC"
+            order_clause = f" ORDER BY n.{pageable.sort_by} {direction}"
+
+        cypher = (
+            f"MATCH (n:{labels_str}) RETURN n{order_clause} SKIP $__skip LIMIT $__limit"
+        )
+        return cypher, {
+            "__skip": pageable.page * pageable.size,
+            "__limit": pageable.size,
+        }
+
     # ------------------------------------------------------------------
     # Decoding
     # ------------------------------------------------------------------
@@ -119,7 +183,7 @@ class Mapper:
         target_cls = self._resolve_cls(falkor_node, hint_cls)
         node_meta = self._require_node_meta(target_cls)
 
-        instance = object.__new__(target_cls)
+        instance: Any = object.__new__(target_cls)
         instance.__dict__["_new"] = False
         instance.__dict__["_dirty"] = False
         instance.__dict__["_expired"] = False

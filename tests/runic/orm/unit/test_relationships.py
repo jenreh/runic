@@ -49,7 +49,9 @@ class RelPerson(Node, labels=["RelPerson"]):
 # ---------------------------------------------------------------------------
 
 
-def _make_falkor_node(node_id: Any, labels: list[str], props: dict[str, Any]) -> MagicMock:
+def _make_falkor_node(
+    node_id: Any, labels: list[str], props: dict[str, Any]
+) -> MagicMock:
     n = MagicMock()
     n.id = node_id
     n.labels = labels
@@ -129,7 +131,9 @@ def test_update_entity_from_node_resets_relationship_fields() -> None:
     company = RelCompany(id="c1", name="Acme")
     entity.__dict__["company"] = company  # simulate previously loaded
 
-    falkor_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice Updated"})
+    falkor_node = _make_falkor_node(
+        0, ["RelPerson"], {"id": "p1", "name": "Alice Updated"}
+    )
     mapper.update_entity_from_node(entity, falkor_node)
 
     assert entity.__dict__["company"] is _NOT_LOADED
@@ -224,7 +228,9 @@ def test_field_get_returns_list_for_collection(mock_graph: MagicMock) -> None:
     assert friends[0].id == "p2"
 
 
-def test_field_get_returns_empty_list_for_missing_collection(mock_graph: MagicMock) -> None:
+def test_field_get_returns_empty_list_for_missing_collection(
+    mock_graph: MagicMock,
+) -> None:
     """Lazy load returns [] when the graph has no collection members."""
     s = Session(mock_graph)
     mock_graph.query.return_value = _make_result(

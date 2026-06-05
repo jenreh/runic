@@ -71,6 +71,31 @@ class AsyncSession:
             self._pending.remove(entity)
 
     # ------------------------------------------------------------------
+    # Properties (used by AsyncRepository)
+    # ------------------------------------------------------------------
+
+    @property
+    def mapper(self) -> Mapper:
+        """Return the Mapper used by this session."""
+        return self._mapper
+
+    @property
+    def rel_loader(self) -> RelationshipLoader:
+        """Return the RelationshipLoader used by this session."""
+        return self._rel_loader
+
+    def register_or_get(self, entity: Any) -> Any:
+        """Register *entity* in the identity map; return existing instance if present."""
+        cls = type(entity)
+        pk = self._mapper.get_pk_value(entity)
+        key = (cls, pk)
+        if key in self._identity_map:
+            return self._identity_map[key]
+        entity.__dict__["_session"] = weakref.ref(self)
+        self._identity_map[key] = entity
+        return entity
+
+    # ------------------------------------------------------------------
     # Lookup
     # ------------------------------------------------------------------
 
@@ -219,9 +244,7 @@ class AsyncSession:
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _get_with_fetch(
-        self, cls: type, pk: Any, fetch: list[str]
-    ) -> Any | None:
+    async def _get_with_fetch(self, cls: type, pk: Any, fetch: list[str]) -> Any | None:
         """Load entity and eager-fetch named relationship fields in one query."""
         cypher, params, fetch_meta = self._rel_loader.build_get_with_fetch_query(
             cls, pk, fetch

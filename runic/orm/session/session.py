@@ -80,6 +80,35 @@ class Session:
         log.debug("Staged for delete: %r", entity)
 
     # ------------------------------------------------------------------
+    # Properties (used by Repository)
+    # ------------------------------------------------------------------
+
+    @property
+    def mapper(self) -> Mapper:
+        """Return the Mapper used by this session."""
+        return self._mapper
+
+    @property
+    def rel_loader(self) -> RelationshipLoader:
+        """Return the RelationshipLoader used by this session."""
+        return self._rel_loader
+
+    def register_or_get(self, entity: Any) -> Any:
+        """Register *entity* in the identity map; return existing instance if present.
+
+        Used by Repository reads to deduplicate against entities already loaded
+        in this session (fulfilling the identity-map guarantee).
+        """
+        cls = type(entity)
+        pk = self._mapper.get_pk_value(entity)
+        key = (cls, pk)
+        if key in self._identity_map:
+            return self._identity_map[key]
+        entity.__dict__["_session"] = weakref.ref(self)
+        self._identity_map[key] = entity
+        return entity
+
+    # ------------------------------------------------------------------
     # Lookup
     # ------------------------------------------------------------------
 
@@ -269,9 +298,7 @@ class Session:
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
         self._inject_session_into(related)
-        log.debug(
-            "Loaded %s pk=%r with fetch=%r", cls.__name__, actual_pk, fetch
-        )
+        log.debug("Loaded %s pk=%r with fetch=%r", cls.__name__, actual_pk, fetch)
         return entity
 
     def _register_entity(self, entity: Any, query_cls: type, pk: Any) -> None:
