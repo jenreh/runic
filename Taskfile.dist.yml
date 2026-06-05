@@ -4,26 +4,26 @@ version: "3"
 
 includes:
   qa:
-    taskfile: ./tasks/Taskfile.qa.yml
+    taskfile: ./taskfiles/Taskfile.qa.yml
     flatten: true
     vars:
       PROJECT: "{{.PROJECT}}"
-  release: ./tasks/Taskfile.release.yml
+  release: ./taskfiles/Taskfile.release.yml
   docs:
-    taskfile: ./tasks/Taskfile.docs.yml
+    taskfile: ./taskfiles/Taskfile.docs.yml
     dir: .
-  # db: ./tasks/Taskfile.db.yml
+  # db: ./taskfiles/Taskfile.db.yml
   # docker:
-  #   taskfile: ./tasks/Taskfile.docker.yml
+  #   taskfile: ./taskfiles/Taskfile.docker.yml
   #   vars:
   #     IMAGE_NAME: "{{.PROJECT}}-image"
   # dev:
-  #   taskfile: ./tasks/Taskfile.terraform-azure.yaml
+  #   taskfile: ./taskfiles/Taskfile.terraform-azure.yaml
   #   vars:
   #     TF_DIR: "{{.ROOT_DIR}}/terraform"
   #     ENVIRONMENT: dev
   # prod:
-  #   taskfile: ./tasks/Taskfile.terraform-azure.yaml
+  #   taskfile: ./taskfiles/Taskfile.terraform-azure.yaml
   #   vars:
   #     TF_DIR: "{{.ROOT_DIR}}/terraform"
   #     ENVIRONMENT: prod
