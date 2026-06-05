@@ -119,7 +119,7 @@ class Runic:
         heads = self._script_dir.get_heads()
         if not heads:
             return "head"
-        from runic.exceptions import MultipleHeadsError
+        from runic.migrate.exceptions import MultipleHeadsError
 
         if len(heads) > 1:
             raise MultipleHeadsError(
@@ -424,7 +424,7 @@ class Runic:
         Returns:
             Path to the generated .py file, or ``None`` for ``stamp_only``.
         """
-        from runic.exceptions import GraphAlreadyManagedError
+        from runic.migrate.exceptions import GraphAlreadyManagedError
         from runic.migrate.introspect import (
             full_downgrade_ops,
             full_upgrade_ops,

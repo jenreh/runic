@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from runic.exceptions import MultipleHeadsError
+from runic.migrate.exceptions import MultipleHeadsError
 
 if TYPE_CHECKING:
     from runic.migrate.adapters import GraphAdapter

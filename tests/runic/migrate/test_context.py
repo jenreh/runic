@@ -318,7 +318,7 @@ def test_upgrade_relative_multiple_heads_raises(
     """+N with multiple heads raises MultipleHeadsError."""
     import textwrap
 
-    from runic.exceptions import MultipleHeadsError
+    from runic.migrate.exceptions import MultipleHeadsError
 
     # Add a second base-level revision (creates two heads)
     branched_dir = tmp_path / "branched"

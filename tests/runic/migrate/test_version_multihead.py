@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.exceptions import MultipleHeadsError
+from runic.migrate.exceptions import MultipleHeadsError
 from runic.migrate.version import VersionNode
 
 

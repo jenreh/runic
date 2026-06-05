@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.exceptions import MultipleHeadsError
 from runic.migrate.adapters.falkordb import FalkorDBAdapter
 from runic.migrate.context import Runic
+from runic.migrate.exceptions import MultipleHeadsError
 from runic.migrate.script import RevisionNotFound
 
 

@@ -4,9 +4,9 @@ import logging
 import time
 from typing import Any
 
-from runic.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate import introspect
 from runic.migrate.adapters import GraphAdapter
+from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
 
 log = logging.getLogger(__name__)

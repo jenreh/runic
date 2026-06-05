@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from runic.exceptions import MultipleHeadsError
+from runic.migrate.exceptions import MultipleHeadsError
 from runic.migrate.script import (
     AmbiguousRevision,
     Revision,

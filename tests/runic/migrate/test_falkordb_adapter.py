@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from runic.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.adapters.falkordb import FalkorDBAdapter
+from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 
 
 @pytest.fixture
