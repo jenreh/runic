@@ -19,3 +19,12 @@ class FieldValidationError(OrmError):
 
 class MetadataError(OrmError):
     """Raised for metadata registry errors (e.g. duplicate labels)."""
+
+
+class LazyLoadError(OrmError):
+    """Raised when lazy relationship loading cannot be performed.
+
+    Occurs when accessing a lazy field on an entity in an async session
+    (where ``__get__`` cannot await) or when the session is unavailable.
+    Use ``fetch=[field_name]`` on ``session.get()`` for eager loading instead.
+    """

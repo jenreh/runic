@@ -14,6 +14,51 @@ log = logging.getLogger(__name__)
 _BASE_CLASS_MARKER = "_is_orm_base"
 
 
+def _is_collection_annotation(ann: Any) -> bool:
+    """Return True if *ann* represents a list/collection type."""
+    if isinstance(ann, str):
+        return ann.startswith(("list[", "List["))
+    # Python 3.9+ generic alias: list[X] or typing.List[X]
+    origin = getattr(ann, "__origin__", None)
+    if origin is list:
+        return True
+    try:
+        import typing
+
+        return typing.get_origin(ann) is list
+    except Exception:
+        return False
+
+
+_ABSENT = object()
+
+
+def _synthesize_plain_annotations(cls: type) -> None:
+    """Install Field descriptors for bare ``name: type`` annotations on *cls*.
+
+    Called before ``_collect_fields`` so plain annotations participate in
+    dirty-tracking and ``__init__`` generation identically to explicit
+    ``Field()`` declarations.  Only annotations declared directly on *cls*
+    (not inherited ones) are processed; ancestors handle their own during
+    their own ``__init_subclass__`` call.
+    """
+    for name, ann in cls.__annotations__.items():
+        if name.startswith("_"):
+            continue
+        ann_str = ann if isinstance(ann, str) else repr(ann)
+        if "ClassVar" in ann_str:
+            continue
+        if isinstance(cls.__dict__.get(name), Field):
+            continue
+        val = cls.__dict__.get(name, _ABSENT)
+        if val is _ABSENT:
+            field = Field()
+        else:
+            field = Field(default=val)
+        field.__set_name__(cls, name)
+        setattr(cls, name, field)
+
+
 def _collect_fields(cls: type, stop_at: type) -> list[FieldInfo]:
     """Collect Field descriptors from *cls* and its ancestors.
 
@@ -21,7 +66,17 @@ def _collect_fields(cls: type, stop_at: type) -> list[FieldInfo]:
     before child fields in the returned list.  ``stop_at`` (Node or Edge) and
     ``object`` are excluded.  If a name appears in multiple bases the first
     occurrence wins (i.e. parent definition is kept; child cannot shadow).
+
+    ``FieldInfo.is_collection`` is set from the type annotation — ``True`` when
+    the annotation is ``list[...]`` or ``List[...]``.
     """
+    # Merge annotations across MRO so child overrides are handled correctly.
+    annotations: dict[str, Any] = {}
+    for base in reversed(cls.__mro__):
+        if base is object or base is stop_at:
+            continue
+        annotations.update(getattr(base, "__annotations__", {}))
+
     seen: set[str] = set()
     result: list[FieldInfo] = []
     for base in reversed(cls.__mro__):
@@ -29,7 +84,9 @@ def _collect_fields(cls: type, stop_at: type) -> list[FieldInfo]:
             continue
         for name, val in base.__dict__.items():
             if isinstance(val, Field) and name not in seen:
-                result.append(FieldInfo(name=name, field=val))
+                ann = annotations.get(name)
+                is_coll = _is_collection_annotation(ann)
+                result.append(FieldInfo(name=name, field=val, is_collection=is_coll))
                 seen.add(name)
     return result
 
@@ -127,6 +184,7 @@ class Node:
 
         cls._labels = effective_labels
         cls._primary_label = effective_primary
+        _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Node)
         cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
 
@@ -185,6 +243,7 @@ class Edge:
         super().__init_subclass__(**kwargs)
 
         cls._edge_type = type if type is not None else cls.__name__
+        _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Edge)
         cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
 

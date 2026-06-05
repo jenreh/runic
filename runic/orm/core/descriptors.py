@@ -12,6 +12,26 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+class _NotLoadedType:
+    """Singleton sentinel for lazy relationship fields not yet loaded from the graph."""
+
+    _instance: _NotLoadedType | None = None
+
+    def __new__(cls) -> _NotLoadedType:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "_NOT_LOADED"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+_NOT_LOADED: _NotLoadedType = _NotLoadedType()
+
+
 class _MissingType:
     """Singleton sentinel for fields that have no default value."""
 
@@ -35,11 +55,12 @@ MISSING: _MissingType = _MissingType()
 class FieldInfo:
     """Pairs a field name with its Field descriptor; used during __init__ generation."""
 
-    __slots__ = ("field", "name")
+    __slots__ = ("field", "is_collection", "name")
 
-    def __init__(self, name: str, field: Field) -> None:
+    def __init__(self, name: str, field: Field, is_collection: bool = False) -> None:
         self.name = name
         self.field = field
+        self.is_collection = is_collection
 
     def __repr__(self) -> str:
         return f"FieldInfo(name={self.name!r}, field={self.field!r})"
@@ -124,13 +145,38 @@ class Field:
         if obj is None:
             return self
         try:
-            return obj.__dict__[self._name]
+            val = obj.__dict__[self._name]
         except KeyError:
             if self.has_default:
                 return self.get_default()
             raise AttributeError(
                 f"'{type(obj).__name__}' has no value for field '{self._name}'"
             ) from None
+        if val is _NOT_LOADED:
+            return self._trigger_lazy_load(obj)
+        return val
+
+    def _trigger_lazy_load(self, obj: Any) -> Any:
+        """Trigger lazy loading of this relationship field on *obj* via the active session."""
+        import weakref
+
+        session_ref = obj.__dict__.get("_session")
+        if session_ref is None:
+            from runic.orm.exceptions import DetachedEntityError
+
+            raise DetachedEntityError(
+                f"Entity {obj!r} has no active session. "
+                f"Load via session.get() or use fetch=[{self._name!r}] for eager loading."
+            )
+        session = session_ref() if isinstance(session_ref, weakref.ref) else session_ref
+        if session is None:
+            from runic.orm.exceptions import DetachedEntityError
+
+            raise DetachedEntityError(
+                f"Entity {obj!r}'s session was garbage-collected. "
+                f"Use fetch=[{self._name!r}] for eager loading."
+            )
+        return session.load_relationship(obj, self._name)
 
     def __set__(self, obj: Any, value: Any) -> None:
         obj.__dict__[self._name] = value

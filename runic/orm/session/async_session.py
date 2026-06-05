@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import weakref
 from types import TracebackType
 from typing import Any
 
 from runic.orm.core.metadata import metadata as _global_metadata
-from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError
+from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
+from runic.orm.mapper.relationship_loader import RelationshipLoader
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +24,9 @@ class AsyncSession:
             alice = await session.get(Person, "alice-id")
             alice.email = "new@example.com"
             await session.commit()
+
+    Lazy relationship loading is **not** supported in async context because
+    ``Field.__get__`` cannot ``await``.  Use ``fetch=[...]`` on ``get()`` instead.
     """
 
     def __init__(self, graph: Any, mapper: Mapper | None = None) -> None:
@@ -29,6 +34,7 @@ class AsyncSession:
         self._mapper: Mapper = (
             mapper if mapper is not None else Mapper(_global_metadata)
         )
+        self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
         self._identity_map: dict[tuple[type, Any], Any] = {}
         self._pending: list[Any] = []
         self._deleted: list[Any] = []
@@ -69,15 +75,22 @@ class AsyncSession:
     # ------------------------------------------------------------------
 
     async def get(
-        self, cls: type, pk: Any, fetch: list[str] | None = None  # noqa: ARG002
+        self, cls: type, pk: Any, fetch: list[str] | None = None
     ) -> Any | None:
-        """Return entity from identity map or query graph asynchronously."""
+        """Return entity from identity map or query graph asynchronously.
+
+        Pass ``fetch=["rel_name", ...]`` to eager-load relationships in the
+        same Cypher query using ``OPTIONAL MATCH``.
+        """
         key = (cls, pk)
         if key in self._identity_map:
             entity = self._identity_map[key]
             if entity.__dict__.get("_expired"):
                 await self._reload(entity, cls, pk)
             return entity
+
+        if fetch:
+            return await self._get_with_fetch(cls, pk, fetch)
 
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = await self._graph.query(cypher, params)
@@ -88,8 +101,20 @@ class AsyncSession:
         falkor_node = result.result_set[0][0]
         entity = self._mapper.decode_node(falkor_node, cls)
         actual_pk = self._mapper.get_pk_value(entity)
-        self._identity_map[(cls, actual_pk)] = entity
+        self._register_entity(entity, cls, actual_pk)
         return entity
+
+    def load_relationship(self, entity: Any, field_name: str) -> Any:  # noqa: ARG002
+        """Raise ``LazyLoadError``; lazy loading is not supported in async sessions.
+
+        Access ``entity.rel_field`` from within an async context manager triggers
+        this via ``Field._trigger_lazy_load``.  Use ``fetch=[field_name]`` on
+        ``get()`` for eager loading instead.
+        """
+        raise LazyLoadError(
+            f"Lazy relationship loading is not supported in AsyncSession. "
+            f"Use 'await session.get(..., fetch=[{field_name!r}])' instead."
+        )
 
     # ------------------------------------------------------------------
     # Flush / Commit / Rollback
@@ -135,6 +160,7 @@ class AsyncSession:
 
     def expunge(self, entity: Any) -> None:
         """Remove entity from session; no graph action."""
+        entity.__dict__.pop("_session", None)
         cls = type(entity)
         pk = self._mapper.get_pk_value(entity)
         self._identity_map.pop((cls, pk), None)
@@ -145,6 +171,10 @@ class AsyncSession:
 
     def expunge_all(self) -> None:
         """Expunge all tracked entities."""
+        for entity in self._identity_map.values():
+            entity.__dict__.pop("_session", None)
+        for entity in self._pending:
+            entity.__dict__.pop("_session", None)
         self._identity_map.clear()
         self._pending.clear()
         self._deleted.clear()
@@ -186,8 +216,45 @@ class AsyncSession:
         await self.close()
 
     # ------------------------------------------------------------------
-    # Private flush helpers
+    # Private helpers
     # ------------------------------------------------------------------
+
+    async def _get_with_fetch(
+        self, cls: type, pk: Any, fetch: list[str]
+    ) -> Any | None:
+        """Load entity and eager-fetch named relationship fields in one query."""
+        cypher, params, fetch_meta = self._rel_loader.build_get_with_fetch_query(
+            cls, pk, fetch
+        )
+        result = await self._graph.query(cypher, params)
+
+        if not result.result_set:
+            return None
+
+        row = result.result_set[0]
+        falkor_node = row[0]
+        entity = self._mapper.decode_node(falkor_node, cls)
+        related = self._rel_loader.decode_eager_columns(row, entity, fetch_meta)
+
+        actual_pk = self._mapper.get_pk_value(entity)
+        self._register_entity(entity, cls, actual_pk)
+        self._inject_session_into(related)
+        return entity
+
+    def _register_entity(self, entity: Any, query_cls: type, pk: Any) -> None:
+        """Add entity to identity map and inject weak session reference."""
+        entity.__dict__["_session"] = weakref.ref(self)
+        self._identity_map[(query_cls, pk)] = entity
+
+    def _inject_session_into(self, decoded: Any) -> None:
+        """Inject ``_session`` into a single entity or list of entities."""
+        ref = weakref.ref(self)
+        if isinstance(decoded, list):
+            for e in decoded:
+                if e is not None:
+                    e.__dict__["_session"] = ref
+        elif decoded is not None:
+            decoded.__dict__["_session"] = ref
 
     async def _flush_pending(self) -> None:
         for entity in list(self._pending):
@@ -202,6 +269,7 @@ class AsyncSession:
             entity.__dict__["_dirty"] = False
 
             pk = self._mapper.get_pk_value(entity)
+            entity.__dict__["_session"] = weakref.ref(self)
             self._identity_map[(type(entity), pk)] = entity
 
         self._pending.clear()
@@ -232,6 +300,7 @@ class AsyncSession:
             cls = type(entity)
             pk = self._mapper.get_pk_value(entity)
             self._identity_map.pop((cls, pk), None)
+            entity.__dict__.pop("_session", None)
 
         self._deleted.clear()
 
