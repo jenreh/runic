@@ -155,7 +155,7 @@ both require ``target_manifest`` to be set in ``env.py`` via
 ``context.configure(..., target_manifest=...)``.  Without it they exit with
 an error.
 
-No ``runic.migrate.ini`` or TOML configuration file
+No ``runic.ini`` or TOML configuration file
 --------------------------------------------
 
 **What this means:** runic has no ``.ini``, ``pyproject.toml`` section, or
