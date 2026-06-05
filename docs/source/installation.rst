@@ -50,7 +50,7 @@ For integration testing without an external server, install
 
    uv add --dev falkordblite
 
-See :doc:`testing` for how to use the embedded server in your test suite.
+See :doc:`migration/testing` for how to use the embedded server in your test suite.
 
 Development install
 -------------------

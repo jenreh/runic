@@ -52,15 +52,15 @@ gives you a CLI to apply, roll back, inspect, and test those changes safely.
 
 .. grid:: 2
 
-   .. grid-item-card:: Get started in 5 minutes
-      :link: quickstart
+   .. grid-item-card:: Migration — get started
+      :link: migration/quickstart
       :link-type: doc
 
       Install runic, run ``runic init``, write your first migration, and
       apply it — all in one page.
 
-   .. grid-item-card:: Tutorial
-      :link: tutorial/index
+   .. grid-item-card:: Migration tutorial
+      :link: migration/tutorial/index
       :link-type: doc
 
       Step-by-step walkthroughs covering the full workflow: creating
@@ -69,25 +69,30 @@ gives you a CLI to apply, roll back, inspect, and test those changes safely.
 .. grid:: 2
 
    .. grid-item-card:: CLI reference
-      :link: cli_reference
+      :link: migration/cli_reference
       :link-type: doc
 
       Every command, option, and flag documented with examples.
 
    .. grid-item-card:: Operations reference
-      :link: operations_reference
+      :link: migration/operations_reference
       :link-type: doc
 
       Full list of ``op.*`` calls available inside migration scripts.
 
 .. grid:: 2
 
-   .. grid-item-card:: Autogenerate
-      :link: autogenerate
+   .. grid-item-card:: ORM API reference
+      :link: api
       :link-type: doc
 
-      Detect schema drift automatically using a ``SchemaManifest`` and
-      generate migration scripts without writing Cypher by hand.
+      ``runic.orm`` — models, sessions, repositories, and type converters.
+
+   .. grid-item-card:: Migration API reference
+      :link: migration/api
+      :link-type: doc
+
+      ``runic.migrate`` — programmatic migration engine API.
 
    .. grid-item-card:: Limitations
       :link: limitations
@@ -101,27 +106,16 @@ gives you a CLI to apply, roll back, inspect, and test those changes safely.
    :caption: Getting started
 
    installation
-   quickstart
 
 .. toctree::
    :hidden:
-   :caption: Tutorial
+   :caption: Migration
 
-   tutorial/index
-
-.. toctree::
-   :hidden:
-   :caption: Reference
-
-   operations_reference
-   cli_reference
-   autogenerate
-   branching
-   testing
+   migration/index
 
 .. toctree::
    :hidden:
-   :caption: Advanced
+   :caption: ORM & API
 
    api
    limitations

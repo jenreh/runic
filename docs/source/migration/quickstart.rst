@@ -4,7 +4,7 @@ Quickstart
 This page takes you from a fresh install to a working migration in about
 five minutes.
 
-Prerequisites: runic installed (:doc:`installation`) and a FalkorDB instance
+Prerequisites: runic installed (:doc:`../installation`) and a FalkorDB instance
 reachable at ``falkor://localhost:6379``.
 
 Step 1 — Initialise the migration directory

@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from runic.orm.core.descriptors import FieldInfo
-from runic.orm.core.metadata import MetaData
+from runic.orm.core.metadata import MetaData, NodeMeta
 
 if TYPE_CHECKING:
     from runic.orm.mapper.mapper import Mapper
@@ -42,8 +42,7 @@ class RelationshipLoader:
 
         if generated:
             match_src = (
-                f"MATCH (n:{node_meta.primary_label}) "
-                f"WHERE id(n) = toInteger($__pk)"
+                f"MATCH (n:{node_meta.primary_label}) WHERE id(n) = toInteger($__pk)"
             )
         else:
             pk_name = node_meta.pk_field_name
@@ -71,9 +70,7 @@ class RelationshipLoader:
             ]
         row = result.result_set[0]
         return (
-            self._mapper.decode_node(row[0], target_cls)
-            if row[0] is not None
-            else None
+            self._mapper.decode_node(row[0], target_cls) if row[0] is not None else None
         )
 
     # ------------------------------------------------------------------
@@ -97,37 +94,55 @@ class RelationshipLoader:
         labels_str = ":".join(node_meta.labels)
 
         if generated:
-            main_match = (
-                f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk)"
-            )
+            main_match = f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk)"
         else:
             pk_name = node_meta.pk_field_name
             main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
 
-        optional_clauses: list[str] = []
-        return_cols = ["n"]
-        fetch_meta: list[tuple[str, FieldInfo]] = []
-
-        for i, field_name in enumerate(fetch):
-            fi = next(
-                (f for f in node_meta.fields if f.name == field_name), None
-            )
-            if fi is None or fi.field.relationship is None:
-                log.debug("Skipping unknown or non-relationship fetch name: %r", field_name)
-                continue
-
-            alias = f"_r{i}_{field_name}"
-            _, target_label = self._resolve_target(fi)
-            rel_pattern = self._rel_pattern("n", fi, alias, target_label)
-
-            optional_clauses.append(f"OPTIONAL MATCH {rel_pattern}")
-            return_cols.append(f"collect(distinct {alias}) AS {field_name}")
-            fetch_meta.append((field_name, fi))
-
+        optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
+            node_meta, fetch
+        )
         parts = [main_match, *optional_clauses, f"RETURN {', '.join(return_cols)}"]
-        cypher = "\n".join(parts)
+        return "\n".join(parts), {"__pk": pk}, fetch_meta
 
-        return cypher, {"__pk": pk}, fetch_meta
+    def build_find_all_with_fetch_query(
+        self,
+        cls: type,
+        fetch: list[str],
+    ) -> tuple[str, dict[str, Any], list[tuple[str, FieldInfo]]]:
+        """Build MATCH + OPTIONAL MATCHes to find all entities with eager loading."""
+        node_meta = self._mapper.require_node_meta(cls)
+        labels_str = ":".join(node_meta.labels)
+        main_match = f"MATCH (n:{labels_str})"
+
+        optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
+            node_meta, fetch
+        )
+        parts = [main_match, *optional_clauses, f"RETURN {', '.join(return_cols)}"]
+        return "\n".join(parts), {}, fetch_meta
+
+    def build_find_all_by_ids_with_fetch_query(
+        self,
+        cls: type,
+        pks: list[Any],
+        fetch: list[str],
+    ) -> tuple[str, dict[str, Any], list[tuple[str, FieldInfo]]]:
+        """Build MATCH + OPTIONAL MATCHes to fetch a batch of entities by PK."""
+        node_meta = self._mapper.require_node_meta(cls)
+        generated = self._mapper.is_generated_pk(cls)
+        labels_str = ":".join(node_meta.labels)
+
+        if generated:
+            main_match = f"MATCH (n:{labels_str}) WHERE id(n) IN $__pks"
+        else:
+            pk_name = node_meta.pk_field_name
+            main_match = f"MATCH (n:{labels_str}) WHERE n.{pk_name} IN $__pks"
+
+        optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
+            node_meta, fetch
+        )
+        parts = [main_match, *optional_clauses, f"RETURN {', '.join(return_cols)}"]
+        return "\n".join(parts), {"__pks": pks}, fetch_meta
 
     def decode_eager_columns(
         self,
@@ -170,6 +185,38 @@ class RelationshipLoader:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _build_fetch_clauses(
+        self,
+        node_meta: NodeMeta,
+        fetch: list[str],
+    ) -> tuple[list[str], list[str], list[tuple[str, FieldInfo]]]:
+        """Build OPTIONAL MATCH clauses and RETURN columns for *fetch* field names.
+
+        Returns ``(optional_clauses, return_cols, fetch_meta)``.
+        ``return_cols`` always starts with ``["n"]``.
+        """
+        optional_clauses: list[str] = []
+        return_cols: list[str] = ["n"]
+        fetch_meta: list[tuple[str, FieldInfo]] = []
+
+        for i, field_name in enumerate(fetch):
+            fi = next((f for f in node_meta.fields if f.name == field_name), None)
+            if fi is None or fi.field.relationship is None:
+                log.debug(
+                    "Skipping unknown or non-relationship fetch name: %r", field_name
+                )
+                continue
+
+            alias = f"_r{i}_{field_name}"
+            _, target_label = self._resolve_target(fi)
+            rel_pattern = self._rel_pattern("n", fi, alias, target_label)
+
+            optional_clauses.append(f"OPTIONAL MATCH {rel_pattern}")
+            return_cols.append(f"collect(distinct {alias}) AS {field_name}")
+            fetch_meta.append((field_name, fi))
+
+        return optional_clauses, return_cols, fetch_meta
 
     def _resolve_target(self, fi: FieldInfo) -> tuple[type | None, str]:
         """Return ``(target_cls, primary_label)`` for a relationship FieldInfo."""
