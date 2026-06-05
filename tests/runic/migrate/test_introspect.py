@@ -58,15 +58,19 @@ def _fulltext_row(label: str, prop: str) -> list:
 
 
 def _vector_row(label: str, prop: str, dim: int = 128, sim: str = "cosine") -> list:
-    opts = OrderedDict({
-        prop: OrderedDict({
-            "dimension": dim,
-            "similarityFunction": sim,
-            "M": 16,
-            "efConstruction": 200,
-            "efRuntime": 10,
-        })
-    })
+    opts = OrderedDict(
+        {
+            prop: OrderedDict(
+                {
+                    "dimension": dim,
+                    "similarityFunction": sim,
+                    "M": 16,
+                    "efConstruction": 200,
+                    "efRuntime": 10,
+                }
+            )
+        }
+    )
     return [
         label,
         [prop],
