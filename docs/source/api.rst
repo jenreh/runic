@@ -6,14 +6,14 @@ code or extending it.
 
 ----
 
-runic.Runic
+runic.migrate.Runic
 -----------
 
-:class:`~runic.context.Runic` is the single class a developer needs.  It
+:class:`~runic.migrate.context.Runic` is the single class a developer needs.  It
 combines all DB-connected operations (upgrade, downgrade, stamp, current) with
 offline DAG queries (history, heads, revision creation) in one coherent API.
 
-.. autoclass:: runic.context.Runic
+.. autoclass:: runic.migrate.context.Runic
    :members: upgrade, downgrade, stamp, current, validate,
              enable_preview, preview_log,
              get_revision_message, get_history, get_heads, get_branch_points,
@@ -21,7 +21,7 @@ offline DAG queries (history, heads, revision creation) in one coherent API.
              adapter, target_manifest, script_location
    :show-inheritance:
 
-.. autoexception:: runic.context.IrreversibleMigrationError
+.. autoexception:: runic.migrate.context.IrreversibleMigrationError
    :show-inheritance:
 
 Programmatic usage example
@@ -31,7 +31,7 @@ Programmatic usage example
 
    from pathlib import Path
    from runic import Runic
-   from runic.adapters import create_adapter
+   from runic.migrate.adapters import create_adapter
 
    # URL variant (credentials embedded in the connection string)
    adapter = create_adapter(
@@ -50,142 +50,142 @@ Programmatic usage example
    runic = Runic(adapter, script_location=Path("runic/"))
 
    # Validate checksums before upgrading
-   errors = runic.validate()
+   errors = runic.migrate.validate()
    if errors:
        raise RuntimeError("\n".join(errors))
 
-   runic.upgrade("head", installed_by="deploy-bot")
-   print("current:", runic.current())
+   runic.migrate.upgrade("head", installed_by="deploy-bot")
+   print("current:", runic.migrate.current())
 
-   history = runic.get_history()
+   history = runic.migrate.get_history()
    for entry in history:
        print(entry.revision, entry.message)
 
-   runic.downgrade("base")
+   runic.migrate.downgrade("base")
 
 ----
 
-runic.init
+runic.migrate.init
 ----------
 
-.. autofunction:: runic.service.init
+.. autofunction:: runic.migrate.service.init
 
 ----
 
-runic.context (env.py singleton)
+runic.migrate.context (env.py singleton)
 ---------------------------------
 
-The ``runic.context`` module also exposes a module-level singleton API that
+The ``runic.migrate.context`` module also exposes a module-level singleton API that
 ``env.py`` uses so the CLI can discover the configured context after executing
-the file.  **SDK users should prefer instantiating** :class:`~runic.context.Runic`
+the file.  **SDK users should prefer instantiating** :class:`~runic.migrate.context.Runic`
 **directly** rather than using this API.
 
-.. autofunction:: runic.context.configure
+.. autofunction:: runic.migrate.context.configure
 
-.. autofunction:: runic.context.get
+.. autofunction:: runic.migrate.context.get
 
-.. autofunction:: runic.context.is_preview
+.. autofunction:: runic.migrate.context.is_preview
 
 ----
 
-runic.adapters
+runic.migrate.adapters
 --------------
 
-.. autofunction:: runic.adapters.create_adapter
+.. autofunction:: runic.migrate.adapters.create_adapter
 
 ----
 
-runic.operations
+runic.migrate.operations
 ----------------
 
-.. autoclass:: runic.operations.GraphOperations
+.. autoclass:: runic.migrate.operations.GraphOperations
    :members:
    :show-inheritance:
 
 ----
 
-runic.manifest
+runic.migrate.manifest
 --------------
 
 Schema manifest classes used with autogenerate.  See :doc:`autogenerate` for
 usage examples.
 
-.. autoclass:: runic.manifest.SchemaManifest
+.. autoclass:: runic.migrate.manifest.SchemaManifest
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: runic.manifest.RangeIndex
+.. autoclass:: runic.migrate.manifest.RangeIndex
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: runic.manifest.FulltextIndex
+.. autoclass:: runic.migrate.manifest.FulltextIndex
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: runic.manifest.VectorIndex
+.. autoclass:: runic.migrate.manifest.VectorIndex
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: runic.manifest.UniqueConstraint
+.. autoclass:: runic.migrate.manifest.UniqueConstraint
    :members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: runic.manifest.MandatoryConstraint
+.. autoclass:: runic.migrate.manifest.MandatoryConstraint
    :members:
    :show-inheritance:
    :no-index:
 
 ----
 
-runic.script
+runic.migrate.script
 ------------
 
 Internal revision DAG types.  These are returned by methods on
-:class:`~runic.context.Runic` but you rarely need to construct them directly.
+:class:`~runic.migrate.context.Runic` but you rarely need to construct them directly.
 
-.. autoclass:: runic.script.Revision
+.. autoclass:: runic.migrate.script.Revision
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.script.RevisionInfo
+.. autoclass:: runic.migrate.script.RevisionInfo
    :members:
    :show-inheritance:
 
-.. autoexception:: runic.script.RevisionNotFound
+.. autoexception:: runic.migrate.script.RevisionNotFound
    :show-inheritance:
 
-.. autoexception:: runic.script.AmbiguousRevision
+.. autoexception:: runic.migrate.script.AmbiguousRevision
    :show-inheritance:
 
 ----
 
-runic.exceptions
+runic.migrate.exceptions
 ----------------
 
-.. autoexception:: runic.exceptions.MultipleHeadsError
+.. autoexception:: runic.migrate.exceptions.MultipleHeadsError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.MultipleBasesError
+.. autoexception:: runic.migrate.exceptions.MultipleBasesError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.ConstraintFailedError
+.. autoexception:: runic.migrate.exceptions.ConstraintFailedError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.ConstraintTimeoutError
+.. autoexception:: runic.migrate.exceptions.ConstraintTimeoutError
    :show-inheritance:
 
 ----
 
-runic.testing
+runic.migrate.testing
 -------------
 
 Pytest fixtures for integration tests.  Requires ``falkordblite``.
 
-.. autofunction:: runic.testing.falkordb_graph
+.. autofunction:: runic.migrate.testing.falkordb_graph
 
-.. autofunction:: runic.testing.runic_context
+.. autofunction:: runic.migrate.testing.runic_context

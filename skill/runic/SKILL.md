@@ -14,8 +14,8 @@ Runic is an Alembic-style migration framework for FalkorDB. It tracks schema
 versions in a `(:_FalkorMigrateVersion)` node inside each graph and drives
 upgrades/downgrades via Python scripts stored in `versions/`.
 
-For real migration file examples see [examples/](examples/).  
-For the full `op.*` API and `SchemaManifest` see [references/op-api.md](references/op-api.md).  
+For real migration file examples see [examples/](examples/).
+For the full `op.*` API and `SchemaManifest` see [references/op-api.md](references/op-api.md).
 For autogenerate, programmatic SDK, testing, and branching see [references/advanced.md](references/advanced.md).
 
 ---
@@ -53,8 +53,8 @@ Default config: `runic/env.py` — override with `--config path/to/env.py`.
 
 ```python
 import os
-from runic import context
-from runic.adapters import create_adapter
+from runic.migrate import context
+from runic.migrate.adapters import create_adapter
 
 adapter = create_adapter(
     "falkordb",

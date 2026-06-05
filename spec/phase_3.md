@@ -15,7 +15,7 @@ Add first-class testability and safe rollback to `runic`. Concretely:
 2. **`runic test <rev>`** CLI command — applies `upgrade()`, `downgrade()`, then
    `upgrade()` again on an ephemeral graph and asserts round-trip parity
    (entity counts, index counts, constraint counts). Reports idempotency pass/fail.
-3. **Pytest plugin / fixture** — a `runic.testing` module that provides an
+3. **Pytest plugin / fixture** — a `runic.migrate.testing` module that provides an
    `ephemeral_graph` pytest fixture backed by `falkordblite` (embedded FalkorDB,
    no external server required) with automatic teardown.
 4. **Integration tests** — real (non-mocked) tests using `falkordblite` covering
@@ -130,6 +130,7 @@ Create `runic/testing.py` with:
 ```python
 import pytest
 
+
 @pytest.fixture
 def falkordb_graph():
     """Yield (db, graph) backed by falkordblite; tears down after the test."""
@@ -193,7 +194,7 @@ with:
 pytest.importorskip("falkordblite", reason="falkordblite not installed")
 ```
 
-Tests to include (each uses the `falkordb_graph` fixture from `runic.testing`):
+Tests to include (each uses the `falkordb_graph` fixture from `runic.migrate.testing`):
 
 - `test_upgrade_downgrade_round_trip` — create two migration scripts (one adding a
   range index, one adding a node property). Run `upgrade("head")`, assert index

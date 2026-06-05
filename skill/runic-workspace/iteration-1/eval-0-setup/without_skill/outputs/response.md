@@ -49,7 +49,7 @@ Open `runic/env.py`. The scaffolded content looks like this:
 import os
 
 from runic import context
-from runic.adapters import create_adapter
+from runic.migrate.adapters import create_adapter
 
 adapter = create_adapter(
     "falkordb",
@@ -65,7 +65,7 @@ Edit the default graph name to match your setup:
 import os
 
 from runic import context
-from runic.adapters import create_adapter
+from runic.migrate.adapters import create_adapter
 
 adapter = create_adapter(
     "falkordb",

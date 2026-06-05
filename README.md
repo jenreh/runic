@@ -64,6 +64,7 @@ Revision ID: 1975ea83b712
 Revises: None
 Create Date: 2026-05-30 14:00:00.000000
 """
+
 from datetime import UTC, datetime
 
 revision = "1975ea83b712"
@@ -117,7 +118,7 @@ Re-running `baseline` on an already-managed graph is refused:
 
 ```bash
 runic baseline -m "again"
-# Error: Graph already managed by Runic. Use `runic upgrade` instead.
+# Error: Graph already managed by runic.migrate. Use `runic upgrade` instead.
 ```
 
 To mark an existing graph as baselined without generating a file (useful when you manage the revision file yourself):
@@ -145,7 +146,7 @@ Use runic directly in Python — no CLI, no `env.py` needed:
 ```python
 from pathlib import Path
 from runic import Runic, init
-from runic.adapters import create_adapter
+from runic.migrate.adapters import create_adapter
 
 # One-time setup: scaffold the migration directory
 init(Path("runic/"))
@@ -157,10 +158,10 @@ adapter = create_adapter(
     graph_name="my_graph",
 )
 runic = Runic(adapter, script_location=Path("runic/"))
-runic.upgrade("head")
+runic.migrate.upgrade("head")
 
-print("current:", runic.current())
-print("history:", runic.get_history())
+print("current:", runic.migrate.current())
+print("history:", runic.migrate.get_history())
 ```
 
 `Runic` is the single class you need. It handles upgrades, downgrades, stamping, history queries, and revision creation in one coherent API.

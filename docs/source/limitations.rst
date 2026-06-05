@@ -72,7 +72,7 @@ Amazon Neptune, AgeDB, and other graph databases are not supported out of the
 box.
 
 **Architecture note:** The runtime now flows through a clean
-:class:`~runic.adapters.GraphAdapter` protocol, so a second adapter (e.g.
+:class:`~runic.migrate.adapters.GraphAdapter` protocol, so a second adapter (e.g.
 Neo4j) can be added without touching the migration core.  The main differences
 to implement are constraint syntax (Cypher instead of ``GRAPH.CONSTRAINT``),
 fulltext index procedures, vector index syntax, and snapshot semantics (no
@@ -155,7 +155,7 @@ both require ``target_manifest`` to be set in ``env.py`` via
 ``context.configure(..., target_manifest=...)``.  Without it they exit with
 an error.
 
-No ``runic.ini`` or TOML configuration file
+No ``runic.migrate.ini`` or TOML configuration file
 --------------------------------------------
 
 **What this means:** runic has no ``.ini``, ``pyproject.toml`` section, or

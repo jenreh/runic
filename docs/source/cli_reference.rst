@@ -560,7 +560,7 @@ recording them in the migration chain.  Useful for one-off operational tasks
 record.
 
 Each ``SCRIPT`` must be a ``.py`` file that defines an ``upgrade(op)``
-function.  The function receives the same :class:`~runic.operations.GraphOperations`
+function.  The function receives the same :class:`~runic.migrate.operations.GraphOperations`
 object as a normal migration.
 
 **Arguments**

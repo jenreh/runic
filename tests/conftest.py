@@ -1,14 +1,15 @@
 import textwrap
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 # Expose falkordblite-backed fixtures for all tests that need a live graph.
-from runic.testing import falkordb_graph, runic_context  # noqa: F401
+from runic.migrate.testing import falkordb_graph, runic_context  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
-def _restore_runic_marker() -> None:
+def _restore_runic_marker() -> Generator[None]:
     """Prevent test runs from contaminating the project-root .runic marker file."""
     marker = Path(".runic")
     original = marker.read_text() if marker.exists() else None

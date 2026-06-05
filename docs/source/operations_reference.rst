@@ -2,7 +2,7 @@ Operations Reference
 ====================
 
 The ``op`` object passed to every ``upgrade(op)`` and ``downgrade(op)``
-function is an instance of :class:`~runic.operations.GraphOperations`.  It
+function is an instance of :class:`~runic.migrate.operations.GraphOperations`.  It
 wraps the FalkorDB client and exposes a safe, preview-aware API for all
 supported schema operations.
 
@@ -167,8 +167,8 @@ property is always present).
           op.create_constraint("MANDATORY", "NODE", "Person", ["name"])
 
    runic polls ``CALL db.constraints()`` in a loop (30 retries × 0.5 s) and
-   raises :class:`~runic.operations.ConstraintFailedError` if the status
-   becomes ``FAILED``, or :class:`~runic.operations.ConstraintTimeoutError`
+   raises :class:`~runic.migrate.operations.ConstraintFailedError` if the status
+   becomes ``FAILED``, or :class:`~runic.migrate.operations.ConstraintTimeoutError`
    if it does not become ``OPERATIONAL`` within 15 seconds.
 
 .. py:method:: op.drop_constraint(kind, entity, label, props)
@@ -289,13 +289,13 @@ Error classes
 -------------
 
 These exceptions are raised by ``op.create_constraint()`` during constraint
-polling.  They live in :mod:`runic.exceptions` and are exported from the
+polling.  They live in :mod:`runic.migrate.exceptions` and are exported from the
 top-level ``runic`` package.
 
-.. autoclass:: runic.exceptions.ConstraintFailedError
+.. autoclass:: runic.migrate.exceptions.ConstraintFailedError
    :no-members:
    :no-index:
 
-.. autoclass:: runic.exceptions.ConstraintTimeoutError
+.. autoclass:: runic.migrate.exceptions.ConstraintTimeoutError
    :no-members:
    :no-index:

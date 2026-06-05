@@ -75,7 +75,7 @@ Irreversible revisions
 -----------------------
 
 If a revision sets ``irreversible = True``, runic raises
-:class:`~runic.context.IrreversibleMigrationError` when downgrade encounters
+:class:`~runic.migrate.context.IrreversibleMigrationError` when downgrade encounters
 it:
 
 .. code-block:: bash
