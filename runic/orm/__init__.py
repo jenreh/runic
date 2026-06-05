@@ -17,6 +17,8 @@ from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.repository.async_repository import AsyncRepository
 from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
+from runic.orm.schema.index_manager import IndexManager, IndexSpec
+from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
 from runic.orm.session.async_session import AsyncSession
 from runic.orm.session.connection_pool import AsyncConnectionManager, ConnectionManager
 from runic.orm.session.session import Session
@@ -37,6 +39,8 @@ __all__ = [
     "Field",
     "FieldInfo",
     "FieldValidationError",
+    "IndexManager",
+    "IndexSpec",
     "LazyLoadError",
     "Mapper",
     "MetaData",
@@ -48,8 +52,10 @@ __all__ = [
     "Pageable",
     "RelationshipLoader",
     "Repository",
+    "SchemaManager",
     "Session",
     "TypeConverter",
+    "ValidationResult",
     "get_metadata",
     "metadata",
 ]
