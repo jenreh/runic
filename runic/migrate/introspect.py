@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from runic.migrate.manifest import (
     FulltextIndex,
@@ -144,7 +144,7 @@ def introspect_graph(graph: Any) -> SchemaSnapshot:
             props: list[str] = list(row[_IDX_PROPERTIES])
             types_dict: dict = row[_IDX_TYPES]
             options_dict: dict = row[_IDX_OPTIONS]
-            entity_type: str = row[_IDX_ENTITYTYPE]
+            entity_type = cast(Literal["NODE", "RELATIONSHIP"], row[_IDX_ENTITYTYPE])
 
             range_props: list[str] = []
             fulltext_props: list[str] = []
@@ -209,12 +209,12 @@ def introspect_graph(graph: Any) -> SchemaSnapshot:
                     _CON_MIN_COLS,
                 )
                 continue
-            con_type: str = row[_CON_TYPE]
+            con_type = cast(Literal["UNIQUE", "MANDATORY"], row[_CON_TYPE])
             con_label: str = row[_CON_LABEL]
             if con_label == _MIGRATION_LABEL:
                 continue
             con_props: list[str] = list(row[_CON_PROPERTIES])
-            con_entity: str = row[_CON_ENTITYTYPE]
+            con_entity = cast(Literal["NODE", "RELATIONSHIP"], row[_CON_ENTITYTYPE])
             con_status: str = row[_CON_STATUS]
 
             if con_status != "OPERATIONAL":

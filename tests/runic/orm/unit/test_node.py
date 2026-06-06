@@ -111,12 +111,12 @@ def test_construction_kwarg_overrides_default() -> None:
 
 def test_construction_missing_required_raises() -> None:
     with pytest.raises(TypeError, match="name"):
-        SimplePerson(id="1", email="x@x.com")  # type: ignore[call-arg]
+        SimplePerson(id="1", email="x@x.com")  # type: ignore
 
 
 def test_construction_unknown_kwarg_raises() -> None:
     with pytest.raises(TypeError, match="unknown"):
-        SimplePerson(id="1", name="A", email="a@a.com", unknown=True)  # type: ignore[call-arg]
+        SimplePerson(id="1", name="A", email="a@a.com", unknown=True)  # type: ignore
 
 
 # ---------------------------------------------------------------------------

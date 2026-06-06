@@ -27,5 +27,5 @@ tasks:
       - "{{.RUNNER}} ruff format ."
 
   typecheck:
-    desc: Run mypy type checking
-    cmd: "{{.RUNNER}} mypy {{.PROJECT}}/"
+    desc: Run ty type checking
+    cmd: "{{.RUNNER}} ty check {{.PROJECT}}/"

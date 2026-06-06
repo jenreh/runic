@@ -9,6 +9,8 @@ from typing import Annotated, Any
 
 import typer
 
+from runic.migrate.introspect import SchemaSnapshot
+
 log = logging.getLogger(__name__)
 
 app = typer.Typer(
@@ -39,13 +41,11 @@ def _resolve_config(config: Path) -> Path:
     return config
 
 
-_DB_CONNECTION_ERROR_NAMES = frozenset(
-    {
-        "AuthenticationError",
-        "ConnectionError",
-        "TimeoutError",
-    }
-)
+_DB_CONNECTION_ERROR_NAMES = frozenset({
+    "AuthenticationError",
+    "ConnectionError",
+    "TimeoutError",
+})
 
 
 def _exec_env(config: Path, preview: bool = False) -> dict:  # noqa: ARG001
@@ -64,12 +64,12 @@ def _exec_env(config: Path, preview: bool = False) -> dict:  # noqa: ARG001
 
     @wraps(_orig_configure)
     def _patched_configure(
-        adapter: object, script_location: object = None, **kwargs: object
+        adapter: Any, script_location: Any = None, **kwargs: Any
     ) -> None:
         kwargs.setdefault("_env_path", config)
-        return _orig_configure(adapter, script_location, **kwargs)  # type: ignore[arg-type]
+        _orig_configure(adapter, script_location, **kwargs)
 
-    _ctx_module.configure = _patched_configure  # type: ignore[assignment]
+    _ctx_module.configure = _patched_configure  # ty: ignore
     namespace: dict = {"__file__": str(config), "__name__": "__main__"}
     try:
         exec(config.read_text(), namespace)  # noqa: S102
@@ -358,19 +358,17 @@ def history(
         from runic.migrate.script import RevisionInfo
 
         items = list(
-            reversed(
-                [
-                    RevisionInfo(
-                        revision=r.revision,
-                        down_revision=r.down_revision,
-                        message=r.message,
-                        create_date=r.create_date,
-                        is_head=False,
-                        is_branch_point=r.revision in bp_set,
-                    )
-                    for r in sd.walk_revisions(start, end, "up")
-                ]
-            )
+            reversed([
+                RevisionInfo(
+                    revision=r.revision,
+                    down_revision=r.down_revision,
+                    message=r.message,
+                    create_date=r.create_date,
+                    is_head=False,
+                    is_branch_point=r.revision in bp_set,
+                )
+                for r in sd.walk_revisions(start, end, direction="up")
+            ])
         )
     else:
         items = list(reversed(sd.revision_history()))
@@ -835,7 +833,7 @@ def baseline(
     if not stamp_only:
         from runic.migrate.introspect import introspect_graph, render_manifest_code
 
-        snapshot = introspect_graph(ctx._adapter._graph)  # noqa: SLF001
+        snapshot: SchemaSnapshot = introspect_graph(ctx._adapter._graph)  # noqa: SLF001  # ty:ignore[unresolved-attribute]
         manifest = render_manifest_code(snapshot)
         sep = "─" * 64
         typer.echo(
