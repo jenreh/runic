@@ -510,7 +510,9 @@ def test_close_clears_identity_map(session: Session, mock_graph: MagicMock) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_log_cypher_logs_query(mock_graph: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+def test_log_cypher_logs_query(
+    mock_graph: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
     import logging
 
     mock_graph.query.return_value = _empty_result()
@@ -520,7 +522,9 @@ def test_log_cypher_logs_query(mock_graph: MagicMock, caplog: pytest.LogCaptureF
     assert any("MATCH (n) RETURN n" in r.message for r in caplog.records)
 
 
-def test_log_cypher_disabled_by_default(mock_graph: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+def test_log_cypher_disabled_by_default(
+    mock_graph: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
     import logging
 
     mock_graph.query.return_value = _empty_result()

@@ -390,3 +390,80 @@ def test_session_unrelate_raises_for_non_relation_field() -> None:
 
     with pytest.raises(TypeError, match="no Relation field named 'id'"):
         session.unrelate(source, "id", target)
+
+
+# ---------------------------------------------------------------------------
+# FieldDescriptor form — type-safe class-level attribute as field_name
+# ---------------------------------------------------------------------------
+
+
+def test_session_relate_with_descriptor_executes_query() -> None:
+    session, mock_graph = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+
+    session.relate(source, WrPerson.company, target)
+
+    mock_graph.query.assert_called_once()
+    cypher, params = mock_graph.query.call_args[0]
+    assert "MERGE" in cypher
+    assert "WORKS_FOR" in cypher
+    assert params["__src_pk"] == "p1"
+    assert params["__tgt_pk"] == "c1"
+
+
+def test_session_relate_with_descriptor_invalidates_cache() -> None:
+    session, _ = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+    source.__dict__["company"] = target
+
+    session.relate(source, WrPerson.company, target)
+
+    assert source.__dict__["company"] is _NOT_LOADED
+
+
+def test_session_relate_with_descriptor_and_edge() -> None:
+    session, mock_graph = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+    edge = WrMemberEdge(role="admin")
+
+    session.relate(source, WrPerson.member_of, target, edge=edge)
+
+    cypher, params = mock_graph.query.call_args[0]
+    assert "SET" in cypher
+    assert params["__e_role"] == "admin"
+
+
+def test_session_unrelate_with_descriptor_executes_query() -> None:
+    session, mock_graph = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+
+    session.unrelate(source, WrPerson.company, target)
+
+    cypher, params = mock_graph.query.call_args[0]
+    assert "DELETE r" in cypher
+    assert "WORKS_FOR" in cypher
+    assert params["__src_pk"] == "p1"
+
+
+def test_session_unrelate_with_descriptor_invalidates_cache() -> None:
+    session, _ = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+    source.__dict__["company"] = target
+
+    session.unrelate(source, WrPerson.company, target)
+
+    assert source.__dict__["company"] is _NOT_LOADED
+
+
+def test_session_relate_raises_for_non_relation_descriptor() -> None:
+    session, _ = _make_session()
+    source = WrPerson(id="p1", name="Alice")
+    target = WrCompany(id="c1", name="Acme")
+
+    with pytest.raises(TypeError, match="no Relation field named 'name'"):
+        session.relate(source, WrPerson.name, target)

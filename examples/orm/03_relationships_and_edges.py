@@ -161,10 +161,12 @@ def run() -> None:
         assert paris is not None
         assert tokyo is not None
 
-        # Alice organises Paris and Tokyo; Bob is invited to Paris
+        # Alice organises Paris and Tokyo; Bob is invited to Paris.
+        # Pass the class-level descriptor (User.invited_trips) instead of a string
+        # for IDE completion and type-checker coverage.
         session.relate(
             alice,
-            "invited_trips",
+            User.invited_trips,
             paris,
             edge=InvitationEdge(
                 role="owner", status="accepted", invited_at="2026-01-01T00:00:00"
@@ -172,7 +174,7 @@ def run() -> None:
         )
         session.relate(
             alice,
-            "invited_trips",
+            User.invited_trips,
             tokyo,
             edge=InvitationEdge(
                 role="owner", status="accepted", invited_at="2026-01-02T00:00:00"
@@ -180,7 +182,7 @@ def run() -> None:
         )
         session.relate(
             bob,
-            "invited_trips",
+            User.invited_trips,
             paris,
             edge=InvitationEdge(
                 role="viewer", status="pending", invited_at="2026-03-15T09:00:00"
