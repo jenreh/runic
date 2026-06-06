@@ -311,6 +311,114 @@ class Session:
         return self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
+    # Query builder entry points
+    # ------------------------------------------------------------------
+
+    def query(self, cls: type[Any]) -> Any:
+        """Return a :class:`~runic.orm.query.builder.QueryBuilder` for *cls*.
+
+        This is the primary entry point for the fluent query builder API::
+
+            users = (
+                session.query(User)
+                .where(User.active == True)
+                .order_by(User.name)
+                .limit(20)
+                .all()
+            )
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass.
+
+        Returns
+        -------
+        QueryBuilder[cls]
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        return QueryBuilder(self, cls)
+
+    def fulltext_search(
+        self,
+        cls: type[Any],
+        *,
+        query: str,
+        fields: list[str] | None = None,
+    ) -> Any:
+        """Return a :class:`~runic.orm.query.builder.FulltextQueryBuilder` for *cls*.
+
+        Uses FalkorDB's ``CALL db.idx.fulltext.queryNodes()`` procedure.  The
+        node label must have a fulltext index created.
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass with
+            at least one field with ``index_type="FULLTEXT"``.
+        query:
+            The fulltext search string.
+        fields:
+            Optional list of field names to search (informational; the
+            procedure uses the index it finds for the label).
+
+        Example
+        -------
+        .. code-block:: python
+
+            posts = (
+                session.fulltext_search(Post, query="graph databases")
+                .where(Post.published == True)
+                .limit(10)
+                .all()
+            )
+        """
+        from runic.orm.query.builder import FulltextQueryBuilder
+
+        return FulltextQueryBuilder(self, cls, query=query, fields=fields)
+
+    def vector_search(
+        self,
+        cls: type[Any],
+        *,
+        field: Any,
+        vector: list[float],
+        k: int = 10,
+    ) -> Any:
+        """Return a :class:`~runic.orm.query.builder.VectorQueryBuilder` for *cls*.
+
+        Performs a K-Nearest-Neighbour search using FalkorDB's HNSW index.
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass.
+        field:
+            The :class:`~runic.orm.core.descriptors.FieldDescriptor` of the
+            ``Vector`` field to search (e.g. ``Document.embedding``).
+        vector:
+            The query embedding as a list of floats.
+        k:
+            Number of nearest neighbours to return (default ``10``).
+
+        Example
+        -------
+        .. code-block:: python
+
+            similar = (
+                session.vector_search(
+                    Document, field=Document.embedding, vector=my_vec, k=5
+                )
+                .where(Document.active == True)
+                .all()
+            )
+        """
+        from runic.orm.query.builder import VectorQueryBuilder
+
+        return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

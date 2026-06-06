@@ -82,11 +82,19 @@ Documentation for version: 0.2.0.
 
 .. grid:: 2
 
+   .. grid-item-card:: Query builder
+      :link: query_builder
+      :link-type: doc
+
+      Fluent filter, traversal, aggregation, fulltext and vector KNN API.
+
    .. grid-item-card:: Schema management
       :link: schema
       :link-type: doc
 
       IndexManager and SchemaManager — sync indexes to FalkorDB.
+
+.. grid:: 2
 
    .. grid-item-card:: ORM API reference
       :link: api
@@ -137,6 +145,7 @@ Documentation for version: 0.2.0.
    concepts
    relationships
    session
+   query_builder
    schema
    api
 

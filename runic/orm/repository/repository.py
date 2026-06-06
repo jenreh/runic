@@ -112,6 +112,25 @@ class Repository[T](RepositoryProtocol[T]):
     # Custom Cypher helpers
     # ------------------------------------------------------------------
 
+    def query(self) -> Any:
+        """Return a :class:`~runic.orm.query.builder.QueryBuilder` for this repository's entity type.
+
+        Shorthand for ``session.query(self._cls)``::
+
+            repo = Repository(session, User)
+
+            # These are equivalent:
+            users = repo.query().where(User.active == True).all()
+            users = session.query(User).where(User.active == True).all()
+
+        Returns
+        -------
+        QueryBuilder[T]
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        return QueryBuilder(self._session, self._cls)
+
     def cypher(
         self,
         query: str,

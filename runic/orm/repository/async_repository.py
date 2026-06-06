@@ -105,6 +105,19 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
             total_elements=total,
         )
 
+    def query(self) -> Any:
+        """Return an :class:`~runic.orm.query.builder.AsyncQueryBuilder` for this repository's entity type.
+
+        Async counterpart of :meth:`~runic.orm.repository.repository.Repository.query`.
+        Use ``await`` on the terminal methods::
+
+            repo = AsyncRepository(session, User)
+            users = await repo.query().where(User.active == True).all()
+        """
+        from runic.orm.query.builder import AsyncQueryBuilder
+
+        return AsyncQueryBuilder(self._session, self._cls)
+
     # ------------------------------------------------------------------
     # Custom Cypher helpers
     # ------------------------------------------------------------------
