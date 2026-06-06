@@ -205,9 +205,8 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
         self._session = session
         self._root_cls: type[T] = root_cls
-        self._meta: MetaData = getattr(
-            getattr(session, "_mapper", None), "meta", _global_metadata
-        )
+        _mapper = getattr(session, "mapper", None)
+        self._meta: MetaData = getattr(_mapper, "meta", _global_metadata)
 
         # Alias tracking -------------------------------------------------
         # alias → ORM class (Node or Edge)
@@ -253,7 +252,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     @property
     def _dialect(self) -> Any:
-        return self._session._mapper.dialect  # noqa: SLF001
+        return self._session.mapper.dialect
 
     # ------------------------------------------------------------------
     # Alias management
