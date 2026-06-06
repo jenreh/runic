@@ -82,11 +82,15 @@ class BoltDriver:
     ) -> None:
         import neo4j
 
+        # NOTE: neo4j Python driver >= 5 removed the `encrypted=` kwarg; TLS is controlled by the URI scheme.
+        if encrypted and uri.startswith("bolt://"):
+            uri = uri.replace("bolt://", "bolt+s://", 1)
+        elif not encrypted and uri.startswith(("bolt+s://", "bolt+ssc://")):
+            uri = uri.replace("bolt+s://", "bolt://", 1).replace("bolt+ssc://", "bolt://", 1)
+
         self._uri = uri
         self._auth = auth
-        self._neo4j_driver = neo4j.GraphDatabase.driver(
-            uri, auth=auth, encrypted=encrypted
-        )
+        self._neo4j_driver = neo4j.GraphDatabase.driver(uri, auth=auth)
         self._database = database
         self._dialect = dialect
 
