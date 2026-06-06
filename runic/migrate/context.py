@@ -441,7 +441,7 @@ class Runic:
         rev_id = ScriptDirectory.generate_revision_id()
 
         if not stamp_only:
-            snapshot = introspect_graph(self._adapter._graph)  # noqa: SLF001
+            snapshot = introspect_graph(self._adapter._graph)  # ty:ignore[unresolved-attribute]  # noqa: SLF001
             upgrade_ops = full_upgrade_ops(snapshot)
             downgrade_ops = full_downgrade_ops(snapshot)
             file_path = self._script_dir.create(

@@ -241,7 +241,7 @@ class Node:
         _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Node)
         _apply_auto_converters(cls, cls._fields)
-        cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
+        cls.__init__ = _make_init(cls._fields)  # ty:ignore[invalid-assignment]
 
         from runic.orm.core.metadata import metadata
 
@@ -301,7 +301,7 @@ class Edge:
         _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Edge)
         _apply_auto_converters(cls, cls._fields)
-        cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
+        cls.__init__ = _make_init(cls._fields)  # ty:ignore[invalid-assignment]
 
         from runic.orm.core.metadata import metadata
 

@@ -109,17 +109,17 @@ def test_relation_stores_relationship_params() -> None:
 
 def test_relation_requires_relationship() -> None:
     with pytest.raises(TypeError):
-        Relation(direction="OUTGOING", target="Person")  # type: ignore[call-arg]
+        Relation(direction="OUTGOING", target="Person")  # type: ignore
 
 
 def test_relation_requires_direction() -> None:
     with pytest.raises(TypeError):
-        Relation(relationship="KNOWS", target="Person")  # type: ignore[call-arg]
+        Relation(relationship="KNOWS", target="Person")  # type: ignore
 
 
 def test_relation_requires_target() -> None:
     with pytest.raises(TypeError):
-        Relation(relationship="KNOWS", direction="OUTGOING")  # type: ignore[call-arg]
+        Relation(relationship="KNOWS", direction="OUTGOING")  # type: ignore
 
 
 def test_relation_rejects_index() -> None:
@@ -244,4 +244,4 @@ def test_optional_bare_annotation_omittable_in_init() -> None:
 
 def test_required_bare_annotation_still_required() -> None:
     with pytest.raises(TypeError, match="missing required"):
-        _OptionalHolder(tag="t")  # id is required and non-optional
+        _OptionalHolder(tag="t")  # type: ignore  # id is required and non-optional

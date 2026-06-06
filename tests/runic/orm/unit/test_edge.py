@@ -56,7 +56,7 @@ def test_edge_construction_override_default() -> None:
 
 def test_edge_construction_missing_required_raises() -> None:
     with pytest.raises(TypeError, match="since"):
-        WorksForEdge()  # type: ignore[call-arg]
+        WorksForEdge()  # ty:ignore[missing-argument]
 
 
 # ---------------------------------------------------------------------------
