@@ -8,20 +8,29 @@ Demonstrates:
   - Custom repository methods for reading edge properties
   - QueryBuilder: .traverse(), .all_with_edges(), edge property filtering via .where(on=)
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/03_relationships_and_edges.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/03_relationships_and_edges.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/03_relationships_and_edges.py
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 from runic.orm import Edge, Node, Relation, Repository, Session  # noqa: E402
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models
@@ -105,17 +114,33 @@ class UserRepository(Repository[User]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_relationships",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_relationships")
+        return FalkorDBDriver(db.select_graph("example_relationships"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +149,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         users = [
             User(id="alice", name="Alice", email="alice@example.com"),
             User(id="bob", name="Bob", email="bob@example.com"),
@@ -152,7 +177,7 @@ def run() -> None:
         log.info("Created %d users and %d trips", len(users), len(trips))
 
     # --- Create invitation edges via session.relate() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = session.get(User, "alice")
         bob = session.get(User, "bob")
         paris = session.get(Trip, "paris-2026")
@@ -192,21 +217,21 @@ def run() -> None:
         log.info("Created 3 invitation edges")
 
     # --- Lazy loading ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = session.get(User, "alice")
         assert alice is not None
         trips_lazy = alice.invited_trips  # type: ignore[attr-defined]  # triggers query
         log.info("Alice's trips (lazy): %s", [t.title for t in trips_lazy])
 
     # --- Eager loading ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = session.get(User, "alice", fetch=["invited_trips"])
         assert alice is not None
         trips_eager = alice.invited_trips  # type: ignore[attr-defined]  # no extra query
         log.info("Alice's trips (eager): %s", [t.title for t in trips_eager])
 
     # --- Custom repository: read edge properties ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = UserRepository(session, User)
 
         inv = repo.get_invitation("bob", "paris-2026")
@@ -225,7 +250,7 @@ def run() -> None:
         log.info("After accept: status=%s", inv_after and inv_after.get("status"))
 
     # --- Query builder: traverse User → Trip ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice_trips = (
             session.query(User)
             .alias("u")
@@ -238,7 +263,7 @@ def run() -> None:
         log.info("QueryBuilder: Alice's trips: %s", [t.title for t in alice_trips])
 
     # --- Query builder: traverse with edge alias + filter on edge property ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         owner_trips = (
             session.query(User)
             .alias("u")
@@ -255,7 +280,7 @@ def run() -> None:
         )
 
     # --- Query builder: all_with_edges() — returns (User, InvitationEdge, Trip) tuples ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         rows = (
             session.query(User)
             .alias("u")
@@ -273,6 +298,8 @@ def run() -> None:
                 edge.role if edge else "?",
                 trip.title,
             )
+
+    driver.close()
 
 
 if __name__ == "__main__":

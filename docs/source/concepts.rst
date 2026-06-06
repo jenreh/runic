@@ -24,7 +24,7 @@ or :class:`~runic.orm.core.models.Edge`.
        status: str
        invited_at: str
 
-**labels** controls which FalkorDB labels are applied.  Multi-label
+**labels** controls which graph labels are applied.  Multi-label
 nodes implement polymorphic hierarchies — see :doc:`relationships`.
 
 **primary_label** (optional) is the label used in ``MATCH`` predicates
@@ -90,11 +90,11 @@ error.
        and ``GeoLocation`` — converters are assigned automatically
    * - ``generated``
      - ``bool``
-     - FalkorDB assigns the node ID on ``CREATE``
+     - The database assigns the node ID on ``CREATE``
    * - ``interned``
      - ``bool``
-     - Store via FalkorDB's ``intern()`` for deduplication of repeated strings
-       (country names, tags, status codes, etc.)
+     - Store via ``intern()`` for deduplication of repeated strings
+       (country names, tags, status codes, etc.) — FalkorDB only
 
 **Relation parameters**
 
@@ -171,7 +171,7 @@ the *same* object.
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        a = session.get(Person, "alice")
        b = session.get(Person, "alice")
        assert a is b   # True
@@ -223,7 +223,7 @@ no ``converter=`` argument needed:
 
 An explicit ``converter=`` always takes precedence over auto-assignment.
 
-**Interned strings**
+**Interned strings** *(FalkorDB only)*
 
 Use ``interned=True`` to store a string property via FalkorDB's ``intern()``
 function, which deduplicates the value across the database.  Useful for
@@ -246,7 +246,7 @@ converter class to wrap the Cypher parameter with a FalkorDB function:
    from runic.orm import TypeConverter
 
    class MyConverter(TypeConverter):
-       cypher_fn = "myFunc"   # emits myFunc($field) in Cypher
+       cypher_fn = "myFunc"   # dialect wraps the Cypher parameter with this function
 
        def to_graph(self, value): ...
        def from_graph(self, value): ...

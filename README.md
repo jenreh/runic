@@ -3,7 +3,7 @@
 
 # Runic
 
-**Graph schema migrations and ORM for FalkorDB.**
+**Graph schema migrations and ORM for Cypher-based graph databases.**
 
 ![Version](https://img.shields.io/badge/version-0.2.2-blue)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
@@ -15,10 +15,10 @@
 
 ---
 
-**Runic** is a Python toolkit for [FalkorDB](https://falkordb.com/) that covers two layers:
+**Runic** is a Python toolkit for Cypher-based graph databases that covers two layers:
 
 - **`runic.migrate`** — Alembic-style schema migrations with revision tracking, a CLI, and rollback snapshots.
-- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all using FalkorDB-native Cypher under the hood.
+- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all via a pluggable driver layer supporting FalkorDB, ArcadeDB, and any Bolt-compatible database.
 
 ## Features
 
@@ -33,10 +33,11 @@
 ### Graph ORM
 
 - **Declarative Models** — `Node` and `Edge` subclasses with typed `Field` descriptors; no metaclass magic.
+- **Pluggable Driver Layer** — `GraphDriver` / `GraphDialect` protocols; built-in drivers for FalkorDB, ArcadeDB (via Bolt), and any Bolt-compatible DB. Switch backends without changing model code.
 - **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and pagination.
 - **Relationships** — `Relation` field for INCOMING / OUTGOING edges; lazy and eager loading; edge property models.
 - **Schema Management** — `IndexManager` and `SchemaManager` to create, validate, and sync RANGE, FULLTEXT, and UNIQUE indexes.
-- **Native FalkorDB Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
+- **Native Graph Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
 - **Async Support** — `AsyncSession`, `AsyncRepository`, and `AsyncConnectionManager` for async-first applications.
 
 ## Installation
@@ -160,38 +161,58 @@ class Author(Node, labels=["Author"]):
 
 ### Session-based CRUD
 
-```python
-from runic.orm import Session, Repository
+`Session` accepts a `GraphDriver`.  Use the built-in helpers or `create_driver()`:
 
-with Session(graph) as session:
+```python
+from falkordb import FalkorDB
+from runic.orm import FalkorDBDriver, Session, Repository
+
+db = FalkorDB(host="localhost", port=6379)
+graph = db.select_graph("myapp")
+driver = FalkorDBDriver(graph)
+
+with Session(driver) as session:
     session.add_all([
         User(id="alice", email="alice@example.com", name="Alice"),
         User(id="bob", email="bob@example.com", name="Bob"),
     ])
     session.commit()
 
-with Session(graph) as session:
+with Session(driver) as session:
     repo = Repository(session, User)
     alice = session.get(User, "alice")
     alice.name = "Alice Smith"  # change tracking — no explicit dirty flag
     session.commit()
 
-with Session(graph) as session:
+with Session(driver) as session:
     user = session.get(User, "bob")
     session.delete(user)
     session.commit()
+```
+
+**ArcadeDB** (via Bolt) uses the same session API — only the driver changes:
+
+```python
+from runic.orm import create_arcadedb_driver, Session
+
+driver = create_arcadedb_driver(
+    host="localhost", port=7687, database="mydb",
+    username="root", password="playwithdata",
+)
+with Session(driver) as session:
+    ...
 ```
 
 ### Relationships
 
 ```python
 # Lazy load (default) — triggers a query on first access
-with Session(graph) as session:
+with Session(driver) as session:
     author = session.get(Author, "alice")
     posts = author.posts  # query executed here
 
 # Eager load — single round-trip
-with Session(graph) as session:
+with Session(driver) as session:
     author = session.get(Author, "alice", fetch=["posts"])
     posts = author.posts  # already loaded, no extra query
 ```
@@ -201,7 +222,7 @@ with Session(graph) as session:
 ```python
 from runic.orm import Pageable, Repository
 
-with Session(graph) as session:
+with Session(driver) as session:
     repo = Repository(session, User)
     page = repo.find_all_paginated(Pageable(page=0, size=20, sort_by="name"))
     print(f"{len(list(page))} of {page.total_elements} total")
@@ -235,7 +256,7 @@ class Place(Node, labels=["Place"]):
     lon: float = Field(index=True)
 
 
-schema = SchemaManager(graph)
+schema = SchemaManager(driver)
 schema.sync_schema([Place], drop_extra=False)  # create missing; leave extras alone
 
 result = schema.validate_schema([Place])

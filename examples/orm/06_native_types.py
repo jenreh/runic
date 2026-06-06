@@ -7,11 +7,19 @@ Demonstrates:
   - Auto-converters      → datetime and Enum fields need no explicit converter=
   - QueryBuilder: filter on interned fields, Enum fields, datetime range, .in_()
 
-Run against a live FalkorDB:
+NOTE: intern(), vecf32(), and point() Cypher wrappers are FalkorDB-specific.
+      On ArcadeDB these fields are stored as raw Python values; round-trip
+      assertions for Vector and GeoLocation may fail.
+
+Run against FalkorDB (embedded):
+    uv run python examples/orm/06_native_types.py
+
+Run against FalkorDB (live server):
     FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/06_native_types.py
 
-Or against embedded falkordb-lite (no server required):
-    uv run python examples/orm/06_native_types.py
+Run against ArcadeDB (via Bolt — native-type wrapping not applied):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/06_native_types.py
 """
 
 from __future__ import annotations
@@ -20,7 +28,6 @@ import logging
 import os
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -37,6 +44,9 @@ from runic.orm import (  # noqa: E402
     Session,
     Vector,
 )
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Enum — auto-converter assigns EnumConverter without converter= on Field
@@ -81,17 +91,37 @@ class Article(Node, labels=["Article"]):  # noqa: F811
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_native_types",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_native_types")
+        return FalkorDBDriver(db.select_graph("example_native_types"))
+    if backend == "arcadedb":
+        log.warning(
+            "Running example 06 on ArcadeDB: intern/vecf32/point wrappers are not applied; "
+            "Vector and GeoLocation round-trip assertions will be skipped."
+        )
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -100,10 +130,11 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
+    falkordb_backend = os.getenv("RUNIC_BACKEND", "falkordb") == "falkordb"
 
     # --- CREATE ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         articles = [
             Article(
                 id="art1",
@@ -143,7 +174,7 @@ def run() -> None:
         log.info("Created %d articles", len(articles))
 
     # --- READ BACK — verify all types round-trip correctly ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         art = session.get(Article, "art1")
         assert art is not None
 
@@ -161,21 +192,26 @@ def run() -> None:
         assert art.published_at.tzinfo is not None
         log.info("Datetime published_at: %s", art.published_at.isoformat())
 
-        # Vector auto-converter (from Vector annotation on field)
-        assert isinstance(art.embedding, Vector)
-        assert len(art.embedding) == 4
-        log.info("Vector embedding[0]: %.4f", art.embedding[0])
+        if falkordb_backend:
+            # Vector auto-converter (vecf32 stored natively — FalkorDB only)
+            assert isinstance(art.embedding, Vector)
+            assert len(art.embedding) == 4
+            log.info("Vector embedding[0]: %.4f", art.embedding[0])
 
-        # GeoLocation auto-converter
-        assert isinstance(art.origin, GeoLocation)
-        log.info(
-            "GeoLocation origin: lat=%.3f, lon=%.3f",
-            art.origin.latitude,
-            art.origin.longitude,
-        )
+            # GeoLocation auto-converter (point() stored natively — FalkorDB only)
+            assert isinstance(art.origin, GeoLocation)
+            log.info(
+                "GeoLocation origin: lat=%.3f, lon=%.3f",
+                art.origin.latitude,
+                art.origin.longitude,
+            )
+        else:
+            log.info(
+                "Vector/GeoLocation native-type assertions skipped on non-FalkorDB backend"
+            )
 
     # --- UPDATE — interned and typed fields in SET clause ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         art = session.get(Article, "art2")
         assert art is not None
         art.status = ArticleStatus.PUBLISHED  # SET n.status = $status
@@ -195,13 +231,14 @@ def run() -> None:
         session.commit()
         log.info("Updated art2")
 
-    with Session(graph) as session:
+    with Session(driver) as session:
         art = session.get(Article, "art2")
         assert art is not None
         assert art.status is ArticleStatus.PUBLISHED
         assert art.country == "Austria"
-        assert art.origin is not None
-        assert abs(art.origin.latitude - 47.811) < 0.01
+        if falkordb_backend:
+            assert art.origin is not None
+            assert abs(art.origin.latitude - 47.811) < 0.01
         log.info(
             "Update verified: country=%r, status=%r", art.country, art.status.value
         )
@@ -209,12 +246,12 @@ def run() -> None:
     log.info("All native-type assertions passed.")
 
     # --- Query builder: filter on interned string field ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         german = session.query(Article).where(Article.country == "Germany").all()
         log.info("QueryBuilder interned country='Germany': %s", [a.id for a in german])
 
     # --- Query builder: filter on Enum field ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         published = (
             session.query(Article)
             .where(Article.status == ArticleStatus.PUBLISHED)
@@ -224,7 +261,7 @@ def run() -> None:
         log.info("QueryBuilder Enum status=PUBLISHED: %s", [a.id for a in published])
 
     # --- Query builder: compound filter — country AND status ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         de_published = (
             session.query(Article)
             .where(
@@ -236,7 +273,7 @@ def run() -> None:
         log.info("QueryBuilder Germany + PUBLISHED: %s", [a.id for a in de_published])
 
     # --- Query builder: in_() on language field ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         multilang = (
             session.query(Article)
             .where(Article.language.in_(["en", "fr"]))  # type: ignore[attr-defined]  # noqa: E501
@@ -246,7 +283,7 @@ def run() -> None:
         log.info("QueryBuilder language in [en, fr]: %s", [a.id for a in multilang])
 
     # --- Query builder: not_in_() + null check ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         without_pub_date = (
             session.query(Article)
             .where(Article.published_at.is_null())  # type: ignore[attr-defined]
@@ -256,6 +293,8 @@ def run() -> None:
             "QueryBuilder published_at IS NULL: %s",
             [a.id for a in without_pub_date],
         )
+
+    driver.close()
 
 
 if __name__ == "__main__":

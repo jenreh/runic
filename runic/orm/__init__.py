@@ -8,6 +8,7 @@ from runic.orm.driver.falkordb import (
     AsyncFalkorDBDriver,
     FalkorDBDialect,
     FalkorDBDriver,
+    create_falkordb_driver,
 )
 from runic.orm.core.descriptors import (
     MISSING,
@@ -80,6 +81,7 @@ __all__ = [  # noqa: RUF022
     "GraphResult",
     "create_arcadedb_driver",
     "create_driver",
+    "create_falkordb_driver",
     # Core
     "MISSING",
     "_NOT_LOADED",

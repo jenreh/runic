@@ -23,30 +23,20 @@ Use the helpers in ``runic.orm.driver`` to build one:
 
 .. code-block:: python
 
-   from falkordb import FalkorDB
-   from runic.orm import Session, FalkorDBDriver
+   from runic.orm import Session, create_driver
 
-   db = FalkorDB(host="localhost", port=6379)
-   graph = db.select_graph("myapp")
-   driver = FalkorDBDriver(graph)
-
+   # FalkorDB
+   driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
    with Session(driver) as session:
        ...   # commit on success, rollback on exception
 
-   # --- ArcadeDB via Bolt ---
-   from runic.orm import Session, create_arcadedb_driver
-
-   driver = create_arcadedb_driver(
+   # ArcadeDB (via Bolt)
+   driver = create_driver(
+       "arcadedb",
        host="localhost", port=7687, database="mydb",
        username="root", password="playwithdata",
    )
    with Session(driver) as session:
-       ...
-
-   # --- Async (FalkorDB) ---
-   from runic.orm import AsyncSession, AsyncFalkorDBDriver
-
-   async with AsyncSession(AsyncFalkorDBDriver(graph)) as session:
        ...
 
 Mutations

@@ -86,7 +86,9 @@ class BoltDriver:
         if encrypted and uri.startswith("bolt://"):
             uri = uri.replace("bolt://", "bolt+s://", 1)
         elif not encrypted and uri.startswith(("bolt+s://", "bolt+ssc://")):
-            uri = uri.replace("bolt+s://", "bolt://", 1).replace("bolt+ssc://", "bolt://", 1)
+            uri = uri.replace("bolt+s://", "bolt://", 1).replace(
+                "bolt+ssc://", "bolt://", 1
+            )
 
         self._uri = uri
         self._auth = auth

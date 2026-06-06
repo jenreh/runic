@@ -22,9 +22,7 @@ Hello, Node
 
 .. code-block:: python
 
-   from falkordb import FalkorDB
-
-   from runic.orm import Field, Node, Repository, Session
+   from runic.orm import Field, Node, Repository, Session, create_driver
 
    # 1. Define a model
    class Language(Node, labels=["Language"]):
@@ -33,30 +31,29 @@ Hello, Node
        code: str = Field(unique=True)
 
    # 2. Connect
-   db = FalkorDB(host="localhost", port=6379)
-   graph = db.select_graph("myapp")
+   driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
 
    # 3. Create
-   with Session(graph) as session:
+   with Session(driver) as session:
        lang = Language(id="en", title="English", code="en")
        session.add(lang)
        session.commit()
        print(lang.id)   # "en"
 
    # 4. Read
-   with Session(graph) as session:
+   with Session(driver) as session:
        repo = Repository(session, Language)
        all_langs = repo.find_all()
        english = session.get(Language, "en")
 
    # 5. Update
-   with Session(graph) as session:
+   with Session(driver) as session:
        en = session.get(Language, "en")
        en.title = "English (UK)"      # marks _dirty = True
        session.commit()               # MERGE … SET on flush
 
    # 6. Delete
-   with Session(graph) as session:
+   with Session(driver) as session:
        en = session.get(Language, "en")
        session.delete(en)
        session.commit()

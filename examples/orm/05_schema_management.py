@@ -7,8 +7,12 @@ Demonstrates:
   - SchemaManager.sync_schema() — create missing indexes
   - SchemaManager.get_schema_diff() — human-readable diff
 
-Run:
-    uv run python examples/orm/05_schema_management.py
+NOTE: IndexManager and SchemaManager are FalkorDB-specific.  This example
+      requires a live FalkorDB server (embedded redislite does not support
+      index introspection).
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/05_schema_management.py
 """
 
 from __future__ import annotations
@@ -67,6 +71,14 @@ def _connect() -> Any:
 
 
 def run() -> None:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend != "falkordb":
+        log.warning(
+            "IndexManager and SchemaManager are FalkorDB-only. Skipping (RUNIC_BACKEND=%s).",
+            backend,
+        )
+        return
+
     graph = _connect()
 
     # --- IndexManager: create indexes for individual classes ---

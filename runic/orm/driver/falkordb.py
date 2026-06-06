@@ -145,3 +145,21 @@ class AsyncFalkorDBDriver:
 
     async def close(self) -> None:
         pass
+
+
+def create_falkordb_driver(host: str, port: int, graph: str) -> FalkorDBDriver:
+    """Create a :class:`FalkorDBDriver` from connection parameters.
+
+    Parameters
+    ----------
+    host:
+        FalkorDB host name or IP address.
+    port:
+        FalkorDB port (default Redis port is 6379).
+    graph:
+        Name of the graph to select.
+    """
+    from falkordb import FalkorDB
+
+    db = FalkorDB(host=host, port=port)
+    return FalkorDBDriver(db.select_graph(graph))

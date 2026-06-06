@@ -27,20 +27,21 @@ Documentation for version: 0.2.2.
 **runic** ships two tools:
 
 * **runic.orm** — a lightweight, graph-optimized ORM that maps Python classes
-  to FalkorDB nodes and edges.
+  to graph nodes and edges.  Supports FalkorDB, ArcadeDB, and any
+  Bolt-compatible database via a pluggable driver layer.
 * **runic.migrate** — an Alembic-style migration engine that tracks index and
   constraint changes as versioned, replayable scripts.
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Repository, Session
+   from runic.orm import Field, Node, Repository, Session, create_driver
 
    class Person(Node, labels=["Person"]):
        id: str = Field()
        name: str = Field()
        email: str = Field(index=True, unique=True)
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        session.add(Person(id="alice", name="Alice", email="alice@example.com"))
        session.commit()
 

@@ -12,8 +12,15 @@ Demonstrates:
   - .scalar() — single aggregation value
   - distinct() — DISTINCT in RETURN clause
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/10_query_builder_aggregation.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/10_query_builder_aggregation.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/10_query_builder_aggregation.py
 """
 
 from __future__ import annotations
@@ -38,6 +45,9 @@ from runic.orm import (  # noqa: E402
     min_,
     sum_,
 )
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models: e-commerce order graph
@@ -83,17 +93,31 @@ class Order(Node, labels=["Order"]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            from falkordb import FalkorDB
 
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+            db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
+        else:
+            from redislite import FalkorDB  # type: ignore[no-redef]
 
-        db = FalkorDB(protocol=2)
-    return db.select_graph("example_qb_aggregation")
+            db = FalkorDB(protocol=2)
+        return FalkorDBDriver(db.select_graph("example_qb_aggregation"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +126,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         orders = [
             Order(id="o1", amount=120.0, status="completed", region="EU"),
             Order(id="o2", amount=85.5, status="completed", region="EU"),
@@ -123,17 +147,17 @@ def run() -> None:
         log.info("Created %d orders", len(orders))
 
     # --- count(*) — total rows ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         total = session.query(Order).count()
         log.info("count(*): %d", total)
 
     # --- count(*) with filter ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         completed = session.query(Order).where(Order.status == "completed").count()
         log.info("count completed: %d", completed)
 
     # --- count(DISTINCT field) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         distinct_regions = (
             session.query(Order)
             .aggregate(count(Order.region, distinct=True).as_("regions"))
@@ -142,7 +166,7 @@ def run() -> None:
         log.info("count(DISTINCT region): %s", distinct_regions)
 
     # --- avg() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         avg_amount = (
             session.query(Order)
             .where(Order.status == "completed")
@@ -152,7 +176,7 @@ def run() -> None:
         log.info("avg amount (completed): %.2f", avg_amount or 0.0)
 
     # --- sum_() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         total_revenue = (
             session.query(Order)
             .where(Order.status == "completed")
@@ -162,7 +186,7 @@ def run() -> None:
         log.info("sum amount (completed): %.2f", total_revenue or 0.0)
 
     # --- min_() and max_() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         min_amount = (
             session.query(Order)
             .aggregate(min_(Order.amount).as_("min_amount"))
@@ -176,7 +200,7 @@ def run() -> None:
         log.info("min=%.2f, max=%.2f", min_amount or 0.0, max_amount or 0.0)
 
     # --- Multiple aggregations in one query via all_rows() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         summary = (
             session.query(Order)
             .where(Order.status == "completed")
@@ -192,7 +216,7 @@ def run() -> None:
         log.info("Multi-agg summary: %s", summary)
 
     # --- Grouped aggregation: totals per region ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         by_region = (
             session.query(Order)
             .alias("o")
@@ -209,7 +233,7 @@ def run() -> None:
         )
 
     # --- collect() — gather values into a list ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         ids_by_status = (
             session.query(Order)
             .alias("o")
@@ -222,7 +246,7 @@ def run() -> None:
         log.info("collect() returned %d rows", len(ids_by_status))
 
     # --- collect(distinct=True) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         unique_statuses = (
             session.query(Order)
             .aggregate(collect(Order.status, distinct=True).as_("statuses"))
@@ -231,12 +255,12 @@ def run() -> None:
         log.info("collect(DISTINCT status): %s", unique_statuses)
 
     # --- distinct() on RETURN clause ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         regions = session.query(Order).project(Order.region).distinct().scalars()
         log.info("DISTINCT regions via project+distinct: %s", sorted(regions))
 
     # --- scalar(): single aggregation value ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         pending_total = (
             session.query(Order)
             .where(Order.status == "pending")
@@ -246,7 +270,7 @@ def run() -> None:
         log.info("pending total amount: %.2f", pending_total or 0.0)
 
     # --- build() — inspect aggregation Cypher ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         cypher, params = (
             session.query(Order)
             .alias("o")
@@ -258,6 +282,8 @@ def run() -> None:
             .build()
         )
         log.info("Aggregation Cypher:\n%s\nparams: %s", cypher, params)
+
+    driver.close()
 
 
 if __name__ == "__main__":

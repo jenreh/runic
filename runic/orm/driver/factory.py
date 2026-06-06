@@ -24,9 +24,11 @@ def create_driver(backend: str, **kwargs: Any) -> GraphDriver:
 
     Examples
     --------
-    FalkorDB (pass ``graph`` — an existing falkordb graph handle)::
+    FalkorDB::
 
-        driver = create_driver("falkordb", graph=db.select_graph("my_graph"))
+        driver = create_driver(
+            "falkordb", host="localhost", port=6379, graph="my_graph"
+        )
 
     ArcadeDB::
 
@@ -40,10 +42,9 @@ def create_driver(backend: str, **kwargs: Any) -> GraphDriver:
         )
     """
     if backend == "falkordb":
-        from runic.orm.driver.falkordb import FalkorDBDriver
+        from runic.orm.driver.falkordb import create_falkordb_driver
 
-        graph = kwargs.pop("graph")
-        return FalkorDBDriver(graph)
+        return create_falkordb_driver(**kwargs)
 
     if backend == "arcadedb":
         from runic.orm.driver.arcadedb import create_arcadedb_driver
