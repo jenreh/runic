@@ -107,6 +107,38 @@ its most specific registered class:
        for loc in all_locs:
            print(type(loc).__name__, loc.title)
 
+Mutating relationships
+----------------------
+
+Use :meth:`~runic.orm.session.session.Session.relate` and
+:meth:`~runic.orm.session.session.Session.unrelate` to create, update, or
+remove relationships without writing Cypher:
+
+.. code-block:: python
+
+   with Session(graph) as session:
+       alice = session.get(User, "alice")
+       company = session.get(Company, "acme")
+
+       # Create (or update) the relationship — MERGE semantics
+       session.relate(alice, "company", company)
+
+       # Remove the relationship
+       session.unrelate(alice, "company", company)
+
+``relate()`` is idempotent: calling it a second time does not duplicate the
+edge.  The cached field value on the source entity is invalidated after each
+mutation so the next access re-fetches from the graph.
+
+For async sessions the same methods are available as coroutines:
+
+.. code-block:: python
+
+   async with AsyncSession(graph) as session:
+       alice = await session.get(User, "alice")
+       company = await session.get(Company, "acme")
+       await session.relate(alice, "company", company)
+
 Edge properties
 ---------------
 
@@ -131,6 +163,28 @@ When a relationship carries its own properties, declare an
            direction="OUTGOING",
            target="Trip",
            edge_model=InvitationEdge,
+       )
+
+Pass an ``Edge`` instance to ``relate()`` to write properties onto the
+relationship.  Because ``relate()`` uses ``MERGE``, calling it again with
+updated values will overwrite the existing properties:
+
+.. code-block:: python
+
+   with Session(graph) as session:
+       user = session.get(User, "alice")
+       trip = session.get(Trip, "paris-2026")
+
+       # Create — or update if the edge already exists
+       session.relate(
+           user,
+           "invited_trips",
+           trip,
+           edge=InvitationEdge(
+               role="owner",
+               status="accepted",
+               invited_at="2026-01-01T00:00:00",
+           ),
        )
 
 Read edge properties back with a custom Cypher query in your Repository:

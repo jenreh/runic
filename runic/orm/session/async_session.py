@@ -7,10 +7,12 @@ import weakref
 from types import TracebackType
 from typing import Any
 
+from runic.orm.core.descriptors import _NOT_LOADED, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
 from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
+from runic.orm.mapper.relationship_writer import RelationshipWriter
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class AsyncSession:
             mapper if mapper is not None else Mapper(_global_metadata)
         )
         self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
+        self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
         self._identity_map: dict[tuple[type, Any], Any] = {}
         self._pending: list[Any] = []
         self._deleted: list[Any] = []
@@ -205,6 +208,44 @@ class AsyncSession:
         self._deleted.clear()
 
     # ------------------------------------------------------------------
+    # Relationship mutations
+    # ------------------------------------------------------------------
+
+    async def relate(
+        self,
+        source: Any,
+        field_name: str,
+        target: Any,
+        edge: Any | None = None,
+    ) -> None:
+        """Create or update a relationship between *source* and *target*.
+
+        Uses ``MERGE`` semantics: if the relationship already exists its edge
+        properties are updated; if not, it is created.  Pass an ``Edge`` model
+        instance as *edge* to write properties on the relationship itself.
+
+        The cached value of *field_name* on *source* is invalidated after the
+        write so the next access re-fetches fresh data from the graph.
+        """
+        fi = self._resolve_relation_fi(source, field_name)
+        cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
+        await self._graph.query(cypher, params)
+        source.__dict__[field_name] = _NOT_LOADED
+        log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
+
+    async def unrelate(self, source: Any, field_name: str, target: Any) -> None:
+        """Delete the relationship between *source* and *target*.
+
+        The cached value of *field_name* on *source* is invalidated after the
+        write so the next access re-fetches fresh data from the graph.
+        """
+        fi = self._resolve_relation_fi(source, field_name)
+        cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
+        await self._graph.query(cypher, params)
+        source.__dict__[field_name] = _NOT_LOADED
+        log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
+
+    # ------------------------------------------------------------------
     # Raw Cypher
     # ------------------------------------------------------------------
 
@@ -326,6 +367,19 @@ class AsyncSession:
             entity.__dict__.pop("_session", None)
 
         self._deleted.clear()
+
+    def _resolve_relation_fi(self, source: Any, field_name: str) -> FieldInfo:
+        """Return the ``FieldInfo`` for a declared ``Relation`` field on *source*.
+
+        Raises ``TypeError`` when *field_name* does not correspond to a Relation.
+        """
+        node_meta = self._mapper.require_node_meta(type(source))
+        fi = next((f for f in node_meta.fields if f.name == field_name), None)
+        if fi is None or fi.field.relationship is None:
+            raise TypeError(
+                f"{type(source).__name__!r} has no Relation field named {field_name!r}"
+            )
+        return fi
 
     async def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         cypher, params = self._mapper.build_get_query(cls, pk)
