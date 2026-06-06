@@ -376,7 +376,7 @@ class TestAggregation:
 
     def test_count_via_terminal(self) -> None:
         mock_result = MagicMock()
-        mock_result.result_set = [[5]]
+        mock_result.rows = [[5]]
         sess = _mock_session()
         sess.execute.return_value = mock_result
         q = QueryBuilder(sess, BPerson)

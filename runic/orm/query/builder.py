@@ -248,6 +248,14 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         self._params: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
+    # Dialect access
+    # ------------------------------------------------------------------
+
+    @property
+    def _dialect(self) -> Any:
+        return self._session._mapper.dialect  # noqa: SLF001
+
+    # ------------------------------------------------------------------
     # Alias management
     # ------------------------------------------------------------------
 
@@ -841,21 +849,21 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         self._return_aliases = saved_return
         self._project_fields = saved_project
 
-        if result.result_set:
-            return int(result.result_set[0][0])
+        if result.rows:
+            return int(result.rows[0][0])
         return 0
 
     def scalar(self) -> Any:
         """Execute and return the first column of the first row, or ``None``."""
         result = self._session.execute(*self.build())
-        if result.result_set and result.result_set[0]:
-            return result.result_set[0][0]
+        if result.rows and result.rows[0]:
+            return result.rows[0][0]
         return None
 
     def scalars(self) -> list[Any]:
         """Execute and return the first column of every row as a flat list."""
         result = self._session.execute(*self.build())
-        return [row[0] for row in result.result_set]
+        return [row[0] for row in result.rows]
 
     # ------------------------------------------------------------------
     # Internal: traversal registration (called by TraversalStep.alias)
@@ -967,10 +975,8 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
         param_name = self._next_param(param_value)
 
-        # Wrap param ref with cypher_fn if needed
-        cypher_fn = getattr(converter, "cypher_fn", None) if converter else None
-        if fi is not None and fi.field.interned:
-            cypher_fn = "intern"
+        # Wrap param ref with cypher_fn if needed (dialect-aware)
+        cypher_fn = self._dialect.cypher_fn_for_field(fi) if fi is not None else None
         param_ref = f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
 
         if expr.op in ("IN", "NOT IN"):
@@ -1041,7 +1047,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         target_cls = self._alias_map.get(return_alias, self._root_cls)
 
         entities: list[T] = []
-        for row in result.result_set:
+        for row in result.rows:
             val = row[0]
             if val is None:
                 continue
@@ -1068,7 +1074,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             columns = [(self._last_alias, False)]
 
         tuples: list[tuple[Any, ...]] = []
-        for row in result.result_set:
+        for row in result.rows:
             decoded_row: list[Any] = []
             for col_idx, (col_alias, is_edge) in enumerate(columns):
                 val = row[col_idx] if col_idx < len(row) else None
@@ -1087,14 +1093,12 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     def _decode_rows_as_dicts(self, result: Any) -> list[dict[str, Any]]:
         """Decode a multi-column result into column-keyed dicts."""
-        from runic.orm.repository.cypher import _extract_header
-
         mapper = self._session.mapper
         register = self._session.register_or_get
-        header = _extract_header(result)
+        header = result.columns
 
         rows: list[dict[str, Any]] = []
-        for row in result.result_set:
+        for row in result.rows:
             d: dict[str, Any] = {}
             for i, val in enumerate(row):
                 col_name = header[i] if i < len(header) else str(i)
@@ -1257,21 +1261,21 @@ class AsyncQueryBuilder(QueryBuilder[T]):
         self._return_aliases = saved_return
         self._project_fields = saved_project
 
-        if result.result_set:
-            return int(result.result_set[0][0])
+        if result.rows:
+            return int(result.rows[0][0])
         return 0
 
     async def scalar(self) -> Any:  # type: ignore[override]
         """Async version of :meth:`~QueryBuilder.scalar`."""
         result = await self._session.execute(*self.build())
-        if result.result_set and result.result_set[0]:
-            return result.result_set[0][0]
+        if result.rows and result.rows[0]:
+            return result.rows[0][0]
         return None
 
     async def scalars(self) -> list[Any]:  # type: ignore[override]
         """Async version of :meth:`~QueryBuilder.scalars`."""
         result = await self._session.execute(*self.build())
-        return [row[0] for row in result.result_set]
+        return [row[0] for row in result.rows]
 
 
 # ---------------------------------------------------------------------------
@@ -1336,9 +1340,7 @@ class FulltextQueryBuilder(QueryBuilder[T]):
 
         alias = self._root_alias
         label = root_meta.primary_label
-        parts: list[str] = [
-            f"CALL db.idx.fulltext.queryNodes('{label}', $__fts_query) YIELD node AS {alias}"
-        ]
+        parts: list[str] = [self._dialect.fulltext_call(label, alias, "__fts_query")]
 
         # Extra OPTIONAL MATCHes for traversals (root WHERE + WITH go first)
         if self._where_exprs and self._match_clauses:
@@ -1458,8 +1460,12 @@ class VectorQueryBuilder(QueryBuilder[T]):
             else self._root_alias
         )
         field_name = self._knn_field.field_name
+        type_name = root_meta.primary_label
 
-        parts: list[str] = [f"MATCH ({alias}:{labels_str})"]
+        self._params["__knn_k"] = self._knn_k
+        parts: list[str] = [
+            self._dialect.vector_knn_start(alias, labels_str, type_name, field_name)
+        ]
 
         if self._where_exprs and self._match_clauses:
             root_exprs, post_exprs = self._split_where_exprs()
@@ -1491,10 +1497,8 @@ class VectorQueryBuilder(QueryBuilder[T]):
         # KNN return includes the distance score
         return_part = self._compile_return()
         if "RETURN" in return_part and "__score" not in return_part:
-            knn_expr = (
-                f"vecf32({field_alias}.{field_name}) <-> vecf32($__knn_vec) AS __score"
-            )
-            return_part = return_part + f", {knn_expr}"
+            score_expr = self._dialect.vector_knn_score_expr(field_alias, field_name)
+            return_part = return_part + f", {score_expr}"
         parts.append(return_part)
 
         # KNN ordering: always by score ASC, then any user orders

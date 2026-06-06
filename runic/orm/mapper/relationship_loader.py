@@ -41,9 +41,8 @@ class RelationshipLoader:
         rel_pattern = self._rel_pattern("n", fi, "related", target_label)
 
         if generated:
-            match_src = (
-                f"MATCH (n:{node_meta.primary_label}) WHERE id(n) = toInteger($__pk)"
-            )
+            id_where = self._mapper.dialect.generated_id_where("n", "__pk")
+            match_src = f"MATCH (n:{node_meta.primary_label}) {id_where}"
         else:
             pk_name = node_meta.pk_field_name
             match_src = f"MATCH (n:{node_meta.primary_label} {{{pk_name}: $__pk}})"
@@ -56,8 +55,8 @@ class RelationshipLoader:
         result: Any,
         fi: FieldInfo,
     ) -> Any:
-        """Decode a lazy-load ``QueryResult`` into an entity or list of entities."""
-        if not result.result_set:
+        """Decode a lazy-load result into an entity or list of entities."""
+        if not result.rows:
             return [] if fi.is_collection else None
 
         target_cls, _ = self._resolve_target(fi)
@@ -65,10 +64,10 @@ class RelationshipLoader:
         if fi.is_collection:
             return [
                 self._mapper.decode_node(row[0], target_cls)
-                for row in result.result_set
+                for row in result.rows
                 if row[0] is not None
             ]
-        row = result.result_set[0]
+        row = result.rows[0]
         return (
             self._mapper.decode_node(row[0], target_cls) if row[0] is not None else None
         )
@@ -94,7 +93,8 @@ class RelationshipLoader:
         labels_str = ":".join(node_meta.labels)
 
         if generated:
-            main_match = f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk)"
+            id_where = self._mapper.dialect.generated_id_where("n", "__pk")
+            main_match = f"MATCH (n:{labels_str}) {id_where}"
         else:
             pk_name = node_meta.pk_field_name
             main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"

@@ -3,8 +3,8 @@ Session & Unit of Work
 
 The :class:`~runic.orm.session.session.Session` (and its async twin
 :class:`~runic.orm.session.async_session.AsyncSession`) is the unit-of-work
-manager for FalkorDB.  It owns all mutations, manages the identity map, and
-controls the flush/commit lifecycle.
+manager for Cypher-based graph databases.  It owns all mutations, manages
+the identity map, and controls the flush/commit lifecycle.
 
 .. seealso::
 
@@ -17,21 +17,35 @@ controls the flush/commit lifecycle.
 Opening a session
 -----------------
 
+``Session`` accepts a :class:`~runic.orm.driver.GraphDriver` (or
+:class:`~runic.orm.driver.AsyncGraphDriver` for the async variant).
+Use the helpers in ``runic.orm.driver`` to build one:
+
 .. code-block:: python
 
    from falkordb import FalkorDB
-   from runic.orm import Session
+   from runic.orm import Session, FalkorDBDriver
 
    db = FalkorDB(host="localhost", port=6379)
-   graph = db.select_graph("myapp")
+   driver = FalkorDBDriver(db.select_graph("myapp"))
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        ...   # commit on success, rollback on exception
 
-   # --- Async ---
-   from runic.orm import AsyncSession
+   # --- ArcadeDB via Bolt ---
+   from runic.orm import Session, create_arcadedb_driver
 
-   async with AsyncSession(graph) as session:
+   driver = create_arcadedb_driver(
+       host="localhost", port=7687, database="mydb",
+       username="root", password="playwithdata",
+   )
+   with Session(driver) as session:
+       ...
+
+   # --- Async (FalkorDB) ---
+   from runic.orm import AsyncSession, AsyncFalkorDBDriver
+
+   async with AsyncSession(AsyncFalkorDBDriver(graph)) as session:
        ...
 
 Mutations
@@ -43,7 +57,7 @@ All writes go through the Session, never the Repository.
 
    from runic.orm import Session
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        # add: transient → pending; CREATE on flush
        session.add(entity)
        session.add_all([e1, e2])
@@ -75,13 +89,12 @@ Flush and commit
    session.flush()     # execute writes; does not clear identity map
    session.commit()    # flush + clear pending/deleted sets
 
-FalkorDB transaction model
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Transaction model
+~~~~~~~~~~~~~~~~~
 
-A single ``GRAPH.QUERY`` is fully atomic.  ``flush()`` sends each pending
-entity as its own query.  Entities with ``generated=True`` IDs must be
-flushed individually so the returned ID can be assigned before the next
-write.
+Each ``flush()`` sends each pending entity as its own query.  Entities
+with ``generated=True`` IDs must be flushed individually so the returned
+ID can be assigned before the next write.
 
 ``rollback()`` discards the **un-flushed** pending/deleted sets only.  Once
 ``flush()`` has executed queries, those writes are permanent.
@@ -91,7 +104,7 @@ Rollback
 
 .. code-block:: python
 
-   session = Session(graph)
+   session = Session(driver)
    try:
        session.add(Person(id="bob", name="Bob", email="bob@example.com"))
        session.rollback()   # discard pending; nothing written to graph
@@ -128,7 +141,7 @@ Raw Cypher
        "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE p.id = $id RETURN f.name",
        {"id": "alice"},
    )
-   for row in result.result_set:
+   for row in result.rows:
        print(row[0])
 
    # Write queries require write=True
@@ -170,7 +183,7 @@ Session API summary
    * - ``expunge_all()``
      - Expunge all tracked entities
    * - ``execute(cypher, params, write)``
-     - Raw Cypher; returns ``QueryResult``
+     - Raw Cypher; returns :class:`~runic.orm.driver.GraphResult` (``.rows``, ``.columns``)
    * - ``close()``
      - ``expunge_all()`` + release connection
 
@@ -182,7 +195,7 @@ above with ``async``/``await``:
 
 .. code-block:: python
 
-   async with AsyncSession(graph) as session:
+   async with AsyncSession(AsyncFalkorDBDriver(graph)) as session:
        repo = AsyncRepository(session, Trip)
        trips = await repo.find_all()
        for trip in trips:

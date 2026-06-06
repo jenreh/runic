@@ -20,6 +20,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.models import Edge, Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.repository.pagination import Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
@@ -104,7 +105,7 @@ def graph() -> Any:
         pytest.skip("redislite not available")
     db = _FalkorDB(protocol=2)
     name = f"voyager_{secrets.token_hex(4)}"
-    return db.select_graph(name)
+    return FalkorDBDriver(db.select_graph(name))
 
 
 @contextlib.contextmanager
@@ -342,11 +343,9 @@ class TestUserTripPatterns:
                 """,
                 {"uid": user_id, "tid": trip_id},
             )
-            rows = result.result_set
+            rows = result.rows
             assert len(rows) == 1
-            row_dict = {
-                result.header[i][1]: rows[0][i] for i in range(len(result.header))
-            }
+            row_dict = dict(zip(result.columns, rows[0], strict=False))
             assert row_dict["role"] == "viewer"
             assert row_dict["status"] == "pending"
 

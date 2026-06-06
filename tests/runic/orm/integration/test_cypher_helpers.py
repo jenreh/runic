@@ -10,6 +10,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
 
@@ -44,7 +45,7 @@ def graph() -> Any:
         pytest.skip("falkordblite (redislite) not installed")
     db = _FalkorDB(protocol=2)
     g = db.select_graph(f"test_cypher_{secrets.token_hex(6)}")
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 
@@ -182,8 +183,8 @@ def test_cypher_raw_returns_query_result(populated_graph: Any) -> None:
         repo = Repository(s, CypherPerson)
         raw = repo.cypher_raw("MATCH (n:CypherPerson) RETURN n.id, n.name")
 
-    assert hasattr(raw, "result_set")
-    assert len(raw.result_set) == 5
+    assert hasattr(raw, "rows")
+    assert len(raw.rows) == 5
 
 
 def test_cypher_raw_result_not_decoded(populated_graph: Any) -> None:
@@ -191,5 +192,5 @@ def test_cypher_raw_result_not_decoded(populated_graph: Any) -> None:
         repo = Repository(s, CypherPerson)
         raw = repo.cypher_raw("MATCH (n:CypherPerson) RETURN n.id ORDER BY n.id")
 
-    ids = [row[0] for row in raw.result_set]
+    ids = [row[0] for row in raw.rows]
     assert ids == ["cp1", "cp2", "cp3", "cp4", "cp5"]

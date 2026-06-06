@@ -123,7 +123,21 @@ def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter:
             username=kwargs.get("username"),
             password=kwargs.get("password"),
         )
-    raise KeyError(f"Unknown adapter backend {backend!r}. Supported: 'falkordb'")
+
+    if backend == "arcadedb":
+        from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
+
+        return ArcadeDBAdapter.from_params(
+            database=kwargs["database"],
+            host=kwargs.get("host", "localhost"),
+            port=int(kwargs.get("port", 7687)),
+            username=kwargs.get("username", "root"),
+            password=kwargs.get("password", "playwithdata"),
+        )
+
+    raise KeyError(
+        f"Unknown adapter backend {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 __all__ = ["GraphAdapter", "create_adapter"]

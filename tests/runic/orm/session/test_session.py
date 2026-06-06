@@ -9,6 +9,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.exceptions import DetachedEntityError, OrmError
 from runic.orm.session.session import Session
 
@@ -48,7 +49,7 @@ def mock_graph() -> MagicMock:
 
 @pytest.fixture
 def session(mock_graph: MagicMock) -> Session:
-    return Session(mock_graph)
+    return Session(FalkorDBDriver(mock_graph))
 
 
 def _empty_result() -> MagicMock:
@@ -452,11 +453,9 @@ def test_expunge_all_clears_identity_map(
 
 
 def test_execute_calls_graph_query(session: Session, mock_graph: MagicMock) -> None:
-    expected = _empty_result()
-    mock_graph.query.return_value = expected
-    result = session.execute("MATCH (n:Person) RETURN n")
+    mock_graph.query.return_value = _empty_result()
+    session.execute("MATCH (n:Person) RETURN n")
     mock_graph.query.assert_called_once()
-    assert result is expected
 
 
 def test_execute_passes_params(session: Session, mock_graph: MagicMock) -> None:
@@ -475,7 +474,7 @@ def test_context_manager_commits_on_success(mock_graph: MagicMock) -> None:
     mock_graph.query.return_value = _node_result(
         0, ["Person"], {"id": "p1", "name": "Alice"}
     )
-    with Session(mock_graph) as s:
+    with Session(FalkorDBDriver(mock_graph)) as s:
         p = Person(id="p1", name="Alice")
         s.add(p)
     # After clean exit: pending cleared
@@ -484,7 +483,7 @@ def test_context_manager_commits_on_success(mock_graph: MagicMock) -> None:
 
 def test_context_manager_rolls_back_on_exception(mock_graph: MagicMock) -> None:
     p = Person(id="p1", name="Alice")
-    with pytest.raises(RuntimeError), Session(mock_graph) as s:
+    with pytest.raises(RuntimeError), Session(FalkorDBDriver(mock_graph)) as s:
         s.add(p)
         raise RuntimeError("oops")
     # After exception: pending cleared by rollback
@@ -516,7 +515,7 @@ def test_log_cypher_logs_query(
     import logging
 
     mock_graph.query.return_value = _empty_result()
-    session = Session(mock_graph, log_cypher=True)
+    session = Session(FalkorDBDriver(mock_graph), log_cypher=True)
     with caplog.at_level(logging.DEBUG, logger="runic.orm.session.session"):
         session.execute("MATCH (n) RETURN n", {"x": 1})
     assert any("MATCH (n) RETURN n" in r.message for r in caplog.records)
@@ -528,7 +527,7 @@ def test_log_cypher_disabled_by_default(
     import logging
 
     mock_graph.query.return_value = _empty_result()
-    session = Session(mock_graph)
+    session = Session(FalkorDBDriver(mock_graph))
     with caplog.at_level(logging.DEBUG, logger="runic.orm.session.session"):
         session.execute("MATCH (n) RETURN n")
     assert not any("MATCH (n) RETURN n" in r.message for r in caplog.records)

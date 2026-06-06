@@ -27,41 +27,26 @@ def map_cypher_result(
     - ``dict`` → ``[{col: val, ...}, ...]`` (uses ``result.header`` for keys)
     - Any ``Node`` subclass → decoded entities, each passed through *register_fn*
     """
-    if not result.result_set:
+    if not result.rows:
         return []
 
     if returns is None:
         return []
 
     if returns in _SCALAR_TYPES:
-        return [row[0] for row in result.result_set]
+        return [row[0] for row in result.rows]
 
     if returns is dict:
-        header = _extract_header(result)
-        if header:
-            return [dict(zip(header, row, strict=False)) for row in result.result_set]
-        return [dict(enumerate(row)) for row in result.result_set]
+        columns = result.columns
+        if columns:
+            return [dict(zip(columns, row, strict=False)) for row in result.rows]
+        return [dict(enumerate(row)) for row in result.rows]
 
     # Entity class — decode and register in identity map
     entities: list[Any] = []
-    for row in result.result_set:
+    for row in result.rows:
         decoded = mapper.decode_node(row[0], returns)
         if register_fn is not None:
             decoded = register_fn(decoded)
         entities.append(decoded)
     return entities
-
-
-def _extract_header(result: Any) -> list[str]:
-    """Return column name strings from ``result.header``, if present."""
-    header = getattr(result, "header", None)
-    if not header:
-        return []
-    names: list[str] = []
-    for col in header:
-        # FalkorDB header entries are [type_int, name_str]; plain strings also accepted
-        if isinstance(col, (list, tuple)) and len(col) >= 2:
-            names.append(str(col[1]))
-        else:
-            names.append(str(col))
-    return names

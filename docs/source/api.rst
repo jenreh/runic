@@ -1,9 +1,10 @@
 ORM API Reference
 =================
 
-``runic.orm`` is a lightweight graph ORM that maps Python classes to FalkorDB
-nodes and edges.  It follows a SQLAlchemy-style architecture: models →
-metadata → session → repository.
+``runic.orm`` is a lightweight graph ORM for Cypher-based graph databases.
+It follows a SQLAlchemy-style architecture: driver → session → mapper →
+repository.  FalkorDB, ArcadeDB, and any Bolt-compatible database are
+supported via the :class:`~runic.orm.driver.GraphDriver` abstraction.
 
 ----
 
@@ -81,6 +82,35 @@ runic.orm.core — Type Converters
 .. autoclass:: runic.orm.core.types.GeoLocationConverter
    :members:
    :show-inheritance:
+
+----
+
+runic.orm.driver — Drivers & Dialects
+--------------------------------------
+
+.. autoclass:: runic.orm.driver.falkordb.FalkorDBDriver
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.driver.falkordb.AsyncFalkorDBDriver
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.driver.falkordb.FalkorDBDialect
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.driver.bolt.BoltDriver
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.driver.arcadedb.ArcadeDBDialect
+   :members:
+   :show-inheritance:
+
+.. autofunction:: runic.orm.driver.arcadedb.create_arcadedb_driver
+
+.. autofunction:: runic.orm.driver.factory.create_driver
 
 ----
 
