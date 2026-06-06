@@ -27,7 +27,8 @@ Use the helpers in ``runic.orm.driver`` to build one:
    from runic.orm import Session, FalkorDBDriver
 
    db = FalkorDB(host="localhost", port=6379)
-   driver = FalkorDBDriver(db.select_graph("myapp"))
+   graph = db.select_graph("myapp")
+   driver = FalkorDBDriver(graph)
 
    with Session(driver) as session:
        ...   # commit on success, rollback on exception
