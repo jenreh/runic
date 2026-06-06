@@ -1,0 +1,57 @@
+name: Bug Report
+description: Report a bug or unexpected behaviour in runic
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill in as much detail as possible.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: Describe the unexpected behaviour.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps that reliably trigger the bug.
+      placeholder: |
+        1. Define a node with ...
+        2. Run `runic migrate` ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Run the commands below and paste the output.
+      value: |
+        - runic version: <!-- uv run runic --version -->
+        - Python version: <!-- python --version -->
+        - OS:
+        - FalkorDB version:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any error messages or tracebacks here.
+      render: text
