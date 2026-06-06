@@ -215,3 +215,33 @@ def test_field_info_repr() -> None:
     f = Field(default=0)
     fi = FieldInfo(name="x", field=f)
     assert "x" in repr(fi)
+
+
+# --------------------------------------------------------------------------
+# Optional bare annotations auto-infer default=None
+# --------------------------------------------------------------------------
+
+
+class _OptionalHolder(Node, labels=["_OptionalHolder"]):
+    """Node with X | None = None annotations — omittable in __init__."""
+
+    id: str
+    tag: str | None = None
+    score: int | None = None
+
+
+def test_optional_bare_annotation_has_default_none() -> None:
+    fi = next(f for f in _OptionalHolder._fields if f.name == "tag")
+    assert fi.field.has_default is True
+    assert fi.field.get_default() is None
+
+
+def test_optional_bare_annotation_omittable_in_init() -> None:
+    obj = _OptionalHolder(id="x")
+    assert obj.tag is None
+    assert obj.score is None
+
+
+def test_required_bare_annotation_still_required() -> None:
+    with pytest.raises(TypeError, match="missing required"):
+        _OptionalHolder(tag="t")  # id is required and non-optional
