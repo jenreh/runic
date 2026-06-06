@@ -5,6 +5,7 @@ Demonstrates:
   - Vector               → vecf32() embeddings stored natively
   - GeoLocation          → point() geographic coordinates
   - Auto-converters      → datetime and Enum fields need no explicit converter=
+  - QueryBuilder: filter on interned fields, Enum fields, datetime range, .in_()
 
 Run against a live FalkorDB:
     FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/06_native_types.py
@@ -206,6 +207,55 @@ def run() -> None:
         )
 
     log.info("All native-type assertions passed.")
+
+    # --- Query builder: filter on interned string field ---
+    with Session(graph) as session:
+        german = session.query(Article).where(Article.country == "Germany").all()
+        log.info("QueryBuilder interned country='Germany': %s", [a.id for a in german])
+
+    # --- Query builder: filter on Enum field ---
+    with Session(graph) as session:
+        published = (
+            session.query(Article)
+            .where(Article.status == ArticleStatus.PUBLISHED)
+            .order_by(Article.id)
+            .all()
+        )
+        log.info("QueryBuilder Enum status=PUBLISHED: %s", [a.id for a in published])
+
+    # --- Query builder: compound filter — country AND status ---
+    with Session(graph) as session:
+        de_published = (
+            session.query(Article)
+            .where(
+                (Article.country == "Germany")  # type: ignore[operator]
+                & (Article.status == ArticleStatus.PUBLISHED)
+            )
+            .all()
+        )
+        log.info("QueryBuilder Germany + PUBLISHED: %s", [a.id for a in de_published])
+
+    # --- Query builder: in_() on language field ---
+    with Session(graph) as session:
+        multilang = (
+            session.query(Article)
+            .where(Article.language.in_(["en", "fr"]))  # type: ignore[attr-defined]  # noqa: E501
+            .order_by(Article.id)
+            .all()
+        )
+        log.info("QueryBuilder language in [en, fr]: %s", [a.id for a in multilang])
+
+    # --- Query builder: not_in_() + null check ---
+    with Session(graph) as session:
+        without_pub_date = (
+            session.query(Article)
+            .where(Article.published_at.is_null())  # type: ignore[attr-defined]
+            .all()
+        )
+        log.info(
+            "QueryBuilder published_at IS NULL: %s",
+            [a.id for a in without_pub_date],
+        )
 
 
 if __name__ == "__main__":

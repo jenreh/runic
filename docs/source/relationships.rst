@@ -37,6 +37,11 @@ separate:
            target="Person",
        )
 
+.. seealso::
+
+   `examples/orm/03_relationships_and_edges.py <https://github.com/jenreh/runic/blob/main/examples/orm/03_relationships_and_edges.py>`_
+      Full runnable example: declaring relationships, lazy vs eager loading, ``relate()`` / ``unrelate()``, and edge-property queries.
+
 Lazy loading (default)
 ----------------------
 
@@ -76,6 +81,11 @@ Pass ``fetch=["field_name", ...]`` to ``session.get()`` or any
 The Mapper builds a single Cypher query with one ``OPTIONAL MATCH`` per
 entry in ``fetch``.  Related entities are also registered in the session's
 identity map.
+
+.. seealso::
+
+   `examples/orm/02_polymorphic_locations.py <https://github.com/jenreh/runic/blob/main/examples/orm/02_polymorphic_locations.py>`_
+      Multi-label hierarchy (``Location → Country, City, Restaurant``) with subtype resolution and repository queries.
 
 Polymorphic hierarchies
 -----------------------

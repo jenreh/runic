@@ -4,6 +4,7 @@ Demonstrates:
   - Defining a Node with Field descriptors
   - Session-based create / read / update / delete
   - Repository.find_all() and session.get()
+  - QueryBuilder: .where(), .order_by(), .limit(), .count(), .one()
 
 Run against a live FalkorDB:
     FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/01_simple_crud.py
@@ -109,13 +110,52 @@ def run() -> None:
         repo = Repository(session, Language)
         log.info("Languages remaining: %d", repo.count())
 
-    # --- Pagination ---
+    # --- Pagination (Repository) ---
     with Session(graph) as session:
         repo = Repository(session, Language)
         from runic.orm import Pageable
 
         page = repo.find_all_paginated(Pageable(page=0, size=10, sort_by="code"))
         log.info("Page 0: %d items, %d total", len(list(page)), page.total_elements)
+
+    # --- Query builder: filter by field ---
+    with Session(graph) as session:
+        results = session.query(Language).where(Language.code == "en").all()
+        log.info("QueryBuilder filter by code='en': %s", [r.title for r in results])
+
+    # --- Query builder: count ---
+    with Session(graph) as session:
+        total = session.query(Language).count()
+        log.info("QueryBuilder count: %d", total)
+
+    # --- Query builder: one() ---
+    with Session(graph) as session:
+        lang = session.query(Language).where(Language.code == "de").one()
+        log.info("QueryBuilder one() German: %s", lang and lang.title)
+
+    # --- Query builder: order_by + limit ---
+    with Session(graph) as session:
+        ordered = session.query(Language).order_by(Language.code).limit(2).all()
+        log.info("QueryBuilder ordered codes: %s", [r.code for r in ordered])
+
+    # --- Query builder: project() — scalar projection ---
+    with Session(graph) as session:
+        codes = (
+            session.query(Language)
+            .order_by(Language.code)
+            .project(Language.code)
+            .scalars()
+        )
+        log.info("QueryBuilder scalar codes: %s", codes)
+
+    # --- Query builder: build() — inspect generated Cypher ---
+    with Session(graph) as session:
+        cypher, params = (
+            session.query(Language)
+            .where(Language.title.contains("German"))  # type: ignore[attr-defined]
+            .build()
+        )
+        log.info("Generated Cypher: %s | params: %s", cypher, params)
 
 
 if __name__ == "__main__":

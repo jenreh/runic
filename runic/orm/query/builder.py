@@ -673,19 +673,46 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         labels_str = ":".join(root_meta.labels)
         parts.append(f"MATCH ({self._root_alias}:{labels_str})")
 
-        # ── Traversal clauses ────────────────────────────────────────────
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+        # ── WHERE (root conditions) + WITH + Traversal + WHERE (post)
+        #
+        # Correct Cypher ordering when traversals are present:
+        #   MATCH (root)
+        #   WHERE <root conditions>   ← must precede OPTIONAL MATCH
+        #   [WITH ...]                ← pipelining, precedes traversal
+        #   OPTIONAL MATCH ...
+        #   WHERE <traversal-target conditions>
+        #
+        # Without this split, WHERE would apply to the OPTIONAL MATCH clause
+        # and turn root filters into null-producing predicates for non-matching
+        # root nodes (FalkorDB applies WHERE to the preceding clause).
+        # ─────────────────────────────────────────────────────────────────
+        if self._where_exprs and self._match_clauses:
+            root_exprs, post_exprs = self._split_where_exprs()
+        else:
+            root_exprs = []
+            post_exprs = self._where_exprs
 
-        # ── WITH ─────────────────────────────────────────────────────────
+        if root_exprs:
+            cond = self._compile_expr(
+                root_exprs[0]
+                if len(root_exprs) == 1
+                else CompoundExpr(op="AND", operands=root_exprs)
+            )
+            parts.append(f"WHERE {cond}")
+
+        # ── WITH (pipeline — emitted before traversals) ──────────────────
         if self._with_vars:
             parts.append(f"WITH {', '.join(self._with_vars)}")
 
-        # ── WHERE ─────────────────────────────────────────────────────────
-        if self._where_exprs:
+        # ── Traversal clauses ────────────────────────────────────────────
+        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+
+        # ── WHERE (post-traversal conditions on traversal targets / edges)
+        if post_exprs:
             cond = self._compile_expr(
-                self._where_exprs[0]
-                if len(self._where_exprs) == 1
-                else CompoundExpr(op="AND", operands=self._where_exprs)
+                post_exprs[0]
+                if len(post_exprs) == 1
+                else CompoundExpr(op="AND", operands=post_exprs)
             )
             parts.append(f"WHERE {cond}")
 
@@ -1122,6 +1149,37 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             return next((fi for fi in edge_meta.fields if fi.name == prop), None)
         return None
 
+    def _split_where_exprs(self) -> tuple[list[Expr], list[Expr]]:
+        """Split WHERE expressions into root-targeting and post-traversal groups.
+
+        Root expressions reference only the root alias (or its class) and are
+        safe to emit between the root MATCH and any OPTIONAL MATCH clauses.
+        Post-traversal expressions reference traversal targets or edges and must
+        come after all MATCH/OPTIONAL MATCH clauses.
+        """
+        root: list[Expr] = []
+        post: list[Expr] = []
+        for expr in self._where_exprs:
+            if self._expr_targets_root_only(expr):
+                root.append(expr)
+            else:
+                post.append(expr)
+        return root, post
+
+    def _expr_targets_root_only(self, expr: Expr) -> bool:
+        """Return True if *expr* references only the root Cypher alias."""
+        if isinstance(expr, FilterExpr):
+            if expr.alias is not None:
+                return expr.alias == self._root_alias
+            # No explicit alias: resolve via class lookup
+            resolved = self._alias_for_cls(expr.cls)
+            return resolved == self._root_alias
+        if isinstance(expr, CompoundExpr):
+            return all(self._expr_targets_root_only(op) for op in expr.operands)
+        if isinstance(expr, NegatedExpr):
+            return self._expr_targets_root_only(expr.operand)
+        return False
+
 
 # ---------------------------------------------------------------------------
 # AsyncQueryBuilder
@@ -1282,17 +1340,31 @@ class FulltextQueryBuilder(QueryBuilder[T]):
             f"CALL db.idx.fulltext.queryNodes('{label}', $__fts_query) YIELD node AS {alias}"
         ]
 
-        # Extra OPTIONAL MATCHes for traversals
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+        # Extra OPTIONAL MATCHes for traversals (root WHERE + WITH go first)
+        if self._where_exprs and self._match_clauses:
+            root_exprs, post_exprs = self._split_where_exprs()
+        else:
+            root_exprs = []
+            post_exprs = self._where_exprs
+
+        if root_exprs:
+            cond = self._compile_expr(
+                root_exprs[0]
+                if len(root_exprs) == 1
+                else CompoundExpr(op="AND", operands=root_exprs)
+            )
+            parts.append(f"WHERE {cond}")
 
         if self._with_vars:
             parts.append(f"WITH {', '.join(self._with_vars)}")
 
-        if self._where_exprs:
+        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+
+        if post_exprs:
             cond = self._compile_expr(
-                self._where_exprs[0]
-                if len(self._where_exprs) == 1
-                else CompoundExpr(op="AND", operands=self._where_exprs)
+                post_exprs[0]
+                if len(post_exprs) == 1
+                else CompoundExpr(op="AND", operands=post_exprs)
             )
             parts.append(f"WHERE {cond}")
 
@@ -1389,16 +1461,30 @@ class VectorQueryBuilder(QueryBuilder[T]):
 
         parts: list[str] = [f"MATCH ({alias}:{labels_str})"]
 
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+        if self._where_exprs and self._match_clauses:
+            root_exprs, post_exprs = self._split_where_exprs()
+        else:
+            root_exprs = []
+            post_exprs = self._where_exprs
+
+        if root_exprs:
+            cond = self._compile_expr(
+                root_exprs[0]
+                if len(root_exprs) == 1
+                else CompoundExpr(op="AND", operands=root_exprs)
+            )
+            parts.append(f"WHERE {cond}")
 
         if self._with_vars:
             parts.append(f"WITH {', '.join(self._with_vars)}")
 
-        if self._where_exprs:
+        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+
+        if post_exprs:
             cond = self._compile_expr(
-                self._where_exprs[0]
-                if len(self._where_exprs) == 1
-                else CompoundExpr(op="AND", operands=self._where_exprs)
+                post_exprs[0]
+                if len(post_exprs) == 1
+                else CompoundExpr(op="AND", operands=post_exprs)
             )
             parts.append(f"WHERE {cond}")
 

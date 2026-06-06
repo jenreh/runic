@@ -6,6 +6,7 @@ Demonstrates:
   - Lazy loading (default) vs eager loading via fetch=
   - session.relate() / session.unrelate() for mutation without raw Cypher
   - Custom repository methods for reading edge properties
+  - QueryBuilder: .traverse(), .all_with_edges(), edge property filtering via .where(on=)
 
 Run:
     uv run python examples/orm/03_relationships_and_edges.py
@@ -222,6 +223,56 @@ def run() -> None:
         repo.accept_invitation("bob", "paris-2026")
         inv_after = repo.get_invitation("bob", "paris-2026")
         log.info("After accept: status=%s", inv_after and inv_after.get("status"))
+
+    # --- Query builder: traverse User → Trip ---
+    with Session(graph) as session:
+        alice_trips = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips)
+            .alias("t")
+            .return_target("t")
+            .all()
+        )
+        log.info("QueryBuilder: Alice's trips: %s", [t.title for t in alice_trips])
+
+    # --- Query builder: traverse with edge alias + filter on edge property ---
+    with Session(graph) as session:
+        owner_trips = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips, edge_alias="e")
+            .alias("t")
+            .where(InvitationEdge.role == "owner", on="e")
+            .return_target("t")
+            .all()
+        )
+        log.info(
+            "QueryBuilder: Alice owner-role trips: %s",
+            [t.title for t in owner_trips],
+        )
+
+    # --- Query builder: all_with_edges() — returns (User, InvitationEdge, Trip) tuples ---
+    with Session(graph) as session:
+        rows = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips, edge_alias="e")
+            .alias("t")
+            .return_nodes("u", "t")
+            .return_edge("e")
+            .all_with_edges()
+        )
+        for user, edge, trip in rows:
+            log.info(
+                "QueryBuilder all_with_edges: %s -[%s]-> %s",
+                user.name,
+                edge.role if edge else "?",
+                trip.title,
+            )
 
 
 if __name__ == "__main__":
