@@ -5,6 +5,7 @@ Demonstrates:
   - primary_label for polymorphic queries
   - Repository returning a mix of subtypes from a parent-class query
   - Inherited fields (latitude/longitude on all Location subtypes)
+  - QueryBuilder: .where() on subtype fields, .project(), .scalars(), compound predicates
 
 Run:
     uv run python examples/orm/02_polymorphic_locations.py
@@ -185,6 +186,52 @@ def run() -> None:
             returns=Restaurant,
         )
         log.info("Restaurants via Cypher: %d", len(restaurants))
+
+    # --- Query builder: filter Country by population threshold ---
+    with Session(graph) as session:
+        large = (
+            session.query(Country)
+            .where(Country.population > 70_000_000)
+            .order_by(Country.population, desc=True)
+            .all()
+        )
+        log.info("Countries population > 70M: %s", [c.iso_code for c in large])
+
+    # --- Query builder: compound AND predicate ---
+    with Session(graph) as session:
+        paris_area = (
+            session.query(City)
+            .where(
+                (City.latitude > 48.0)  # type: ignore[operator]
+                & (City.longitude > 2.0)  # type: ignore[operator]
+            )
+            .all()
+        )
+        log.info("Cities in Paris quadrant: %s", [c.title for c in paris_area])
+
+    # --- Query builder: project() → scalar list ---
+    with Session(graph) as session:
+        titles = (
+            session.query(Location)
+            .order_by(Location.title)
+            .project(Location.title)
+            .scalars()
+        )
+        log.info("All location titles (projected): %s", titles)
+
+    # --- Query builder: null check (locations without coordinates) ---
+    with Session(graph) as session:
+        no_coords = (
+            session.query(Location)
+            .where(Location.latitude.is_null())  # type: ignore[attr-defined]
+            .count()
+        )
+        log.info("Locations without latitude: %d", no_coords)
+
+    # --- Query builder: one() on specific subtype ---
+    with Session(graph) as session:
+        louvre = session.query(Museum).where(Museum.id == "LOUVRE").one()
+        log.info("Museum one(): %s", louvre and louvre.title)
 
 
 if __name__ == "__main__":

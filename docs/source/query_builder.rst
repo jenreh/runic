@@ -43,6 +43,12 @@ Entry points
 | ``repo.query()``                            | ``QueryBuilder[T]`` (bound to repo's type)   |
 +---------------------------------------------+----------------------------------------------+
 
+.. seealso::
+
+   `examples/orm/07_query_builder_basics.py <https://github.com/jenreh/runic/blob/main/examples/orm/07_query_builder_basics.py>`_
+      Covers every foundational feature: comparisons, string predicates, null checks, membership, boolean composition,
+      ordering, pagination, projection, and all terminal methods.
+
 Filtering
 ---------
 
@@ -111,6 +117,12 @@ The ``on=`` parameter of ``.where()`` overrides which alias a predicate is
 applied to.  This is especially useful with traversals (see below) and with
 edge property filtering.
 
+.. seealso::
+
+   `examples/orm/08_query_builder_traversal.py <https://github.com/jenreh/runic/blob/main/examples/orm/08_query_builder_traversal.py>`_
+      Single-hop and multi-hop traversal, ``optional=False`` inner-join, ``repeat()`` variable-length paths,
+      ``return_target()``, ``with_()``, and alias-scoped ``where(on=)``.
+
 Traversals
 ----------
 
@@ -173,6 +185,12 @@ Use :meth:`~runic.orm.query.builder.QueryBuilder.repeat` to generate
         .repeat(Station.connected_to, min_hops=1).alias("s2")
         .all()
     )
+
+.. seealso::
+
+   `examples/orm/09_query_builder_edges.py <https://github.com/jenreh/runic/blob/main/examples/orm/09_query_builder_edges.py>`_
+      ``traverse(edge_alias=)``, ``return_nodes()`` + ``return_edge()``, ``all_with_edges()``,
+      and filtering on edge properties via ``where(on=)``.
 
 Edge properties
 ---------------
@@ -237,6 +255,11 @@ Ordering, pagination, DISTINCT
     session.query(User).distinct().project(User.country).scalars()
     # RETURN DISTINCT n.country
 
+.. seealso::
+
+   `examples/orm/10_query_builder_aggregation.py <https://github.com/jenreh/runic/blob/main/examples/orm/10_query_builder_aggregation.py>`_
+      ``count``, ``avg``, ``sum_``, ``min_``, ``max_``, ``collect``; grouped aggregation with ``group_by``; ``.scalar()`` and ``.all_rows()``.
+
 Aggregation
 -----------
 
@@ -296,6 +319,12 @@ Terminal methods
 +---------------------+--------------------------------------------------+
 | ``.build()``        | ``(str, dict)`` — raw Cypher + params (debug)    |
 +---------------------+--------------------------------------------------+
+
+.. seealso::
+
+   `examples/orm/11_query_builder_search.py <https://github.com/jenreh/runic/blob/main/examples/orm/11_query_builder_search.py>`_
+      ``fulltext_search()`` and ``vector_search()`` combined with ``where()``, ``order_by()``, ``limit()``,
+      index creation via ``IndexManager``, and ``build()`` to inspect generated Cypher.
 
 FalkorDB fulltext search
 ------------------------

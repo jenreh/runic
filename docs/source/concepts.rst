@@ -39,6 +39,11 @@ when the node has more than one label:
    class Country(Location, labels=["Location", "Country"], primary_label="Location"):
        iso_code: str = Field(unique=True)
 
+.. seealso::
+
+   `examples/orm/01_simple_crud.py <https://github.com/jenreh/runic/blob/main/examples/orm/01_simple_crud.py>`_
+      Defines a ``Node`` with ``Field`` descriptors and walks through all object states in one file.
+
 Field and Relation descriptors
 ------------------------------
 
@@ -173,6 +178,11 @@ the *same* object.
 
 Repository reads also register entities in the identity map.
 
+.. seealso::
+
+   `examples/orm/02_polymorphic_locations.py <https://github.com/jenreh/runic/blob/main/examples/orm/02_polymorphic_locations.py>`_
+      Multi-label nodes (``Location → Country, City``), ``primary_label``, and polymorphic repository queries.
+
 Type converters
 ---------------
 
@@ -240,6 +250,11 @@ converter class to wrap the Cypher parameter with a FalkorDB function:
 
        def to_graph(self, value): ...
        def from_graph(self, value): ...
+
+.. seealso::
+
+   `examples/orm/06_native_types.py <https://github.com/jenreh/runic/blob/main/examples/orm/06_native_types.py>`_
+      ``Vector``, ``GeoLocation``, interned strings, ``datetime`` and ``Enum`` auto-converters in action.
 
 Metadata registry
 -----------------

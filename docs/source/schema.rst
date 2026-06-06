@@ -9,6 +9,12 @@ and :class:`~runic.orm.schema.schema_manager.SchemaManager` (validate + diff
 
 Both utilities bind to a **graph handle**, not a Session.
 
+.. seealso::
+
+   `examples/orm/05_schema_management.py <https://github.com/jenreh/runic/blob/main/examples/orm/05_schema_management.py>`_
+      Runnable example: ``IndexManager``, ``SchemaManager`` validate/diff/sync, and a typical startup pattern.
+
+
 Declaring indexes on models
 ---------------------------
 
