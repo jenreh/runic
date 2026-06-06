@@ -30,8 +30,15 @@ class Session:
     sets only; cannot undo writes already sent to the graph.
     """
 
-    def __init__(self, graph: Any, mapper: Mapper | None = None) -> None:
+    def __init__(
+        self,
+        graph: Any,
+        mapper: Mapper | None = None,
+        *,
+        log_cypher: bool = False,
+    ) -> None:
         self._graph = graph
+        self._log_cypher = log_cypher
         self._mapper: Mapper = (
             mapper if mapper is not None else Mapper(_global_metadata)
         )
@@ -43,6 +50,15 @@ class Session:
         self._pending: list[Any] = []
         # Entities staged for DETACH DELETE
         self._deleted: list[Any] = []
+
+    # ------------------------------------------------------------------
+    # Internal query runner
+    # ------------------------------------------------------------------
+
+    def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+        if self._log_cypher:
+            log.debug("Cypher: %s | params: %s", cypher, params)
+        return self._graph.query(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -132,7 +148,7 @@ class Session:
             return self._get_with_fetch(cls, pk, fetch)
 
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -159,7 +175,7 @@ class Session:
             return None
 
         cypher, params = self._rel_loader.build_lazy_load_query(entity, fi)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
         decoded = self._rel_loader.decode_lazy_result(result, fi)
 
         entity.__dict__[field_name] = decoded
@@ -265,7 +281,7 @@ class Session:
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
-        self._graph.query(cypher, params)
+        self._run_query(cypher, params)
         source.__dict__[field_name] = _NOT_LOADED
         log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
 
@@ -277,7 +293,7 @@ class Session:
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
-        self._graph.query(cypher, params)
+        self._run_query(cypher, params)
         source.__dict__[field_name] = _NOT_LOADED
         log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
 
@@ -292,7 +308,7 @@ class Session:
         write: bool = False,  # noqa: ARG002  (reserved for future routing)
     ) -> Any:
         """Execute raw Cypher; returns ``QueryResult``; no entity mapping."""
-        return self._graph.query(cypher, params or {})
+        return self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -326,7 +342,7 @@ class Session:
         cypher, params, fetch_meta = self._rel_loader.build_get_with_fetch_query(
             cls, pk, fetch
         )
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -361,7 +377,7 @@ class Session:
         """CREATE all entities in the pending list."""
         for entity in list(self._pending):
             cypher, params = self._mapper.build_create_query(entity)
-            result = self._graph.query(cypher, params)
+            result = self._run_query(cypher, params)
 
             falkor_node = result.result_set[0][0] if result.result_set else None
             if falkor_node is not None:
@@ -390,7 +406,7 @@ class Session:
                 entity.__dict__["_dirty"] = False
                 continue
 
-            result = self._graph.query(cypher, params)
+            result = self._run_query(cypher, params)
             if result.result_set:
                 self._mapper.update_entity_from_node(entity, result.result_set[0][0])
             else:
@@ -402,7 +418,7 @@ class Session:
         """DETACH DELETE all entities in the deleted list."""
         for entity in list(self._deleted):
             cypher, params = self._mapper.build_delete_query(entity)
-            self._graph.query(cypher, params)
+            self._run_query(cypher, params)
 
             cls = type(entity)
             pk = self._mapper.get_pk_value(entity)
@@ -428,7 +444,7 @@ class Session:
     def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         """Re-query a single entity from the graph and update it in-place."""
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             raise EntityNotFoundError(
