@@ -175,3 +175,70 @@ runic.orm.exceptions
 .. seealso::
 
    :doc:`migration/api` — Migration API reference (``runic.migrate``)
+
+----
+
+runic.orm.query
+---------------
+
+.. autoclass:: runic.orm.query.builder.QueryBuilder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.builder.AsyncQueryBuilder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.builder.FulltextQueryBuilder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.builder.VectorQueryBuilder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.traversal.TraversalStep
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.Expr
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.FilterExpr
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.CompoundExpr
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.NegatedExpr
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.OrderExpr
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.query.expressions.AggExpr
+   :members:
+   :show-inheritance:
+
+.. autofunction:: runic.orm.query.expressions.count
+
+.. autofunction:: runic.orm.query.expressions.avg
+
+.. autofunction:: runic.orm.query.expressions.sum_
+
+.. autofunction:: runic.orm.query.expressions.min_
+
+.. autofunction:: runic.orm.query.expressions.max_
+
+.. autofunction:: runic.orm.query.expressions.collect
+
