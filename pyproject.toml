@@ -1,7 +1,7 @@
 [project]
 name = "runic-py"
 version = "0.2.1"
-description = "Graph schema migrations for FalkorDB."
+description = "OGM and schema migrations for FalkorDB."
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
