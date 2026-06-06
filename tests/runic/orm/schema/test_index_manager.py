@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from runic.orm.core.descriptors import Field
+from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.models import Edge, Node
 from runic.orm.schema.index_manager import (
     IndexManager,
@@ -123,7 +123,7 @@ def test_extract_skips_relationship_fields() -> None:
 
     class RelNode(Node, labels=["RelNode"]):
         id: str = Field()
-        friend: str = Field(
+        friend: str = Relation(
             relationship="KNOWS", direction="OUTGOING", target="RelNode"
         )
 

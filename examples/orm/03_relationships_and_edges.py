@@ -20,7 +20,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Edge, Field, Node, Repository, Session  # noqa: E402
+from runic.orm import Edge, Node, Relation, Repository, Session  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models
@@ -47,12 +47,11 @@ class User(Node, labels=["User"]):
     id: str
     name: str
     email: str
-    invited_trips: list[Trip] = Field(
+    invited_trips: list[Trip] = Relation(
         relationship="INVITED_TO",
         direction="OUTGOING",
         target="Trip",
         edge_model=InvitationEdge,
-        default=None,
     )
 
 

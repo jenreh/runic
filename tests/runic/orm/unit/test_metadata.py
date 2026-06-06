@@ -1,6 +1,6 @@
 """Unit tests for the MetaData registry."""
 
-from runic.orm.core.descriptors import Field
+from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.metadata import MetaData, metadata
 from runic.orm.core.models import Edge, Node
 
@@ -126,7 +126,9 @@ def test_finalize_resolves_string_target() -> None:
 
     class Source(Node, labels=["Source"]):
         id: str = Field()
-        friend: str = Field(relationship="KNOWS", direction="OUTGOING", target="Target")
+        friend: str = Relation(
+            relationship="KNOWS", direction="OUTGOING", target="Target"
+        )
 
     class Target(Node, labels=["Target"]):
         id: str = Field()

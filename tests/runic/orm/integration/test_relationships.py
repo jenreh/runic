@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from runic.orm.core.descriptors import _NOT_LOADED, Field
+from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.models import Node
 from runic.orm.exceptions import DetachedEntityError
 from runic.orm.session.session import Session
@@ -39,18 +39,16 @@ class Department(Node, labels=["Department"]):
 class Employee(Node, labels=["Employee"]):
     id: str = Field()
     name: str = Field()
-    department: Department | None = Field(
+    department: Department | None = Relation(
         relationship="BELONGS_TO",
         direction="OUTGOING",
         target="Department",
-        default=None,
     )
-    colleagues: list[Employee] = Field(
+    colleagues: list[Employee] = Relation(
         relationship="KNOWS",
         direction="OUTGOING",
         target="Employee",
         lazy=True,
-        default=None,
     )
 
 

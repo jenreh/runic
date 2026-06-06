@@ -8,7 +8,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.orm.core.descriptors import _NOT_LOADED, Field, FieldInfo
+from runic.orm.core.descriptors import (
+    _NOT_LOADED,
+    Field,
+    FieldInfo,
+    Relation,
+)
 from runic.orm.core.models import Node
 from runic.orm.exceptions import DetachedEntityError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
@@ -29,18 +34,16 @@ class RelCompany(Node, labels=["RelCompany"]):
 class RelPerson(Node, labels=["RelPerson"]):
     id: str = Field()
     name: str = Field()
-    company: RelCompany | None = Field(
+    company: RelCompany | None = Relation(
         relationship="WORKS_FOR",
         direction="OUTGOING",
         target="RelCompany",
-        default=None,
     )
-    friends: list[RelPerson] = Field(
+    friends: list[RelPerson] = Relation(
         relationship="KNOWS",
         direction="OUTGOING",
         target="RelPerson",
         lazy=True,
-        default=None,
     )
 
 
@@ -343,11 +346,10 @@ def test_build_lazy_load_query_incoming() -> None:
 
     fi_incoming = FieldInfo(
         name="friends",
-        field=Field(
+        field=Relation(
             relationship="KNOWS",
             direction="INCOMING",
             target="RelPerson",
-            default=None,
         ),
         is_collection=True,
     )

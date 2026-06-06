@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.orm.core.descriptors import _NOT_LOADED, Field
+from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.metadata import MetaData
 from runic.orm.core.models import Node
 from runic.orm.core.types import EnumConverter
@@ -61,11 +61,10 @@ class MapperChild(MapperParent, labels=["MapperParent", "MapperChild"]):
 
 class MapperRel(Node, labels=["MapperRel"]):
     id: str = Field()
-    friend: MapperPerson | None = Field(
+    friend: MapperPerson | None = Relation(
         relationship="KNOWS",
         direction="OUTGOING",
         target="MapperPerson",
-        default=None,
     )
 
 

@@ -8,12 +8,14 @@ properties.
 Declaring a relationship
 ------------------------
 
-Use :func:`~runic.orm.core.descriptors.Field` with ``relationship``,
-``direction``, and ``target``:
+Use :func:`~runic.orm.core.descriptors.Relation` with ``relationship``,
+``direction``, and ``target``.  Property fields use
+:func:`~runic.orm.core.descriptors.Field` — the two are intentionally
+separate:
 
 .. code-block:: python
 
-   from runic.orm import Field, Node
+   from runic.orm import Field, Node, Relation
 
    class Company(Node, labels=["Company"]):
        id: str = Field()
@@ -23,18 +25,16 @@ Use :func:`~runic.orm.core.descriptors.Field` with ``relationship``,
        id: str = Field()
        name: str = Field()
        # single outgoing relationship
-       company: Company | None = Field(
+       company: Company | None = Relation(
            relationship="WORKS_FOR",
            direction="OUTGOING",
            target="Company",
-           default=None,
        )
        # collection
-       reports: list["Person"] = Field(
+       reports: list["Person"] = Relation(
            relationship="MANAGES",
            direction="OUTGOING",
            target="Person",
-           default=None,
        )
 
 Lazy loading (default)
@@ -111,11 +111,12 @@ Edge properties
 ---------------
 
 When a relationship carries its own properties, declare an
-:class:`~runic.orm.core.models.Edge` subclass:
+:class:`~runic.orm.core.models.Edge` subclass and pass it via
+``edge_model``:
 
 .. code-block:: python
 
-   from runic.orm import Edge, Field, Node
+   from runic.orm import Edge, Field, Node, Relation
 
    class InvitationEdge(Edge, type="INVITED_TO"):
        role: str = Field()
@@ -125,7 +126,7 @@ When a relationship carries its own properties, declare an
 
    class User(Node, labels=["User"]):
        id: str = Field()
-       invited_trips: list["Trip"] = Field(
+       invited_trips: list["Trip"] = Relation(
            relationship="INVITED_TO",
            direction="OUTGOING",
            target="Trip",
@@ -153,7 +154,7 @@ Read edge properties back with a custom Cypher query in your Repository:
 Cascade saves
 -------------
 
-Set ``cascade=True`` on a relationship field to automatically stage related
+Set ``cascade=True`` on a ``Relation`` to automatically stage related
 entities when the owning entity is added:
 
 .. code-block:: python
@@ -161,7 +162,7 @@ entities when the owning entity is added:
    class Person(Node, labels=["Person"]):
        id: str = Field()
        name: str = Field()
-       company: Company | None = Field(
+       company: Company | None = Relation(
            relationship="WORKS_FOR",
            direction="OUTGOING",
            target="Company",

@@ -39,11 +39,22 @@ when the node has more than one label:
    class Country(Location, labels=["Location", "Country"], primary_label="Location"):
        iso_code: str = Field(unique=True)
 
-Field descriptor
-----------------
+Field and Relation descriptors
+------------------------------
 
-:func:`~runic.orm.core.descriptors.Field` is the primary way to declare
-properties, relationships, and index hints.
+Properties and relationships are declared with separate functions for a
+clean separation of concerns:
+
+* :func:`~runic.orm.core.descriptors.Field` — scalar properties, index
+  hints, and constraints.
+* :func:`~runic.orm.core.descriptors.Relation` — graph relationships
+  (edges).
+
+Both return :class:`~runic.orm.core.descriptors.FieldDescriptor` typed as
+``Any``, so ``name: str = Field()`` is accepted by type checkers without
+error.
+
+**Field parameters**
 
 .. list-table::
    :header-rows: 1
@@ -68,15 +79,31 @@ properties, relationships, and index hints.
    * - ``required``
      - ``bool``
      - Validated on save; raises :exc:`~runic.orm.exceptions.FieldValidationError`
+   * - ``converter``
+     - :class:`~runic.orm.core.types.TypeConverter`
+     - Custom encode/decode (e.g. datetime ↔ ISO-8601 string)
+   * - ``generated``
+     - ``bool``
+     - FalkorDB assigns the node ID on ``CREATE``
+
+**Relation parameters**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 12 68
+
+   * - Parameter
+     - Type
+     - Description
    * - ``relationship``
      - ``str``
-     - Edge-type string — marks this field as a relationship
+     - Edge-type string (required)
    * - ``direction``
      - ``str``
-     - ``"OUTGOING"``, ``"INCOMING"``, or ``"BOTH"``
+     - ``"OUTGOING"``, ``"INCOMING"``, or ``"BOTH"`` (required)
    * - ``target``
      - ``str | type``
-     - Entity class (or forward-reference string) for the other end
+     - Entity class (or forward-reference string) for the other end (required)
    * - ``edge_model``
      - ``str | type``
      - Optional :class:`~runic.orm.core.models.Edge` subclass holding edge properties
@@ -86,12 +113,9 @@ properties, relationships, and index hints.
    * - ``cascade``
      - ``bool``
      - Auto-add related entities when the owning entity is added to a session
-   * - ``converter``
-     - :class:`~runic.orm.core.types.TypeConverter`
-     - Custom encode/decode (e.g. datetime ↔ ISO-8601 string)
-   * - ``generated``
-     - ``bool``
-     - FalkorDB assigns the node ID on ``CREATE``
+   * - ``default``
+     - ``Any``
+     - Default value (defaults to ``None``)
 
 Object states
 -------------
@@ -125,7 +149,7 @@ Two private flags drive query selection:
 * ``_dirty`` — ``True`` when any field is written on a persistent entity.
   Mapper emits ``MERGE … SET`` when this is true.
 
-``Field.__set__`` sets ``_dirty = True`` automatically.  The Session clears
+The descriptor ``__set__`` sets ``_dirty = True`` automatically.  The Session clears
 ``_dirty`` after a successful ``flush()``.
 
 Identity map

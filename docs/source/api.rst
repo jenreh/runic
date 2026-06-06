@@ -20,6 +20,12 @@ runic.orm.core — Models & Fields
 
 .. autofunction:: runic.orm.core.descriptors.Field
 
+.. autofunction:: runic.orm.core.descriptors.Relation
+
+.. autoclass:: runic.orm.core.descriptors.FieldDescriptor
+   :members:
+   :show-inheritance:
+
 .. autoclass:: runic.orm.core.descriptors.FieldInfo
    :members:
    :show-inheritance:
