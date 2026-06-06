@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -11,7 +12,13 @@ log = logging.getLogger(__name__)
 
 
 class TypeConverter(ABC):
-    """Interface for encoding/decoding custom Python types to/from graph values."""
+    """Interface for encoding/decoding custom Python types to/from graph values.
+
+    Optionally, set ``cypher_fn`` to name a FalkorDB Cypher function that wraps
+    the parameter reference when writing to the graph (e.g. ``"vecf32"`` → ``vecf32($field)``).
+    """
+
+    cypher_fn: str | None = None
 
     @abstractmethod
     def to_graph(self, value: Any) -> Any:
@@ -67,3 +74,85 @@ class EnumConverter(TypeConverter):
         if value is None:
             return None
         return self._enum_class(value)
+
+
+class Vector(list):
+    """A typed list of floats representing a graph embedding vector.
+
+    Use as an annotation on a Node field to store and query embeddings::
+
+        class Article(Node, labels=["Article"]):
+            id: str = Field(primary_key=True)
+            embedding: Vector = Field(index=True, index_type="VECTOR")
+
+    FalkorDB stores vectors via ``vecf32()``, preserving 32-bit float precision.
+    """
+
+    def __repr__(self) -> str:
+        return f"Vector({list.__repr__(self)})"
+
+
+class VectorConverter(TypeConverter):
+    """Converts between Python Vector (list of floats) and FalkorDB's vecf32 format.
+
+    Emits ``vecf32($field)`` in Cypher via ``cypher_fn = "vecf32"``.
+    """
+
+    cypher_fn = "vecf32"
+
+    def to_graph(self, value: Any) -> Any:
+        if value is None:
+            return None
+        return list(value)
+
+    def from_graph(self, value: Any) -> Any:
+        if value is None:
+            return None
+        return Vector(value)
+
+
+@dataclass
+class GeoLocation:
+    """A geographic point with latitude and longitude.
+
+    Maps to FalkorDB's native ``point()`` type::
+
+        class Store(Node, labels=["Store"]):
+            id: str = Field(primary_key=True)
+            location: GeoLocation = Field()
+
+    FalkorDB round-trips this as ``point({latitude: ..., longitude: ...})``.
+    """
+
+    latitude: float
+    longitude: float
+
+    def __repr__(self) -> str:
+        return f"GeoLocation(latitude={self.latitude}, longitude={self.longitude})"
+
+
+class GeoLocationConverter(TypeConverter):
+    """Converts between GeoLocation and FalkorDB's point() dict format.
+
+    Emits ``point($field)`` in Cypher via ``cypher_fn = "point"``.
+    FalkorDB returns points as ``{"latitude": ..., "longitude": ...}`` dicts.
+    """
+
+    cypher_fn = "point"
+
+    def to_graph(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, GeoLocation):
+            return {"latitude": value.latitude, "longitude": value.longitude}
+        return value
+
+    def from_graph(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return GeoLocation(
+                latitude=value["latitude"],
+                longitude=value["longitude"],
+            )
+        return value

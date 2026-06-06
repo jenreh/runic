@@ -9,7 +9,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install runic-migrate    # or: uv add runic-migrate
+   uv add runic-py    # or: pip install runic-py
 
 FalkorDB must be running.  The simplest way for local development:
 

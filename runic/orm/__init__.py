@@ -10,7 +10,15 @@ from runic.orm.core.descriptors import (
 )
 from runic.orm.core.metadata import EdgeMeta, MetaData, NodeMeta, get_metadata, metadata
 from runic.orm.core.models import Edge, Node
-from runic.orm.core.types import DatetimeConverter, EnumConverter, TypeConverter
+from runic.orm.core.types import (
+    DatetimeConverter,
+    EnumConverter,
+    GeoLocation,
+    GeoLocationConverter,
+    TypeConverter,
+    Vector,
+    VectorConverter,
+)
 from runic.orm.exceptions import (
     DetachedEntityError,
     EntityNotFoundError,
@@ -47,6 +55,8 @@ __all__ = [
     "FieldDescriptor",
     "FieldInfo",
     "FieldValidationError",
+    "GeoLocation",
+    "GeoLocationConverter",
     "IndexManager",
     "IndexSpec",
     "LazyLoadError",
@@ -65,6 +75,8 @@ __all__ = [
     "Session",
     "TypeConverter",
     "ValidationResult",
+    "Vector",
+    "VectorConverter",
     "get_metadata",
     "metadata",
 ]

@@ -11,7 +11,13 @@ import pytest
 from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.metadata import MetaData
 from runic.orm.core.models import Node
-from runic.orm.core.types import EnumConverter
+from runic.orm.core.types import (
+    EnumConverter,
+    GeoLocation,
+    GeoLocationConverter,
+    Vector,
+    VectorConverter,
+)
 from runic.orm.exceptions import MetadataError
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.repository.pagination import Pageable
@@ -66,6 +72,22 @@ class MapperRel(Node, labels=["MapperRel"]):
         direction="OUTGOING",
         target="MapperPerson",
     )
+
+
+class MapperInterned(Node, labels=["MapperInterned"]):
+    id: str = Field()
+    country: str = Field(interned=True)
+    name: str = Field()
+
+
+class MapperVec(Node, labels=["MapperVec"]):
+    id: str = Field()
+    embedding: Vector = Field(converter=VectorConverter())
+
+
+class MapperGeo(Node, labels=["MapperGeo"]):
+    id: str = Field()
+    location: GeoLocation = Field(converter=GeoLocationConverter())
 
 
 # ---------------------------------------------------------------------------
@@ -395,3 +417,131 @@ class TestPublicHelpers:
 
     def test_is_generated_pk_true(self, mapper: Mapper) -> None:
         assert mapper.is_generated_pk(MapperGenerated) is True
+
+
+# ---------------------------------------------------------------------------
+# Cypher wrapper: interned fields
+# ---------------------------------------------------------------------------
+
+
+class TestInternedCypher:
+    def test_create_interned_field_uses_intern_fn(self, mapper: Mapper) -> None:
+        n = MapperInterned(id="i1", country="Germany", name="Alice")
+        cypher, params = mapper.build_create_query(n)
+        assert "intern($country)" in cypher
+        assert "$country" not in cypher.replace("intern($country)", "")
+        assert params["country"] == "Germany"
+
+    def test_create_non_interned_field_uses_plain_ref(self, mapper: Mapper) -> None:
+        n = MapperInterned(id="i1", country="Germany", name="Alice")
+        cypher, _ = mapper.build_create_query(n)
+        assert "name: $name" in cypher
+
+    def test_update_interned_field_uses_intern_fn(self, mapper: Mapper) -> None:
+        n = MapperInterned(id="i1", country="France", name="Bob")
+        cypher, params = mapper.build_update_query(n)
+        assert "intern($country)" in cypher
+        assert params["country"] == "France"
+
+    def test_update_non_interned_field_plain(self, mapper: Mapper) -> None:
+        n = MapperInterned(id="i1", country="France", name="Bob")
+        cypher, _ = mapper.build_update_query(n)
+        assert "n.name = $name" in cypher
+
+    def test_interned_value_decoded_as_plain_string(self, mapper: Mapper) -> None:
+        node = _fake_node(
+            ["MapperInterned"], {"id": "i1", "country": "Germany", "name": "Alice"}
+        )
+        entity = mapper.decode_node(node)
+        assert isinstance(entity, MapperInterned)
+        assert entity.__dict__["country"] == "Germany"
+
+
+# ---------------------------------------------------------------------------
+# Cypher wrapper: Vector fields (vecf32)
+# ---------------------------------------------------------------------------
+
+
+class TestVectorCypher:
+    def test_create_vector_field_uses_vecf32_fn(self, mapper: Mapper) -> None:
+        n = MapperVec(id="v1", embedding=Vector([0.1, 0.2, 0.3]))
+        cypher, params = mapper.build_create_query(n)
+        assert "vecf32($embedding)" in cypher
+        assert params["embedding"] == [0.1, 0.2, 0.3]
+
+    def test_update_vector_field_uses_vecf32_fn(self, mapper: Mapper) -> None:
+        n = MapperVec(id="v1", embedding=Vector([0.4, 0.5]))
+        cypher, params = mapper.build_update_query(n)
+        assert "vecf32($embedding)" in cypher
+        assert params["embedding"] == [0.4, 0.5]
+
+    def test_vector_decoded_as_vector_instance(self, mapper: Mapper) -> None:
+        node = _fake_node(["MapperVec"], {"id": "v1", "embedding": [0.1, 0.2, 0.3]})
+        entity = mapper.decode_node(node)
+        assert isinstance(entity, MapperVec)
+        assert isinstance(entity.__dict__["embedding"], Vector)
+
+    def test_vector_to_graph_returns_plain_list(self) -> None:
+        conv = VectorConverter()
+        result = conv.to_graph(Vector([1.0, 2.0]))
+        assert result == [1.0, 2.0]
+        assert isinstance(result, list)
+
+    def test_vector_from_graph_returns_vector(self) -> None:
+        conv = VectorConverter()
+        result = conv.from_graph([0.5, 0.6])
+        assert isinstance(result, Vector)
+        assert list(result) == [0.5, 0.6]
+
+    def test_vector_none_passthrough(self) -> None:
+        conv = VectorConverter()
+        assert conv.to_graph(None) is None
+        assert conv.from_graph(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Cypher wrapper: GeoLocation fields (point)
+# ---------------------------------------------------------------------------
+
+
+class TestGeoLocationCypher:
+    def test_create_geolocation_uses_point_fn(self, mapper: Mapper) -> None:
+        n = MapperGeo(id="g1", location=GeoLocation(latitude=48.137, longitude=11.576))
+        cypher, params = mapper.build_create_query(n)
+        assert "point($location)" in cypher
+        assert params["location"] == {"latitude": 48.137, "longitude": 11.576}
+
+    def test_update_geolocation_uses_point_fn(self, mapper: Mapper) -> None:
+        n = MapperGeo(id="g1", location=GeoLocation(latitude=51.507, longitude=-0.127))
+        cypher, params = mapper.build_update_query(n)
+        assert "point($location)" in cypher
+        assert params["location"] == {"latitude": 51.507, "longitude": -0.127}
+
+    def test_geolocation_decoded_from_dict(self, mapper: Mapper) -> None:
+        node = _fake_node(
+            ["MapperGeo"],
+            {"id": "g1", "location": {"latitude": 48.137, "longitude": 11.576}},
+        )
+        entity = mapper.decode_node(node)
+        assert isinstance(entity, MapperGeo)
+        loc = entity.__dict__["location"]
+        assert isinstance(loc, GeoLocation)
+        assert loc.latitude == 48.137
+        assert loc.longitude == 11.576
+
+    def test_geolocation_to_graph(self) -> None:
+        conv = GeoLocationConverter()
+        result = conv.to_graph(GeoLocation(latitude=1.0, longitude=2.0))
+        assert result == {"latitude": 1.0, "longitude": 2.0}
+
+    def test_geolocation_from_graph(self) -> None:
+        conv = GeoLocationConverter()
+        result = conv.from_graph({"latitude": 3.0, "longitude": 4.0})
+        assert isinstance(result, GeoLocation)
+        assert result.latitude == 3.0
+        assert result.longitude == 4.0
+
+    def test_geolocation_none_passthrough(self) -> None:
+        conv = GeoLocationConverter()
+        assert conv.to_graph(None) is None
+        assert conv.from_graph(None) is None

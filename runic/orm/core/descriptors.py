@@ -83,6 +83,7 @@ class FieldDescriptor:
         # Misc
         converter: TypeConverter | None = None,
         generated: bool = False,
+        interned: bool = False,
     ) -> None:
         if default is not MISSING and default_factory is not None:
             raise ValueError("Cannot specify both 'default' and 'default_factory'.")
@@ -117,6 +118,7 @@ class FieldDescriptor:
         self.lazy = lazy
         self.converter = converter
         self.generated = generated
+        self.interned = interned
         self._name: str = ""
 
     # ------------------------------------------------------------------
@@ -222,11 +224,16 @@ def Field(  # noqa: N802
     primary_key: bool = False,
     converter: TypeConverter | None = None,
     generated: bool = False,
+    interned: bool = False,
 ) -> Any:
     """Declare a property field on a Node or Edge.
 
     Returns a :class:`FieldDescriptor` typed as ``Any`` so that
     ``name: str = Field()`` is accepted by type checkers without error.
+
+    Set ``interned=True`` to store the value via FalkorDB's ``intern()`` function,
+    which deduplicates repeated strings (e.g. country names, status codes, tags)
+    by keeping a single shared copy in the database.
 
     Example::
 
@@ -234,6 +241,7 @@ def Field(  # noqa: N802
             id: str = Field(primary_key=True)
             name: str = Field()
             age: int | None = Field(default=None)
+            country: str = Field(interned=True)
             email: str = Field(index=True, unique=True)
     """
     return FieldDescriptor(
@@ -248,6 +256,7 @@ def Field(  # noqa: N802
         primary_key=primary_key,
         converter=converter,
         generated=generated,
+        interned=interned,
     )
 
 

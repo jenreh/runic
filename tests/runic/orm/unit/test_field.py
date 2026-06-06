@@ -61,6 +61,16 @@ def test_field_index_params() -> None:
     assert f.unique is True
 
 
+def test_field_interned_flag() -> None:
+    f = Field(interned=True)
+    assert f.interned is True
+
+
+def test_field_interned_defaults_false() -> None:
+    f = Field()
+    assert f.interned is False
+
+
 def test_field_primary_key_flag() -> None:
     f = Field(primary_key=True)
     assert f.primary_key is True

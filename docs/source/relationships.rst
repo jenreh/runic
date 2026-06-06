@@ -18,12 +18,12 @@ separate:
    from runic.orm import Field, Node, Relation
 
    class Company(Node, labels=["Company"]):
-       id: str = Field()
-       name: str = Field()
+       id: str = Field(primary_key=True, generated=True)
+       name: str = Field(index=True)
 
    class Person(Node, labels=["Person"]):
-       id: str = Field()
-       name: str = Field()
+       id: str = Field(primary_key=True, generated=True)
+       name: str = Field(index=True)
        # single outgoing relationship
        company: Company | None = Relation(
            relationship="WORKS_FOR",

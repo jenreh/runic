@@ -14,13 +14,13 @@ Install from PyPI
 
 .. code-block:: bash
 
-   pip install runic
+   pip install runic-py
 
 With **uv** (recommended):
 
 .. code-block:: bash
 
-   uv add runic
+   uv add runic-py
 
 Verify the installation:
 

@@ -8,8 +8,8 @@ Graph ORM and Schema Migrations for FalkorDB
 |PyPI| |Python| |License|
 
 
-.. |PyPI| image:: https://img.shields.io/pypi/v/runic-migrate.svg
-   :target: https://pypi.org/project/runic-migrate/
+.. |PyPI| image:: https://img.shields.io/pypi/v/runic-py.svg
+   :target: https://pypi.org/project/runic-py/
    :alt: PyPI
 
 .. |Python| image:: https://img.shields.io/badge/python-3.14%2B-orange.svg
