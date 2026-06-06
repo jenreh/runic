@@ -5,7 +5,7 @@
 
 **Graph schema migrations and ORM for FalkorDB.**
 
-![Version](https://img.shields.io/badge/version-0.2.1-blue)
+![Version](https://img.shields.io/badge/version-0.2.2-blue)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
