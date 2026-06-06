@@ -240,9 +240,12 @@ class Mapper:
         .. code-block:: python
 
             rows = (
-                session.query(User).alias("u")
-                .traverse(User.rated, edge_alias="r").alias("m")
-                .return_nodes("u", "m").return_edge("r")
+                session.query(User)
+                .alias("u")
+                .traverse(User.rated, edge_alias="r")
+                .alias("m")
+                .return_nodes("u", "m")
+                .return_edge("r")
                 .all_with_edges()
             )
             user, edge, movie = rows[0]

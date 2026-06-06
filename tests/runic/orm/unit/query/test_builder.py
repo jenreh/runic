@@ -308,7 +308,9 @@ class TestTraversal:
 
     def test_variable_length_path(self) -> None:
         q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("p").repeat(BPersonWithRel.reports_to, min_hops=1, max_hops=5).alias("anc")
+        q.alias("p").repeat(BPersonWithRel.reports_to, min_hops=1, max_hops=5).alias(
+            "anc"
+        )
         cypher, _ = q.build()
         assert "*1..5" in cypher
         assert "MATCH (p)-[:BREPORTS_TO*1..5]->(anc:" in cypher
@@ -464,7 +466,9 @@ class TestVectorQueryBuilder:
     def test_emits_knn_order_by(self) -> None:
         sess = _mock_session()
         vec = [0.1, 0.2, 0.3]
-        q = VectorQueryBuilder(sess, BDocument, field=BDocument.embedding, vector=vec, k=5)
+        q = VectorQueryBuilder(
+            sess, BDocument, field=BDocument.embedding, vector=vec, k=5
+        )
         cypher, params = q.build()
         assert "vecf32(n.embedding) <-> vecf32($__knn_vec)" in cypher
         assert "ORDER BY __score ASC" in cypher

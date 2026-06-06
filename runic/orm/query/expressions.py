@@ -12,30 +12,30 @@ descriptors when they are accessed at the **class level**:
     from myapp.models import User, Post, Rated
 
     # Equality / inequality
-    User.name == "Alice"          # FilterExpr  → WHERE n.name = $p0
-    User.status != "banned"       # FilterExpr  → WHERE n.status <> $p0
+    User.name == "Alice"  # FilterExpr  → WHERE n.name = $p0
+    User.status != "banned"  # FilterExpr  → WHERE n.status <> $p0
 
     # Numeric comparison
-    User.age > 18                 # FilterExpr  → WHERE n.age > $p0
-    User.score >= 4.5             # FilterExpr  → WHERE n.score >= $p0
+    User.age > 18  # FilterExpr  → WHERE n.age > $p0
+    User.score >= 4.5  # FilterExpr  → WHERE n.score >= $p0
 
     # String predicates (method-style, not operator-style)
-    User.name.contains("ali")     # FilterExpr  → WHERE n.name CONTAINS $p0
-    User.email.startswith("a@")   # FilterExpr  → WHERE n.email STARTS WITH $p0
-    User.bio.matches(r".*graph.*") # FilterExpr → WHERE n.bio =~ $p0
+    User.name.contains("ali")  # FilterExpr  → WHERE n.name CONTAINS $p0
+    User.email.startswith("a@")  # FilterExpr  → WHERE n.email STARTS WITH $p0
+    User.bio.matches(r".*graph.*")  # FilterExpr → WHERE n.bio =~ $p0
 
     # Null checks
-    User.deleted_at.is_null()     # FilterExpr  → WHERE n.deleted_at IS NULL
-    User.email.is_not_null()      # FilterExpr  → WHERE n.email IS NOT NULL
+    User.deleted_at.is_null()  # FilterExpr  → WHERE n.deleted_at IS NULL
+    User.email.is_not_null()  # FilterExpr  → WHERE n.email IS NOT NULL
 
     # List membership
-    User.role.in_(["admin", "mod"])    # FilterExpr → WHERE n.role IN $p0
-    Post.tag.not_in_(["spam"])         # FilterExpr → WHERE NOT n.tag IN $p0
+    User.role.in_(["admin", "mod"])  # FilterExpr → WHERE n.role IN $p0
+    Post.tag.not_in_(["spam"])  # FilterExpr → WHERE NOT n.tag IN $p0
 
     # Boolean composition
-    (User.age > 18) & (User.active == True)   # AND
+    (User.age > 18) & (User.active == True)  # AND
     (User.role == "admin") | (User.role == "mod")  # OR
-    ~(User.banned == True)                         # NOT
+    ~(User.banned == True)  # NOT
 
 Notes
 -----
@@ -301,8 +301,8 @@ def count(field: Any = "*", *, distinct: bool = False) -> AggExpr:
     --------
     .. code-block:: python
 
-        q.aggregate(count())                           # count(*)
-        q.aggregate(count(User.name, distinct=True))   # count(DISTINCT n.name)
+        q.aggregate(count())  # count(*)
+        q.aggregate(count(User.name, distinct=True))  # count(DISTINCT n.name)
     """
     return AggExpr(func="count", field=field, distinct=distinct)
 

@@ -7,7 +7,7 @@ import weakref
 from types import TracebackType
 from typing import Any
 
-from runic.orm.core.descriptors import _NOT_LOADED, FieldInfo
+from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
 from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
@@ -230,7 +230,7 @@ class AsyncSession:
     async def relate(
         self,
         source: Any,
-        field_name: str,
+        field_name: str | FieldDescriptor,
         target: Any,
         edge: Any | None = None,
     ) -> None:
@@ -240,25 +240,36 @@ class AsyncSession:
         properties are updated; if not, it is created.  Pass an ``Edge`` model
         instance as *edge* to write properties on the relationship itself.
 
-        The cached value of *field_name* on *source* is invalidated after the
-        write so the next access re-fetches fresh data from the graph.
+        *field_name* may be a plain string **or** the class-level descriptor
+        attribute (e.g. ``User.invited_trips``) for type-safe call sites.
+
+        The cached value of the relation field on *source* is invalidated after
+        the write so the next access re-fetches fresh data from the graph.
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
         await self._run_query(cypher, params)
-        source.__dict__[field_name] = _NOT_LOADED
+        source.__dict__[fi.name] = _NOT_LOADED
         log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
 
-    async def unrelate(self, source: Any, field_name: str, target: Any) -> None:
+    async def unrelate(
+        self,
+        source: Any,
+        field_name: str | FieldDescriptor,
+        target: Any,
+    ) -> None:
         """Delete the relationship between *source* and *target*.
 
-        The cached value of *field_name* on *source* is invalidated after the
-        write so the next access re-fetches fresh data from the graph.
+        *field_name* may be a plain string **or** the class-level descriptor
+        attribute (e.g. ``User.invited_trips``) for type-safe call sites.
+
+        The cached value of the relation field on *source* is invalidated after
+        the write so the next access re-fetches fresh data from the graph.
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
         await self._run_query(cypher, params)
-        source.__dict__[field_name] = _NOT_LOADED
+        source.__dict__[fi.name] = _NOT_LOADED
         log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
 
     # ------------------------------------------------------------------
@@ -286,10 +297,7 @@ class AsyncSession:
 
             async with AsyncSession(graph) as session:
                 users = await (
-                    session.query(User)
-                    .where(User.active == True)
-                    .limit(20)
-                    .all()
+                    session.query(User).where(User.active == True).limit(20).all()
                 )
         """
         from runic.orm.query.builder import AsyncQueryBuilder
@@ -431,16 +439,24 @@ class AsyncSession:
 
         self._deleted.clear()
 
-    def _resolve_relation_fi(self, source: Any, field_name: str) -> FieldInfo:
+    def _resolve_relation_fi(
+        self, source: Any, field_name: str | FieldDescriptor
+    ) -> FieldInfo:
         """Return the ``FieldInfo`` for a declared ``Relation`` field on *source*.
+
+        *field_name* may be a plain string or the class-level ``FieldDescriptor``
+        (e.g. ``User.invited_trips``).
 
         Raises ``TypeError`` when *field_name* does not correspond to a Relation.
         """
+        name = (
+            field_name.name if isinstance(field_name, FieldDescriptor) else field_name
+        )
         node_meta = self._mapper.require_node_meta(type(source))
-        fi = next((f for f in node_meta.fields if f.name == field_name), None)
+        fi = next((f for f in node_meta.fields if f.name == name), None)
         if fi is None or fi.field.relationship is None:
             raise TypeError(
-                f"{type(source).__name__!r} has no Relation field named {field_name!r}"
+                f"{type(source).__name__!r} has no Relation field named {name!r}"
             )
         return fi
 

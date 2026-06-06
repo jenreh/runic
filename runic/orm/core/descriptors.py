@@ -147,6 +147,11 @@ class FieldDescriptor:
         self._name = name
         self._owner = owner
 
+    @property
+    def name(self) -> str:
+        """Public read-only accessor for the attribute name set by ``__set_name__``."""
+        return self._name
+
     def __get__(self, obj: Any, objtype: type | None = None) -> Any:
         if obj is None:
             return self

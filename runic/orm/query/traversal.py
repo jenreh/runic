@@ -14,25 +14,28 @@ Typical usage
         session.query(User)
         .alias("u")
         .where(User.id == user_id)
-        .traverse(User.friends)      # → TraversalStep
-        .alias("f")                  # → back to QueryBuilder
+        .traverse(User.friends)  # → TraversalStep
+        .alias("f")  # → back to QueryBuilder
         .where(User.age > 25, on="f")
         .all()
     )
 
     # With edge properties:
     rows = (
-        session.query(User).alias("u")
+        session.query(User)
+        .alias("u")
         .traverse(User.rated, edge_alias="r")  # → TraversalStep (edge captured)
-        .alias("m")                            # Movie is the target
+        .alias("m")  # Movie is the target
         .where(Rated.score > 4.0, on="r")
-        .return_nodes("u", "m").return_edge("r")
+        .return_nodes("u", "m")
+        .return_edge("r")
         .all_with_edges()  # list[tuple[User, Rated, Movie]]
     )
 
     # Variable-length (e.g. org chart):
     ancestors = (
-        session.query(Employee).alias("e")
+        session.query(Employee)
+        .alias("e")
         .where(Employee.id == emp_id)
         .repeat(Employee.reports_to, min_hops=1, max_hops=5)
         .alias("anc")

@@ -33,9 +33,11 @@ Quick reference
 
     # ── Single-hop traversal (OPTIONAL MATCH by default) ──────────────────
     friends = (
-        session.query(User).alias("u")
+        session.query(User)
+        .alias("u")
         .where(User.id == uid)
-        .traverse(User.friends).alias("f")
+        .traverse(User.friends)
+        .alias("f")
         .where(User.age > 25, on="f")
         .return_target("f")
         .all()
@@ -43,18 +45,24 @@ Quick reference
 
     # ── Traversal with edge properties ────────────────────────────────────
     rows = (
-        session.query(User).alias("u")
-        .traverse(User.rated, edge_alias="r").alias("m")
+        session.query(User)
+        .alias("u")
+        .traverse(User.rated, edge_alias="r")
+        .alias("m")
         .where(Rated.score > 4.0, on="r")
-        .return_nodes("u", "m").return_edge("r")
-        .all_with_edges()                # list[tuple[User, Rated, Movie]]
+        .return_nodes("u", "m")
+        .return_edge("r")
+        .all_with_edges()  # list[tuple[User, Rated, Movie]]
     )
 
     # ── Multi-hop traversal ───────────────────────────────────────────────
     posts = (
-        session.query(User).alias("u")
-        .traverse(User.friends).alias("f")
-        .traverse(User.authored_posts).alias("p")
+        session.query(User)
+        .alias("u")
+        .traverse(User.friends)
+        .alias("f")
+        .traverse(User.authored_posts)
+        .alias("p")
         .where(Post.title.contains("graph"), on="p")
         .return_target("p")
         .all()
@@ -62,9 +70,11 @@ Quick reference
 
     # ── Variable-length paths ─────────────────────────────────────────────
     ancestors = (
-        session.query(Person).alias("p")
+        session.query(Person)
+        .alias("p")
         .where(Person.id == start_id)
-        .repeat(Person.parent, min_hops=1, max_hops=5).alias("anc")
+        .repeat(Person.parent, min_hops=1, max_hops=5)
+        .alias("anc")
         .all()
     )
 
@@ -72,10 +82,11 @@ Quick reference
     from runic.orm.query import count, avg
 
     result = (
-        session.query(User).alias("u")
+        session.query(User)
+        .alias("u")
         .traverse(User.friends)
         .aggregate(count("*").as_("friend_count"), group_by="u")
-        .all_rows()       # list[dict] with {"u": User, "friend_count": int}
+        .all_rows()  # list[dict] with {"u": User, "friend_count": int}
     )
 
     # ── FalkorDB fulltext search ──────────────────────────────────────────
@@ -331,8 +342,8 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         relation_field:
             The ``Relation``-backed field descriptor accessed at class level::
 
-                User.friends        # list[User] = Relation(...)
-                User.rated          # list[Movie] = Relation(edge_model=Rated)
+                User.friends  # list[User] = Relation(...)
+                User.rated  # list[Movie] = Relation(edge_model=Rated)
 
         edge_alias:
             When given, a named relationship variable is emitted in the pattern::
@@ -414,16 +425,20 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
             # All ancestors up to depth 5
             ancestors = (
-                session.query(Person).alias("p")
+                session.query(Person)
+                .alias("p")
                 .where(Person.id == start_id)
-                .repeat(Person.parent, min_hops=1, max_hops=5).alias("anc")
+                .repeat(Person.parent, min_hops=1, max_hops=5)
+                .alias("anc")
                 .all()
             )
 
             # All reachable nodes (unbounded)
             reachable = (
-                session.query(Node).alias("s")
-                .repeat(Node.connected_to).alias("t")
+                session.query(Node)
+                .alias("s")
+                .repeat(Node.connected_to)
+                .alias("t")
                 .all()
             )
         """
@@ -448,10 +463,12 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         a traversal in the next::
 
             (
-                session.query(User).alias("u")
+                session.query(User)
+                .alias("u")
                 .where(User.active == True)
-                .with_("u")                         # WITH u
-                .traverse(User.posts).alias("p")
+                .with_("u")  # WITH u
+                .traverse(User.posts)
+                .alias("p")
                 .return_target("p")
                 .all()
             )
@@ -488,17 +505,19 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         --------
         .. code-block:: python
 
-            q.order_by(User.age)               # ORDER BY n.age ASC
+            q.order_by(User.age)  # ORDER BY n.age ASC
             q.order_by(User.created_at, desc=True)  # ORDER BY n.created_at DESC
-            q.order_by("score ASC")            # raw string
+            q.order_by("score ASC")  # raw string
         """
         if isinstance(field, FieldDescriptor):
-            alias = self._alias_for_cls(field.owner) if field.owner else self._root_alias
-            self._order.append(
-                OrderExpr(alias=alias, prop=field.field_name, desc=desc)
+            alias = (
+                self._alias_for_cls(field.owner) if field.owner else self._root_alias
             )
+            self._order.append(OrderExpr(alias=alias, prop=field.field_name, desc=desc))
         else:
-            self._order.append(OrderExpr(alias=None, prop=None, raw=str(field), desc=desc))
+            self._order.append(
+                OrderExpr(alias=None, prop=None, raw=str(field), desc=desc)
+            )
         return self
 
     def limit(self, n: int) -> QueryBuilder[T]:
@@ -526,7 +545,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         When a traversal is involved, this selects which alias's nodes
         constitute the result of ``.all()``::
 
-            q.return_target("f")   # returns f-nodes as list[FriendType]
+            q.return_target("f")  # returns f-nodes as list[FriendType]
         """
         self._return_aliases = [alias]
         return self
@@ -601,16 +620,15 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             from runic.orm.query import count, avg
 
             result = (
-                session.query(User).alias("u")
+                session.query(User)
+                .alias("u")
                 .traverse(User.friends)
                 .aggregate(count("*").as_("friend_count"), group_by="u")
-                .all_rows()   # list[dict] with {"u": ..., "friend_count": int}
+                .all_rows()  # list[dict] with {"u": ..., "friend_count": int}
             )
 
             avg_age = (
-                session.query(User)
-                .aggregate(avg(User.age).as_("average_age"))
-                .scalar()
+                session.query(User).aggregate(avg(User.age).as_("average_age")).scalar()
             )
         """
         self._agg_exprs = list(agg_exprs)
@@ -665,7 +683,8 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         # ── WHERE ─────────────────────────────────────────────────────────
         if self._where_exprs:
             cond = self._compile_expr(
-                self._where_exprs[0] if len(self._where_exprs) == 1
+                self._where_exprs[0]
+                if len(self._where_exprs) == 1
                 else CompoundExpr(op="AND", operands=self._where_exprs)
             )
             parts.append(f"WHERE {cond}")
@@ -737,9 +756,12 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         .. code-block:: python
 
             rows = (
-                session.query(User).alias("u")
-                .traverse(User.rated, edge_alias="r").alias("m")
-                .return_nodes("u", "m").return_edge("r")
+                session.query(User)
+                .alias("u")
+                .traverse(User.rated, edge_alias="r")
+                .alias("m")
+                .return_nodes("u", "m")
+                .return_edge("r")
                 .all_with_edges()
             )
             for user, rated_edge, movie in rows:
@@ -939,9 +961,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         # Aggregation mode
         if self._agg_exprs:
             cls_to_alias: dict[type, str] = {
-                cls: aliases[0]
-                for cls, aliases in self._cls_aliases.items()
-                if aliases
+                cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
             }
             agg_parts = [e.to_cypher(cls_to_alias) for e in self._agg_exprs]
             if self._group_by_alias:
@@ -953,7 +973,9 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             proj_parts: list[str] = []
             for f in self._project_fields:
                 if isinstance(f, FieldDescriptor):
-                    alias = self._alias_for_cls(f.owner) if f.owner else self._root_alias
+                    alias = (
+                        self._alias_for_cls(f.owner) if f.owner else self._root_alias
+                    )
                     proj_parts.append(f"{alias}.{f.field_name}")
                 else:
                     proj_parts.append(str(f))
@@ -965,7 +987,10 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             if self._edge_alias_for_result:
                 extra.append(self._edge_alias_for_result)
             all_parts = list(self._return_aliases)
-            if self._edge_alias_for_result and self._edge_alias_for_result not in all_parts:
+            if (
+                self._edge_alias_for_result
+                and self._edge_alias_for_result not in all_parts
+            ):
                 # Insert edge between the two node aliases
                 all_parts.insert(1, self._edge_alias_for_result)
             return f"RETURN {distinct_kw}{', '.join(all_parts)}"
@@ -983,7 +1008,9 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         register = self._session.register_or_get
 
         # Determine the target class for decoding
-        return_alias = (self._return_aliases[0] if self._return_aliases else self._last_alias)
+        return_alias = (
+            self._return_aliases[0] if self._return_aliases else self._last_alias
+        )
         target_cls = self._alias_map.get(return_alias, self._root_cls)
 
         entities: list[T] = []
@@ -1395,7 +1422,9 @@ class VectorQueryBuilder(QueryBuilder[T]):
         if self._skip_val is not None:
             parts.append(f"SKIP {self._skip_val}")
         # k overrides limit if no explicit limit was set
-        effective_limit = self._limit_val if self._limit_val is not None else self._knn_k
+        effective_limit = (
+            self._limit_val if self._limit_val is not None else self._knn_k
+        )
         parts.append(f"LIMIT {effective_limit}")
 
         return "\n".join(parts), dict(self._params)
