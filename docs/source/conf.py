@@ -51,9 +51,6 @@ _BRAND_CONTENT_DARK = "#6bd4e5"
 html_theme_options = {
     "sidebar_hide_name": False,
     "navigation_with_keys": True,
-    "source_repository_url": "https://github.com/jenreh/runic",
-    "source_branch": "main",
-    "source_directory": "docs/source",
     "light_css_variables": {
         # Core brand
         "color-brand-primary": _BRAND_LIGHT,
