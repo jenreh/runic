@@ -32,51 +32,97 @@ from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.repository.async_repository import AsyncRepository
 from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
+from runic.orm.query import (
+    AsyncQueryBuilder,
+    FulltextQueryBuilder,
+    QueryBuilder,
+    VectorQueryBuilder,
+    avg,
+    collect,
+    count,
+    max_,
+    min_,
+    sum_,
+)
+from runic.orm.query.expressions import (
+    AggExpr,
+    CompoundExpr,
+    Expr,
+    FilterExpr,
+    NegatedExpr,
+    OrderExpr,
+)
 from runic.orm.schema.index_manager import IndexManager, IndexSpec
 from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
 from runic.orm.session.async_session import AsyncSession
 from runic.orm.session.connection_pool import AsyncConnectionManager, ConnectionManager
 from runic.orm.session.session import Session
 
-__all__ = [
+__all__ = [  # noqa: RUF022
+    # Core
     "MISSING",
     "_NOT_LOADED",
-    "AsyncConnectionManager",
-    "AsyncRepository",
-    "AsyncSession",
-    "ConnectionManager",
-    "DatetimeConverter",
-    "DetachedEntityError",
     "Edge",
     "EdgeMeta",
-    "EntityNotFoundError",
-    "EnumConverter",
     "Field",
     "FieldDescriptor",
     "FieldInfo",
-    "FieldValidationError",
-    "GeoLocation",
-    "GeoLocationConverter",
-    "IndexManager",
-    "IndexSpec",
-    "LazyLoadError",
-    "Mapper",
-    "MetaData",
-    "MetadataError",
+    "Relation",
     "Node",
     "NodeMeta",
-    "OrmError",
-    "Page",
-    "Pageable",
-    "Relation",
-    "RelationshipLoader",
-    "Repository",
-    "SchemaManager",
-    "Session",
-    "TypeConverter",
-    "ValidationResult",
-    "Vector",
-    "VectorConverter",
+    "MetaData",
     "get_metadata",
     "metadata",
+    # Types / converters
+    "DatetimeConverter",
+    "EnumConverter",
+    "GeoLocation",
+    "GeoLocationConverter",
+    "TypeConverter",
+    "Vector",
+    "VectorConverter",
+    # Session / connection
+    "AsyncConnectionManager",
+    "AsyncSession",
+    "ConnectionManager",
+    "Session",
+    # Repository / pagination
+    "AsyncRepository",
+    "Page",
+    "Pageable",
+    "Repository",
+    # Mapper
+    "Mapper",
+    "RelationshipLoader",
+    # Schema
+    "IndexManager",
+    "IndexSpec",
+    "SchemaManager",
+    "ValidationResult",
+    # Exceptions
+    "DetachedEntityError",
+    "EntityNotFoundError",
+    "FieldValidationError",
+    "LazyLoadError",
+    "MetadataError",
+    "OrmError",
+    # Query builder
+    "AsyncQueryBuilder",
+    "FulltextQueryBuilder",
+    "QueryBuilder",
+    "VectorQueryBuilder",
+    # Expression types
+    "AggExpr",
+    "CompoundExpr",
+    "Expr",
+    "FilterExpr",
+    "NegatedExpr",
+    "OrderExpr",
+    # Aggregation helpers
+    "avg",
+    "collect",
+    "count",
+    "max_",
+    "min_",
+    "sum_",
 ]

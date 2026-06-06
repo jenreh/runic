@@ -275,6 +275,53 @@ class AsyncSession:
         return await self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
+    # Query builder entry points
+    # ------------------------------------------------------------------
+
+    def query(self, cls: type[Any]) -> Any:
+        """Return an :class:`~runic.orm.query.builder.AsyncQueryBuilder` for *cls*.
+
+        Async entry point for the fluent query builder.  Use ``await`` on the
+        terminal methods (``all()``, ``one()``, ``count()``, etc.)::
+
+            async with AsyncSession(graph) as session:
+                users = await (
+                    session.query(User)
+                    .where(User.active == True)
+                    .limit(20)
+                    .all()
+                )
+        """
+        from runic.orm.query.builder import AsyncQueryBuilder
+
+        return AsyncQueryBuilder(self, cls)
+
+    def fulltext_search(
+        self,
+        cls: type[Any],
+        *,
+        query: str,
+        fields: list[str] | None = None,
+    ) -> Any:
+        """Async fulltext search; mirrors :meth:`~runic.orm.session.session.Session.fulltext_search`."""
+        from runic.orm.query.builder import FulltextQueryBuilder
+
+        return FulltextQueryBuilder(self, cls, query=query, fields=fields)
+
+    def vector_search(
+        self,
+        cls: type[Any],
+        *,
+        field: Any,
+        vector: list[float],
+        k: int = 10,
+    ) -> Any:
+        """Async vector KNN search; mirrors :meth:`~runic.orm.session.session.Session.vector_search`."""
+        from runic.orm.query.builder import VectorQueryBuilder
+
+        return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

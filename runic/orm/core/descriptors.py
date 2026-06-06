@@ -58,6 +58,23 @@ class FieldDescriptor:
     Behaves as a data descriptor: values are stored per-instance in ``__dict__``.
     Writing to an instance attribute via this descriptor sets ``instance._dirty = True``,
     which the Mapper uses to detect changes on persistent entities.
+
+    Query expression operators
+    --------------------------
+    When accessed at the **class level** (``User.name``, ``Rated.score``),
+    the descriptor returns itself.  The comparison operators defined below
+    produce :class:`~runic.orm.query.expressions.FilterExpr` objects for use
+    with :meth:`~runic.orm.query.builder.QueryBuilder.where`:
+
+    .. code-block:: python
+
+        session.query(User).where(User.name == "Alice")
+        session.query(User).where(User.age > 18)
+        session.query(User).where(User.bio.contains("graph"))
+        session.query(User).where(User.deleted_at.is_null())
+
+    ``__hash__`` is kept as ``object.__hash__`` so descriptors remain
+    hashable and can appear in sets/dicts used internally.
     """
 
     def __init__(
@@ -120,6 +137,7 @@ class FieldDescriptor:
         self.generated = generated
         self.interned = interned
         self._name: str = ""
+        self._owner: type | None = None
 
     # ------------------------------------------------------------------
     # Descriptor protocol
@@ -127,6 +145,7 @@ class FieldDescriptor:
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._name = name
+        self._owner = owner
 
     def __get__(self, obj: Any, objtype: type | None = None) -> Any:
         if obj is None:
@@ -186,6 +205,16 @@ class FieldDescriptor:
             return self.default
         raise ValueError(f"Field '{self._name}' has no default value.")
 
+    @property
+    def field_name(self) -> str:
+        """Public accessor for the descriptor's attribute name."""
+        return self._name
+
+    @property
+    def owner(self) -> type | None:
+        """Public accessor for the class that owns this descriptor."""
+        return self._owner
+
     def __repr__(self) -> str:
         parts: list[str] = [f"name={self._name!r}"]
         if self.default is not MISSING:
@@ -193,6 +222,90 @@ class FieldDescriptor:
         if self.relationship:
             parts.append(f"relationship={self.relationship!r}")
         return f"FieldDescriptor({', '.join(parts)})"
+
+    # ------------------------------------------------------------------
+    # Query expression operators (class-level access only)
+    #
+    # These return FilterExpr objects used by QueryBuilder.where().
+    # They are only meaningful when the descriptor is accessed at the
+    # class level (obj is None), which is the case in:
+    #     User.name == "Alice"   → FilterExpr(cls=User, prop="name", op="=", ...)
+    #
+    # __hash__ is kept as object.__hash__ so descriptors remain hashable.
+    # ------------------------------------------------------------------
+
+    __hash__ = object.__hash__  # type: ignore[assignment]
+
+    def _make_filter(self, op: str, value: Any, negate: bool = False) -> Any:
+        from runic.orm.query.expressions import FilterExpr
+
+        return FilterExpr(
+            cls=self._owner or type(self),
+            prop=self._name,
+            op=op,
+            value=value,
+            negate=negate,
+        )
+
+    def __eq__(self, other: object) -> Any:  # type: ignore[override]
+        if other is None:
+            return self._make_filter("IS NULL", None)
+        return self._make_filter("=", other)
+
+    def __ne__(self, other: object) -> Any:  # type: ignore[override]
+        if other is None:
+            return self._make_filter("IS NOT NULL", None)
+        return self._make_filter("<>", other)
+
+    def __gt__(self, other: Any) -> Any:
+        return self._make_filter(">", other)
+
+    def __ge__(self, other: Any) -> Any:
+        return self._make_filter(">=", other)
+
+    def __lt__(self, other: Any) -> Any:
+        return self._make_filter("<", other)
+
+    def __le__(self, other: Any) -> Any:
+        return self._make_filter("<=", other)
+
+    # String predicates -------------------------------------------------
+
+    def contains(self, value: str) -> Any:
+        """Return a ``CONTAINS`` filter: ``prop CONTAINS $value``."""
+        return self._make_filter("CONTAINS", value)
+
+    def startswith(self, value: str) -> Any:
+        """Return a ``STARTS WITH`` filter: ``prop STARTS WITH $value``."""
+        return self._make_filter("STARTS WITH", value)
+
+    def endswith(self, value: str) -> Any:
+        """Return an ``ENDS WITH`` filter: ``prop ENDS WITH $value``."""
+        return self._make_filter("ENDS WITH", value)
+
+    def matches(self, pattern: str) -> Any:
+        """Return a regex filter: ``prop =~ $pattern``."""
+        return self._make_filter("=~", pattern)
+
+    # Null checks -------------------------------------------------------
+
+    def is_null(self) -> Any:
+        """Return an ``IS NULL`` filter."""
+        return self._make_filter("IS NULL", None)
+
+    def is_not_null(self) -> Any:
+        """Return an ``IS NOT NULL`` filter."""
+        return self._make_filter("IS NOT NULL", None)
+
+    # List membership ---------------------------------------------------
+
+    def in_(self, values: list[Any]) -> Any:
+        """Return an ``IN`` filter: ``prop IN $values``."""
+        return self._make_filter("IN", values)
+
+    def not_in_(self, values: list[Any]) -> Any:
+        """Return a ``NOT IN`` filter: ``NOT prop IN $values``."""
+        return self._make_filter("IN", values, negate=True)
 
 
 class FieldInfo:
