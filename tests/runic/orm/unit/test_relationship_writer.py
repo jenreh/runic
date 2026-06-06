@@ -8,6 +8,7 @@ import pytest
 
 from runic.orm.core.descriptors import _NOT_LOADED, Field, FieldInfo, Relation
 from runic.orm.core.models import Edge, Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_writer import (
     RelationshipWriter,
@@ -298,7 +299,7 @@ def test_encode_edge_props_no_fields() -> None:
 def _make_session() -> tuple[Session, MagicMock]:
     mock_graph = MagicMock()
     mock_graph.query.return_value = MagicMock(result_set=[])
-    session = Session(mock_graph)
+    session = Session(FalkorDBDriver(mock_graph))
     return session, mock_graph
 
 

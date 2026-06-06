@@ -17,6 +17,7 @@ import pytest
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
 from runic.orm.core.types import GeoLocation, Vector
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.session.session import Session
 
 try:
@@ -76,7 +77,7 @@ def graph() -> Any:
     db = _FalkorDB(protocol=2)
     graph_name = f"test_types_{secrets.token_hex(6)}"
     g = db.select_graph(graph_name)
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 

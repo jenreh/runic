@@ -14,6 +14,7 @@ import pytest
 
 from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.exceptions import DetachedEntityError
 from runic.orm.session.session import Session
 
@@ -64,25 +65,25 @@ def graph() -> Any:
     db = _FalkorDB(protocol=2)
     graph_name = f"test_rel_{secrets.token_hex(6)}"
     g = db.select_graph(graph_name)
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 
 
 def _create_department(graph: Any, dept_id: str, name: str) -> None:
-    graph.query(
+    graph.execute(
         "CREATE (:Department {id: $id, name: $name})", {"id": dept_id, "name": name}
     )
 
 
 def _create_employee(graph: Any, emp_id: str, name: str) -> None:
-    graph.query(
+    graph.execute(
         "CREATE (:Employee {id: $id, name: $name})", {"id": emp_id, "name": name}
     )
 
 
 def _link_dept(graph: Any, emp_id: str, dept_id: str) -> None:
-    graph.query(
+    graph.execute(
         "MATCH (e:Employee {id: $eid}), (d:Department {id: $did}) "
         "CREATE (e)-[:BELONGS_TO]->(d)",
         {"eid": emp_id, "did": dept_id},
@@ -90,7 +91,7 @@ def _link_dept(graph: Any, emp_id: str, dept_id: str) -> None:
 
 
 def _link_knows(graph: Any, emp1_id: str, emp2_id: str) -> None:
-    graph.query(
+    graph.execute(
         "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:KNOWS]->(b)",
         {"a": emp1_id, "b": emp2_id},
     )

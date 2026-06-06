@@ -1,0 +1,65 @@
+name: CI Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+      - '**'
+
+jobs:
+  quality-gate:
+    name: Lint, Format & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run Ruff Format check
+        run: uv run ruff format --check .
+
+      - name: Run Ruff Linter check
+        if: always()
+        run: uv run ruff check .
+
+      - name: Run Type check
+        if: always()
+        run: uv run ty check .
+
+  test:
+    name: Run Pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest
+

@@ -14,6 +14,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.session.session import Session
 
 try:
@@ -64,7 +65,7 @@ def graph() -> Any:
     db = _FalkorDB(protocol=2)
     graph_name = f"test_session_{secrets.token_hex(6)}"
     g = db.select_graph(graph_name)
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 
@@ -206,8 +207,8 @@ def test_execute_raw_cypher(graph: Any) -> None:
         s.commit()
 
         result = s.execute("MATCH (n:Language {id: $id}) RETURN n.title", {"id": "ko"})
-        assert result.result_set
-        assert result.result_set[0][0] == "Korean"
+        assert result.rows
+        assert result.rows[0][0] == "Korean"
 
 
 def test_multiple_entities_flushed(graph: Any) -> None:

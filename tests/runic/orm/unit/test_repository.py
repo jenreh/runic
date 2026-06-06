@@ -35,13 +35,15 @@ class RepoTag(Node, labels=["RepoTag"]):
 
 def _empty_result() -> MagicMock:
     r = MagicMock()
-    r.result_set = []
+    r.rows = []
+    r.columns = []
     return r
 
 
 def _scalar_result(value: Any) -> MagicMock:
     r = MagicMock()
-    r.result_set = [[value]]
+    r.rows = [[value]]
+    r.columns = ["value"]
     return r
 
 
@@ -51,22 +53,24 @@ def _node_result(labels: list[str], props: dict[str, Any]) -> MagicMock:
     node.labels = labels
     node.properties = props
     r = MagicMock()
-    r.result_set = [[node]]
+    r.rows = [[node]]
+    r.columns = ["n"]
     return r
 
 
 def _multi_node_result(
     rows: list[tuple[list[str], dict[str, Any]]],
 ) -> MagicMock:
-    result_set = []
+    result_rows = []
     for labels, props in rows:
         node = MagicMock()
         node.id = props.get("id", 1)
         node.labels = labels
         node.properties = props
-        result_set.append([node])
+        result_rows.append([node])
     r = MagicMock()
-    r.result_set = result_set
+    r.rows = result_rows
+    r.columns = ["n"]
     return r
 
 

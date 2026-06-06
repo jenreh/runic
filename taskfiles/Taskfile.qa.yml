@@ -28,4 +28,4 @@ tasks:
 
   typecheck:
     desc: Run ty type checking
-    cmd: "{{.RUNNER}} ty check {{.PROJECT}}/"
+    cmd: "{{.RUNNER}} ty check ."

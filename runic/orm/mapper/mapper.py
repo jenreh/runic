@@ -10,7 +10,7 @@ from runic.orm.core.metadata import MetaData, NodeMeta
 from runic.orm.exceptions import MetadataError
 
 if TYPE_CHECKING:
-    pass
+    from runic.orm.driver import GraphDialect
 
 log = logging.getLogger(__name__)
 
@@ -23,8 +23,13 @@ class Mapper:
     by Session and Repository, never used directly by application code.
     """
 
-    def __init__(self, meta: MetaData) -> None:
+    def __init__(self, meta: MetaData, dialect: GraphDialect | None = None) -> None:
         self._meta = meta
+        if dialect is None:
+            from runic.orm.driver.falkordb import FalkorDBDialect
+
+            dialect = FalkorDBDialect()
+        self._dialect = dialect
 
     # ------------------------------------------------------------------
     # Query builders
@@ -67,10 +72,9 @@ class Mapper:
         params: dict[str, Any] = {"__pk": pk_val, **props}
 
         if generated:
+            id_where = self._dialect.generated_id_where("n", "__pk")
             cypher = (
-                f"MATCH (n:{node_meta.primary_label}) "
-                f"WHERE id(n) = toInteger($__pk) "
-                f"SET {set_str} RETURN n"
+                f"MATCH (n:{node_meta.primary_label}) {id_where} SET {set_str} RETURN n"
             )
         else:
             pk_name = node_meta.pk_field_name
@@ -89,10 +93,8 @@ class Mapper:
         pk_val = self._get_pk_value(entity, node_meta)
 
         if generated:
-            cypher = (
-                f"MATCH (n:{node_meta.primary_label}) "
-                f"WHERE id(n) = toInteger($__pk) DETACH DELETE n"
-            )
+            id_where = self._dialect.generated_id_where("n", "__pk")
+            cypher = f"MATCH (n:{node_meta.primary_label}) {id_where} DETACH DELETE n"
         else:
             pk_name = node_meta.pk_field_name
             cypher = (
@@ -109,7 +111,8 @@ class Mapper:
         labels_str = ":".join(node_meta.labels)
 
         if generated:
-            cypher = f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk) RETURN n"
+            id_where = self._dialect.generated_id_where("n", "__pk")
+            cypher = f"MATCH (n:{labels_str}) {id_where} RETURN n"
         else:
             pk_name = node_meta.pk_field_name
             cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN n"
@@ -151,9 +154,8 @@ class Mapper:
         labels_str = ":".join(node_meta.labels)
 
         if generated:
-            cypher = (
-                f"MATCH (n:{labels_str}) WHERE id(n) = toInteger($__pk) RETURN count(n)"
-            )
+            id_where = self._dialect.generated_id_where("n", "__pk")
+            cypher = f"MATCH (n:{labels_str}) {id_where} RETURN count(n)"
         else:
             pk_name = node_meta.pk_field_name
             cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN count(n)"
@@ -184,9 +186,10 @@ class Mapper:
     # Decoding
     # ------------------------------------------------------------------
 
-    def decode_node(self, falkor_node: Any, hint_cls: type | None = None) -> Any:
-        """Decode a ``falkordb.Node`` to an ORM entity instance."""
-        target_cls = self._resolve_cls(falkor_node, hint_cls)
+    def decode_node(self, raw_node: Any, hint_cls: type | None = None) -> Any:
+        """Decode a raw driver node to an ORM entity instance."""
+        node = self._dialect.wrap_node(raw_node)
+        target_cls = self._resolve_cls(node, hint_cls)
         node_meta = self._require_node_meta(target_cls)
 
         instance: Any = object.__new__(target_cls)
@@ -198,12 +201,12 @@ class Mapper:
             if fi.field.relationship is not None:
                 instance.__dict__[fi.name] = _NOT_LOADED
                 continue
-            self._decode_field(instance, fi, falkor_node.properties)
+            self._decode_field(instance, fi, node.properties)
 
         if node_meta.pk_field_name:
             pk_fi = self._find_field(node_meta.fields, node_meta.pk_field_name)
             if pk_fi is not None and pk_fi.field.generated:
-                instance.__dict__[node_meta.pk_field_name] = falkor_node.id
+                instance.__dict__[node_meta.pk_field_name] = node.element_id
 
         log.debug("Decoded node as %s", target_cls.__name__)
         return instance
@@ -253,17 +256,16 @@ class Mapper:
         """
         # Resolve the target class
         target_cls: type | None = hint_cls
+        edge = self._dialect.wrap_edge(falkor_edge)
         if target_cls is None:
-            edge_type = getattr(falkor_edge, "type", None) or getattr(
-                falkor_edge, "relation", None
-            )
+            edge_type = edge.type
             if edge_type is not None:
                 edge_meta = self._meta.resolve_edge_by_type(str(edge_type))
                 if edge_meta is not None:
                     target_cls = edge_meta.cls
 
         if target_cls is None:
-            log.debug("No Edge class resolved for falkor_edge; returning raw props")
+            log.debug("No Edge class resolved for raw edge; returning raw props")
             return falkor_edge
 
         edge_meta_entry = self._meta.get_edge_meta(target_cls)
@@ -276,15 +278,16 @@ class Mapper:
         instance.__dict__["_new"] = False
         instance.__dict__["_dirty"] = False
 
-        props: dict[str, Any] = getattr(falkor_edge, "properties", {}) or {}
+        props: dict[str, Any] = edge.properties or {}
         for fi in edge_meta_entry.fields:
             self._decode_field(instance, fi, props)
 
         log.debug("Decoded edge as %s", target_cls.__name__)
         return instance
 
-    def update_entity_from_node(self, entity: Any, falkor_node: Any) -> None:
-        """Update an existing entity in-place from a FalkorDB node."""
+    def update_entity_from_node(self, entity: Any, raw_node: Any) -> None:
+        """Update an existing entity in-place from a raw driver node."""
+        node = self._dialect.wrap_node(raw_node)
         cls = type(entity)
         node_meta = self._require_node_meta(cls)
 
@@ -292,12 +295,12 @@ class Mapper:
             if fi.field.relationship is not None:
                 entity.__dict__[fi.name] = _NOT_LOADED
                 continue
-            self._decode_field(entity, fi, falkor_node.properties)
+            self._decode_field(entity, fi, node.properties)
 
         if node_meta.pk_field_name:
             pk_fi = self._find_field(node_meta.fields, node_meta.pk_field_name)
             if pk_fi is not None and pk_fi.field.generated:
-                entity.__dict__[node_meta.pk_field_name] = falkor_node.id
+                entity.__dict__[node_meta.pk_field_name] = node.element_id
 
         entity.__dict__["_dirty"] = False
         entity.__dict__["_expired"] = False
@@ -306,6 +309,11 @@ class Mapper:
     def meta(self) -> MetaData:
         """Return the MetaData registry used by this Mapper."""
         return self._meta
+
+    @property
+    def dialect(self) -> GraphDialect:
+        """Return the GraphDialect used by this Mapper."""
+        return self._dialect
 
     def require_node_meta(self, cls: type) -> NodeMeta:
         """Public alias for ``_require_node_meta``; used by RelationshipLoader/Session."""
@@ -378,7 +386,7 @@ class Mapper:
         return props
 
     def _resolve_cls(self, falkor_node: Any, hint_cls: type | None) -> type:
-        """Find the most specific registered ORM class matching a FalkorDB node."""
+        """Find the most specific registered ORM class matching a graph node."""
         node_labels = set(falkor_node.labels or [])
 
         # Exact label-set match takes priority
@@ -406,11 +414,7 @@ class Mapper:
 
     def _field_cypher_fn(self, fi: FieldInfo) -> str | None:
         """Return the Cypher function name to wrap a param reference, or None."""
-        if fi.field.converter is not None:
-            return getattr(fi.field.converter, "cypher_fn", None)
-        if fi.field.interned:
-            return "intern"
-        return None
+        return self._dialect.cypher_fn_for_field(fi)
 
     def _prop_ref(self, k: str, fi: FieldInfo | None) -> str:
         """Return the Cypher param expression for field *k*, wrapping with a function if needed."""

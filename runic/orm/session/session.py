@@ -1,11 +1,11 @@
-"""Session: unit-of-work manager for FalkorDB graph writes."""
+"""Session: unit-of-work manager for graph writes."""
 
 from __future__ import annotations
 
 import logging
 import weakref
 from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
@@ -13,6 +13,9 @@ from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.mapper.relationship_writer import RelationshipWriter
+
+if TYPE_CHECKING:
+    from runic.orm.driver import GraphDriver, GraphResult
 
 log = logging.getLogger(__name__)
 
@@ -32,15 +35,17 @@ class Session:
 
     def __init__(
         self,
-        graph: Any,
+        driver: GraphDriver,
         mapper: Mapper | None = None,
         *,
         log_cypher: bool = False,
     ) -> None:
-        self._graph = graph
+        self._driver = driver
         self._log_cypher = log_cypher
         self._mapper: Mapper = (
-            mapper if mapper is not None else Mapper(_global_metadata)
+            mapper
+            if mapper is not None
+            else Mapper(_global_metadata, dialect=driver.dialect)
         )
         self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
         self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
@@ -55,10 +60,10 @@ class Session:
     # Internal query runner
     # ------------------------------------------------------------------
 
-    def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+    def _run_query(self, cypher: str, params: dict[str, Any]) -> GraphResult:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
-        return self._graph.query(cypher, params)
+        return self._driver.execute(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -150,11 +155,11 @@ class Session:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        falkor_node = result.result_set[0][0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        raw_node = result.rows[0][0]
+        entity = self._mapper.decode_node(raw_node, cls)
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
         log.debug("Loaded %s pk=%r from graph", cls.__name__, actual_pk)
@@ -463,12 +468,12 @@ class Session:
         )
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        row = result.result_set[0]
-        falkor_node = row[0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        row = result.rows[0]
+        raw_node = row[0]
+        entity = self._mapper.decode_node(raw_node, cls)
         related = self._rel_loader.decode_eager_columns(row, entity, fetch_meta)
 
         actual_pk = self._mapper.get_pk_value(entity)
@@ -498,9 +503,9 @@ class Session:
             cypher, params = self._mapper.build_create_query(entity)
             result = self._run_query(cypher, params)
 
-            falkor_node = result.result_set[0][0] if result.result_set else None
-            if falkor_node is not None:
-                self._mapper.update_entity_from_node(entity, falkor_node)
+            raw_node = result.rows[0][0] if result.rows else None
+            if raw_node is not None:
+                self._mapper.update_entity_from_node(entity, raw_node)
 
             entity.__dict__["_new"] = False
             entity.__dict__["_dirty"] = False
@@ -526,8 +531,8 @@ class Session:
                 continue
 
             result = self._run_query(cypher, params)
-            if result.result_set:
-                self._mapper.update_entity_from_node(entity, result.result_set[0][0])
+            if result.rows:
+                self._mapper.update_entity_from_node(entity, result.rows[0][0])
             else:
                 entity.__dict__["_dirty"] = False
 
@@ -573,10 +578,9 @@ class Session:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             raise EntityNotFoundError(
                 f"{cls.__name__} pk={pk!r} no longer exists in the graph"
             )
 
-        falkor_node = result.result_set[0][0]
-        self._mapper.update_entity_from_node(entity, falkor_node)
+        self._mapper.update_entity_from_node(entity, result.rows[0][0])

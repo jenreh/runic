@@ -14,6 +14,7 @@ import pytest
 
 from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.models import Edge, Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.session.session import Session
 
 try:
@@ -73,22 +74,22 @@ def graph() -> Any:
     db = _FalkorDB(protocol=2)
     graph_name = f"test_mut_{secrets.token_hex(6)}"
     g = db.select_graph(graph_name)
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 
 
 def _edge_count(graph: Any, rel_type: str) -> int:
-    result = graph.query(f"MATCH ()-[r:{rel_type}]->() RETURN count(r)")
-    return result.result_set[0][0] if result.result_set else 0
+    result = graph.execute(f"MATCH ()-[r:{rel_type}]->() RETURN count(r)", {})
+    return result.rows[0][0] if result.rows else 0
 
 
 def _edge_props(graph: Any, rel_type: str) -> dict[str, Any] | None:
-    result = graph.query(f"MATCH ()-[r:{rel_type}]->() RETURN r")
-    if not result.result_set:
+    result = graph.execute(f"MATCH ()-[r:{rel_type}]->() RETURN r", {})
+    if not result.rows:
         return None
-    rel = result.result_set[0][0]
-    return dict(rel.properties) if hasattr(rel, "properties") else {}
+    rel_node = result.rows[0][0]
+    return dict(rel_node.properties) if hasattr(rel_node, "properties") else {}
 
 
 # ---------------------------------------------------------------------------

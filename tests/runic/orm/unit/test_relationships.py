@@ -15,6 +15,7 @@ from runic.orm.core.descriptors import (
     Relation,
 )
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import AsyncFalkorDBDriver, FalkorDBDriver
 from runic.orm.exceptions import DetachedEntityError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
@@ -162,7 +163,7 @@ def test_field_get_raises_when_not_loaded_and_no_session() -> None:
 
 def test_field_get_triggers_lazy_load_via_session(mock_graph: MagicMock) -> None:
     """Accessing _NOT_LOADED on a session-attached entity calls load_relationship."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -180,7 +181,7 @@ def test_field_get_triggers_lazy_load_via_session(mock_graph: MagicMock) -> None
 
 def test_field_get_caches_loaded_value(mock_graph: MagicMock) -> None:
     """Once loaded, re-accessing the field does not trigger another query."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -200,7 +201,7 @@ def test_field_get_caches_loaded_value(mock_graph: MagicMock) -> None:
 
 def test_field_get_returns_none_for_missing_relationship(mock_graph: MagicMock) -> None:
     """Lazy load returns None when the graph has no matching relationship."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -215,7 +216,7 @@ def test_field_get_returns_none_for_missing_relationship(mock_graph: MagicMock) 
 
 def test_field_get_returns_list_for_collection(mock_graph: MagicMock) -> None:
     """Lazy load returns a list for collection relationship fields."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -235,7 +236,7 @@ def test_field_get_returns_empty_list_for_missing_collection(
     mock_graph: MagicMock,
 ) -> None:
     """Lazy load returns [] when the graph has no collection members."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -257,7 +258,7 @@ def test_async_session_lazy_load_raises(mock_graph: MagicMock) -> None:
     from runic.orm.core.metadata import metadata
 
     mapper = Mapper(metadata)
-    async_s = AsyncSession(mock_graph, mapper)
+    async_s = AsyncSession(AsyncFalkorDBDriver(mock_graph), mapper)
 
     falkor_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     entity = mapper.decode_node(falkor_node, RelPerson)
@@ -273,7 +274,7 @@ def test_async_session_lazy_load_raises(mock_graph: MagicMock) -> None:
 
 
 def test_expunge_clears_session_ref(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -286,7 +287,7 @@ def test_expunge_clears_session_ref(mock_graph: MagicMock) -> None:
 
 
 def test_expunge_all_clears_session_refs(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -299,7 +300,7 @@ def test_expunge_all_clears_session_refs(mock_graph: MagicMock) -> None:
 
 def test_detached_entity_raises_on_lazy_access(mock_graph: MagicMock) -> None:
     """After expunge, accessing a lazy field raises DetachedEntityError."""
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     mock_graph.query.return_value = _make_result(
         [_make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})]
     )
@@ -500,7 +501,7 @@ def test_decode_eager_columns_collection() -> None:
 
 
 def test_session_get_with_fetch_single_relationship(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
 
     person_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     company_node = _make_falkor_node(1, ["RelCompany"], {"id": "c1", "name": "Acme"})
@@ -513,7 +514,7 @@ def test_session_get_with_fetch_single_relationship(mock_graph: MagicMock) -> No
 
 
 def test_session_get_with_fetch_empty_relationship(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
 
     person_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     mock_graph.query.return_value = _make_result([person_node, []])
@@ -526,7 +527,7 @@ def test_session_get_with_fetch_empty_relationship(mock_graph: MagicMock) -> Non
 def test_session_get_with_fetch_injects_session_into_related(
     mock_graph: MagicMock,
 ) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
 
     person_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     company_node = _make_falkor_node(1, ["RelCompany"], {"id": "c1", "name": "Acme"})
@@ -540,7 +541,7 @@ def test_session_get_with_fetch_injects_session_into_related(
 
 
 def test_session_get_without_fetch_does_not_eager_load(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
 
     person_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     mock_graph.query.return_value = _make_result([person_node])
@@ -556,7 +557,7 @@ def test_session_get_without_fetch_does_not_eager_load(mock_graph: MagicMock) ->
 
 
 def test_lazy_load_cypher_uses_outgoing_pattern(mock_graph: MagicMock) -> None:
-    s = Session(mock_graph)
+    s = Session(FalkorDBDriver(mock_graph))
     person_node = _make_falkor_node(0, ["RelPerson"], {"id": "p1", "name": "Alice"})
     mock_graph.query.return_value = _make_result([person_node])
     entity = s.get(RelPerson, "p1")

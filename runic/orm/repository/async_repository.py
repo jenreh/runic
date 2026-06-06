@@ -76,16 +76,16 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
         """Return the total number of entities of this type."""
         cypher, params = self._session.mapper.build_count_query(self._cls)
         result = await self._session.execute(cypher, params)
-        if result.result_set:
-            return int(result.result_set[0][0])
+        if result.rows:
+            return int(result.rows[0][0])
         return 0
 
     async def exists(self, pk: Any) -> bool:
         """Return ``True`` if an entity with *pk* exists in the graph."""
         cypher, params = self._session.mapper.build_exists_query(self._cls, pk)
         result = await self._session.execute(cypher, params)
-        if result.result_set:
-            return int(result.result_set[0][0]) > 0
+        if result.rows:
+            return int(result.rows[0][0]) > 0
         return False
 
     async def find_all_paginated(self, pageable: Pageable) -> Page[T]:
@@ -96,7 +96,7 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
 
         count_cypher, count_params = self._session.mapper.build_count_query(self._cls)
         count_result = await self._session.execute(count_cypher, count_params)
-        total = int(count_result.result_set[0][0]) if count_result.result_set else 0
+        total = int(count_result.rows[0][0]) if count_result.rows else 0
 
         return Page(
             items=items,
@@ -169,7 +169,7 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
 
     def _decode_rows(self, result: Any) -> list[T]:
         entities: list[T] = []
-        for row in result.result_set:
+        for row in result.rows:
             decoded = self._session.mapper.decode_node(row[0], self._cls)
             registered = self._session.register_or_get(decoded)
             entities.append(registered)
@@ -181,7 +181,7 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
         fetch_meta: list[tuple[str, Any]],
     ) -> list[T]:
         entities: list[T] = []
-        for row in result.result_set:
+        for row in result.rows:
             decoded = self._session.mapper.decode_node(row[0], self._cls)
             registered = self._session.register_or_get(decoded)
             related = self._session.rel_loader.decode_eager_columns(

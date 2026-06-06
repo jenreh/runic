@@ -1,5 +1,14 @@
-"""runic.orm — lightweight graph ORM for FalkorDB."""
+"""runic.orm — lightweight graph ORM for Cypher-based graph databases."""
 
+from runic.orm.driver import AsyncGraphDriver, GraphDialect, GraphDriver, GraphResult
+from runic.orm.driver.arcadedb import ArcadeDBDialect, create_arcadedb_driver
+from runic.orm.driver.bolt import BoltDriver
+from runic.orm.driver.factory import create_driver
+from runic.orm.driver.falkordb import (
+    AsyncFalkorDBDriver,
+    FalkorDBDialect,
+    FalkorDBDriver,
+)
 from runic.orm.core.descriptors import (
     MISSING,
     Field,
@@ -59,6 +68,18 @@ from runic.orm.session.connection_pool import AsyncConnectionManager, Connection
 from runic.orm.session.session import Session
 
 __all__ = [  # noqa: RUF022
+    # Driver / dialect
+    "AsyncFalkorDBDriver",
+    "AsyncGraphDriver",
+    "ArcadeDBDialect",
+    "BoltDriver",
+    "FalkorDBDialect",
+    "FalkorDBDriver",
+    "GraphDialect",
+    "GraphDriver",
+    "GraphResult",
+    "create_arcadedb_driver",
+    "create_driver",
     # Core
     "MISSING",
     "_NOT_LOADED",

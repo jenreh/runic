@@ -10,6 +10,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
 
@@ -62,7 +63,7 @@ def graph() -> Any:
         pytest.skip("falkordblite (redislite) not installed")
     db = _FalkorDB(protocol=2)
     g = db.select_graph(f"test_repo_{secrets.token_hex(6)}")
-    yield g
+    yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):
         g.delete()
 

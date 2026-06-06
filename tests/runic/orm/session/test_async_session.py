@@ -9,6 +9,7 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
+from runic.orm.driver.falkordb import AsyncFalkorDBDriver
 from runic.orm.exceptions import DetachedEntityError, OrmError
 from runic.orm.session.async_session import AsyncSession
 
@@ -57,7 +58,7 @@ def async_graph() -> MagicMock:
 
 @pytest.fixture
 def asession(async_graph: MagicMock) -> AsyncSession:
-    return AsyncSession(async_graph)
+    return AsyncSession(AsyncFalkorDBDriver(async_graph))
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +214,7 @@ async def test_async_context_manager_commits(async_graph: MagicMock) -> None:
     async_graph.query.return_value = _node_result(
         0, ["Widget"], {"id": "w1", "label": "A"}
     )
-    async with AsyncSession(async_graph) as s:
+    async with AsyncSession(AsyncFalkorDBDriver(async_graph)) as s:
         s.add(Widget(id="w1", label="A"))
     assert len(s._pending) == 0
 
@@ -223,7 +224,7 @@ async def test_async_context_manager_rolls_back_on_error(
 ) -> None:
     w = Widget(id="w1", label="A")
     with pytest.raises(ValueError):
-        async with AsyncSession(async_graph) as s:
+        async with AsyncSession(AsyncFalkorDBDriver(async_graph)) as s:
             s.add(w)
             raise ValueError("boom")
     assert len(s._pending) == 0
