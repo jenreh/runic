@@ -31,8 +31,15 @@ class AsyncSession:
     ``Field.__get__`` cannot ``await``.  Use ``fetch=[...]`` on ``get()`` instead.
     """
 
-    def __init__(self, graph: Any, mapper: Mapper | None = None) -> None:
+    def __init__(
+        self,
+        graph: Any,
+        mapper: Mapper | None = None,
+        *,
+        log_cypher: bool = False,
+    ) -> None:
         self._graph = graph
+        self._log_cypher = log_cypher
         self._mapper: Mapper = (
             mapper if mapper is not None else Mapper(_global_metadata)
         )
@@ -41,6 +48,15 @@ class AsyncSession:
         self._identity_map: dict[tuple[type, Any], Any] = {}
         self._pending: list[Any] = []
         self._deleted: list[Any] = []
+
+    # ------------------------------------------------------------------
+    # Internal query runner
+    # ------------------------------------------------------------------
+
+    async def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+        if self._log_cypher:
+            log.debug("Cypher: %s | params: %s", cypher, params)
+        return await self._graph.query(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -121,7 +137,7 @@ class AsyncSession:
             return await self._get_with_fetch(cls, pk, fetch)
 
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = await self._graph.query(cypher, params)
+        result = await self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -229,7 +245,7 @@ class AsyncSession:
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
-        await self._graph.query(cypher, params)
+        await self._run_query(cypher, params)
         source.__dict__[field_name] = _NOT_LOADED
         log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
 
@@ -241,7 +257,7 @@ class AsyncSession:
         """
         fi = self._resolve_relation_fi(source, field_name)
         cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
-        await self._graph.query(cypher, params)
+        await self._run_query(cypher, params)
         source.__dict__[field_name] = _NOT_LOADED
         log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
 
@@ -256,7 +272,7 @@ class AsyncSession:
         write: bool = False,  # noqa: ARG002
     ) -> Any:
         """Execute raw Cypher; returns ``QueryResult``; no entity mapping."""
-        return await self._graph.query(cypher, params or {})
+        return await self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -290,7 +306,7 @@ class AsyncSession:
         cypher, params, fetch_meta = self._rel_loader.build_get_with_fetch_query(
             cls, pk, fetch
         )
-        result = await self._graph.query(cypher, params)
+        result = await self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -323,7 +339,7 @@ class AsyncSession:
     async def _flush_pending(self) -> None:
         for entity in list(self._pending):
             cypher, params = self._mapper.build_create_query(entity)
-            result = await self._graph.query(cypher, params)
+            result = await self._run_query(cypher, params)
 
             falkor_node = result.result_set[0][0] if result.result_set else None
             if falkor_node is not None:
@@ -350,7 +366,7 @@ class AsyncSession:
                 entity.__dict__["_dirty"] = False
                 continue
 
-            result = await self._graph.query(cypher, params)
+            result = await self._run_query(cypher, params)
             if result.result_set:
                 self._mapper.update_entity_from_node(entity, result.result_set[0][0])
             else:
@@ -359,7 +375,7 @@ class AsyncSession:
     async def _flush_deleted(self) -> None:
         for entity in list(self._deleted):
             cypher, params = self._mapper.build_delete_query(entity)
-            await self._graph.query(cypher, params)
+            await self._run_query(cypher, params)
 
             cls = type(entity)
             pk = self._mapper.get_pk_value(entity)
@@ -383,7 +399,7 @@ class AsyncSession:
 
     async def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = await self._graph.query(cypher, params)
+        result = await self._run_query(cypher, params)
 
         if not result.result_set:
             raise EntityNotFoundError(
