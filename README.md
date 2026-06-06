@@ -1,34 +1,45 @@
 <div align="center">
-  <img src="docs/source/_static/runic.svg" width="240" alt="Runic logo">
+  <img src="https://raw.githubusercontent.com/jenreh/runic/refs/heads/main/docs/source/_static/runic.svg" width="240" alt="Runic logo">
 
 # Runic
 
-**Graph schema migrations for FalkorDB.**
+**Graph schema migrations and ORM for FalkorDB.**
 
-![Version](https://img.shields.io/badge/version-0.1.12-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-[Features](#features) • [Installation](#installation) • [A Simple Example](#a-simple-example) • [Documentation](#documentation)
+[Features](#features) • [Installation](#installation) • [Migrations](#migrations) • [ORM](#runicorm) • [Documentation](#documentation)
 
 </div>
 
 ---
 
-**Runic** is a lightweight, Alembic-style migration framework built specifically for [FalkorDB](https://falkordb.com/).
-It brings robust revision tracking, linear graph migrations, and a powerful CLI to graph database environments, managing schema versioning through Cypher scripts and native FalkorDB syntax.
+**Runic** is a Python toolkit for [FalkorDB](https://falkordb.com/) that covers two layers:
+
+- **`runic.migrate`** — Alembic-style schema migrations with revision tracking, a CLI, and rollback snapshots.
+- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all using FalkorDB-native Cypher under the hood.
 
 ## Features
 
-- **Alembic-Style Workflow** — Familiar CLI verbs like `init`, `revision`, `upgrade`, `downgrade`, and `current`.
-- **Graph-Native** — Treats your database as a graph. Stores migration states intelligently inside dedicated nodes (e.g., `:_FalkorMigrateVersion`).
-- **Idempotent Cypher** — Encourages explicit, heavily-guarded migration steps, supporting robust backward capability even without transactional DDLs.
-- **Offline & Dry Run** — Review generated Cypher scripts thoroughly before executing them in production.
-- **Rollback Snapshots** — Advanced capabilities utilizing `GRAPH.COPY` for high-risk, non-reversible data migrations.
+### Migration CLI
+
+- **Alembic-Style Workflow** — Familiar CLI verbs: `init`, `revision`, `upgrade`, `downgrade`, `current`, `baseline`.
+- **Graph-Native** — Migration state stored inside dedicated graph nodes (`:_FalkorMigrateVersion`).
+- **Idempotent Cypher** — Explicit, guarded migration steps; safe to replay on an empty graph.
+- **Offline & Dry Run** — Review generated Cypher scripts before running them in production.
+- **Rollback Snapshots** — Uses `GRAPH.COPY` for high-risk, non-reversible migrations.
+
+### Graph ORM
+
+- **Declarative Models** — `Node` and `Edge` subclasses with typed `Field` descriptors; no metaclass magic.
+- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and pagination.
+- **Relationships** — `Relation` field for INCOMING / OUTGOING edges; lazy and eager loading; edge property models.
+- **Schema Management** — `IndexManager` and `SchemaManager` to create, validate, and sync RANGE, FULLTEXT, and UNIQUE indexes.
+- **Native FalkorDB Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
+- **Async Support** — `AsyncSession`, `AsyncRepository`, and `AsyncConnectionManager` for async-first applications.
 
 ## Installation
-
-Install via `pip` or `uv`:
 
 ```bash
 uv pip install runic
@@ -43,38 +54,22 @@ uv add runic
 > [!NOTE]
 > Runic requires Python 3.14+ and is optimized for the latest FalkorDB clients.
 
-## A Simple Example
+---
+
+## Migrations
 
 Initialize your project and generate a new revision:
 
 ```bash
-# Set up a new runic environment
 runic init
-
-# Create your first revision script
 runic revision -m "create user index"
 ```
 
-This generates a revision file in `runic/versions`. Open it and define your upgrades and downgrades:
+Open the generated file in `runic/versions/` and define your upgrade and downgrade:
 
 ```python
-"""create user index
-
-Revision ID: 1975ea83b712
-Revises: None
-Create Date: 2026-05-30 14:00:00.000000
-"""
-
-from datetime import UTC, datetime
-
 revision = "1975ea83b712"
 down_revision = None
-message = "create user index"
-create_date = datetime.fromisoformat("2026-05-30T14:00:00+00:00")
-branch_labels = []
-depends_on = []
-irreversible = False
-snapshot = False
 
 
 def upgrade(op) -> None:
@@ -85,87 +80,194 @@ def downgrade(op) -> None:
     op.drop_range_index("User", "email")
 ```
 
-Then apply your changes:
+Apply or roll back:
 
 ```bash
 runic upgrade            # apply all pending revisions
-runic downgrade          # roll back one step (default target: -1)
-runic downgrade 1975e    # roll back to a revision — prefix is enough
+runic downgrade          # roll back one step
+runic downgrade 1975e    # roll back to a specific revision (prefix is enough)
 ```
 
-## Baselining an existing graph
+### Baselining an existing graph
 
-If you have a FalkorDB graph that was built without Runic, use `baseline` to bring it under management without re-running anything on the source:
+Bring an unmanaged FalkorDB graph under runic control without re-running anything:
 
 ```bash
-# Introspect the live graph, generate a root revision, and stamp it as applied
-runic baseline -m "baseline"
-# Generated: runic/versions/<hex>_baseline.py
-# Stamped:   <hex>
-
-# Verify the graph is now tracked
-runic current
-# <hex>  baseline
+runic baseline -m "baseline"   # introspect, generate root revision, stamp it
+runic current                  # verify it is now tracked
 ```
 
-The generated revision recreates all indexes and constraints from scratch — safe to replay on a fresh empty graph (CI, cloning, new tenants):
+The generated revision recreates all indexes from scratch — safe to replay on a fresh graph (CI, cloning, new tenants):
 
 ```bash
-runic upgrade head   # rebuilds the full schema on an empty graph
+runic upgrade head   # rebuilds full schema on an empty graph
 ```
 
-Re-running `baseline` on an already-managed graph is refused:
-
-```bash
-runic baseline -m "again"
-# Error: Graph already managed by runic.migrate. Use `runic upgrade` instead.
-```
-
-To mark an existing graph as baselined without generating a file (useful when you manage the revision file yourself):
-
-```bash
-runic baseline --stamp-only
-```
-
-### Baseline → autogenerate workflow
-
-Once you have a baseline revision, use the standard autogenerate workflow to evolve the schema:
-
-```bash
-# After changing your SchemaManifest in env.py:
-runic revision --autogenerate -m "add embedding index"
-runic upgrade head
-```
-
-The baseline revision is the root of the chain (`down_revision = None`). Future revisions chain off it normally.
-
-## Programmatic SDK
-
-Use runic directly in Python — no CLI, no `env.py` needed:
+### Programmatic SDK
 
 ```python
 from pathlib import Path
 from runic import Runic, init
 from runic.migrate.adapters import create_adapter
 
-# One-time setup: scaffold the migration directory
 init(Path("runic/"))
 
-# Connect and run
 adapter = create_adapter(
-    "falkordb",
-    url="falkor://localhost:6379",
-    graph_name="my_graph",
+    "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
 )
 runic = Runic(adapter, script_location=Path("runic/"))
 runic.migrate.upgrade("head")
 
 print("current:", runic.migrate.current())
-print("history:", runic.migrate.get_history())
 ```
 
-`Runic` is the single class you need. It handles upgrades, downgrades, stamping, history queries, and revision creation in one coherent API.
+---
+
+## runic.orm
+
+### Defining models
+
+```python
+from runic.orm import Field, Node, Edge, Relation
+
+
+class User(Node, labels=["User"]):
+    id: str
+    email: str = Field(unique=True)
+    name: str
+
+
+class Post(Node, labels=["Post"]):
+    id: str
+    title: str = Field(index_type="FULLTEXT")
+    published: bool = False
+
+
+class AuthoredEdge(Edge, type="AUTHORED"):
+    created_at: str  # ISO-8601
+
+
+class Author(Node, labels=["Author"]):
+    id: str
+    name: str
+    posts: list[Post] = Relation(
+        relationship="AUTHORED",
+        direction="OUTGOING",
+        target="Post",
+        edge_model=AuthoredEdge,
+    )
+```
+
+### Session-based CRUD
+
+```python
+from runic.orm import Session, Repository
+
+with Session(graph) as session:
+    session.add_all([
+        User(id="alice", email="alice@example.com", name="Alice"),
+        User(id="bob", email="bob@example.com", name="Bob"),
+    ])
+    session.commit()
+
+with Session(graph) as session:
+    repo = Repository(session, User)
+    alice = session.get(User, "alice")
+    alice.name = "Alice Smith"  # change tracking — no explicit dirty flag
+    session.commit()
+
+with Session(graph) as session:
+    user = session.get(User, "bob")
+    session.delete(user)
+    session.commit()
+```
+
+### Relationships
+
+```python
+# Lazy load (default) — triggers a query on first access
+with Session(graph) as session:
+    author = session.get(Author, "alice")
+    posts = author.posts  # query executed here
+
+# Eager load — single round-trip
+with Session(graph) as session:
+    author = session.get(Author, "alice", fetch=["posts"])
+    posts = author.posts  # already loaded, no extra query
+```
+
+### Pagination and custom queries
+
+```python
+from runic.orm import Pageable, Repository
+
+with Session(graph) as session:
+    repo = Repository(session, User)
+    page = repo.find_all_paginated(Pageable(page=0, size=20, sort_by="name"))
+    print(f"{len(list(page))} of {page.total_elements} total")
+```
+
+Extend `Repository` to add typed Cypher helpers:
+
+```python
+class UserRepository(Repository[User]):
+    def find_by_email(self, email: str) -> User | None:
+        return self.cypher_one(
+            "MATCH (u:User {email: $email}) RETURN u",
+            {"email": email},
+            returns=User,
+        )
+```
+
+### Schema management
+
+Declare indexes inline on `Field`, then let `SchemaManager` keep the live graph in sync:
+
+```python
+from runic.orm import Field, IndexManager, Node, SchemaManager
+
+
+class Place(Node, labels=["Place"]):
+    id: str
+    name: str = Field(index_type="FULLTEXT")
+    slug: str = Field(unique=True)
+    lat: float = Field(index=True)
+    lon: float = Field(index=True)
+
+
+schema = SchemaManager(graph)
+schema.sync_schema([Place], drop_extra=False)  # create missing; leave extras alone
+
+result = schema.validate_schema([Place])
+print("valid:", result.is_valid)
+```
+
+### Native FalkorDB types
+
+`Vector`, `GeoLocation`, `datetime`, and `Enum` fields get their converters assigned automatically — no `converter=` argument needed:
+
+```python
+from datetime import UTC, datetime
+from enum import StrEnum
+from runic.orm import Field, GeoLocation, Node, Vector
+
+
+class Status(StrEnum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class Article(Node, labels=["Article"]):
+    id: str = Field(primary_key=True)
+    category: str = Field(interned=True)  # intern() deduplication
+    status: Status  # EnumConverter auto-assigned
+    published_at: datetime | None = None  # DatetimeConverter auto-assigned
+    embedding: Vector | None = None  # VectorConverter → vecf32()
+    origin: GeoLocation | None = None  # GeoLocationConverter → point()
+```
+
+---
 
 ## Documentation
 
-For a full conceptual overview, advanced CLI usage, and deep dives into branching or multi-head resolution, visit the complete [Runic Documentation](https://runic-py.readthedocs.io/latest/).
+Full conceptual overview, async usage, advanced CLI flags, and API reference at the complete [Runic Documentation](https://runic-py.readthedocs.io/latest/).
