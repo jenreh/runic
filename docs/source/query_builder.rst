@@ -488,36 +488,3 @@ Cypher features coverage
 +----------------------------------+---------+-----------------------------+
 | Pattern comprehensions           | ✗       | use ``repo.cypher()``       |
 +----------------------------------+---------+-----------------------------+
-
-API reference
--------------
-
-.. autoclass:: runic.orm.query.builder.QueryBuilder
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: runic.orm.query.builder.AsyncQueryBuilder
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: runic.orm.query.builder.FulltextQueryBuilder
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: runic.orm.query.builder.VectorQueryBuilder
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: runic.orm.query.expressions
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: runic.orm.query.traversal.TraversalStep
-   :members:
-   :undoc-members:
-   :show-inheritance:
