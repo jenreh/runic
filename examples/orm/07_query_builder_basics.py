@@ -11,20 +11,29 @@ Demonstrates every foundational feature of the fluent QueryBuilder API:
   - Projection: project() → all_rows() / scalars()
   - build() — inspect generated Cypher without executing
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/07_query_builder_basics.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/07_query_builder_basics.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/07_query_builder_basics.py
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 from runic.orm import Field, Node, Session, avg, count, max_, min_, sum_  # noqa: E402
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Model
@@ -47,17 +56,33 @@ class Product(Node, labels=["Product"]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_qb_basics",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_qb_basics")
+        return FalkorDBDriver(db.select_graph("example_qb_basics"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +91,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         products = [
             Product(
                 id="p1",
@@ -121,17 +146,17 @@ def run() -> None:
         log.info("Created %d products", len(products))
 
     # --- Equality filter ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         books = session.query(Product).where(Product.category == "books").all()
         log.info("category == 'books': %s", [p.name for p in books])
 
     # --- Inequality filter ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         not_books = session.query(Product).where(Product.category != "books").all()
         log.info("category != 'books': %s", [p.name for p in not_books])
 
     # --- Numeric comparison: greater-than ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         expensive = (
             session.query(Product)
             .where(Product.price > 100.0)
@@ -141,12 +166,12 @@ def run() -> None:
         log.info("price > 100: %s", [(p.name, p.price) for p in expensive])
 
     # --- Numeric comparison: less-than-or-equal ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         cheap = session.query(Product).where(Product.price <= 40.0).all()
         log.info("price <= 40: %s", [p.name for p in cheap])
 
     # --- String predicate: contains() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         graph_products = (
             session.query(Product)
             .where(Product.name.contains("Graph"))  # type: ignore[attr-defined]
@@ -155,7 +180,7 @@ def run() -> None:
         log.info("name.contains('Graph'): %s", [p.name for p in graph_products])
 
     # --- String predicate: startswith() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         adv = (
             session.query(Product)
             .where(Product.name.startswith("Advanced"))  # type: ignore[attr-defined]
@@ -164,7 +189,7 @@ def run() -> None:
         log.info("name.startswith('Advanced'): %s", [p.name for p in adv])
 
     # --- String predicate: endswith() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         kits = (
             session.query(Product)
             .where(Product.name.endswith("Kit"))  # type: ignore[attr-defined]
@@ -175,7 +200,7 @@ def run() -> None:
     # --- String predicate: matches() (regex) — requires live FalkorDB v4+ ---
     # NOTE: =~ regex is not supported by the embedded redislite backend.
     # Uncomment when running against a live FalkorDB instance:
-    # with Session(graph) as session:
+    # with Session(driver) as session:
     #     regex_match = (
     #         session.query(Product)
     #         .where(Product.name.matches(".*Graph.*"))  # type: ignore[attr-defined]
@@ -184,7 +209,7 @@ def run() -> None:
     #     log.info("name.matches('.*Graph.*'): %s", [p.name for p in regex_match])
 
     # --- Null check: is_null() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         no_sku = (
             session.query(Product)
             .where(Product.sku.is_null())  # type: ignore[attr-defined]
@@ -193,7 +218,7 @@ def run() -> None:
         log.info("sku IS NULL: %s", [p.name for p in no_sku])
 
     # --- Null check: is_not_null() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         has_sku = (
             session.query(Product)
             .where(Product.sku.is_not_null())  # type: ignore[attr-defined]
@@ -202,7 +227,7 @@ def run() -> None:
         log.info("sku IS NOT NULL: %s", [p.name for p in has_sku])
 
     # --- Membership: in_() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         selected = (
             session.query(Product)
             .where(Product.id.in_(["p1", "p3", "p5"]))  # type: ignore[attr-defined]
@@ -212,7 +237,7 @@ def run() -> None:
         log.info("id in ['p1','p3','p5']: %s", [p.id for p in selected])
 
     # --- Membership: not_in_() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         excluded = (
             session.query(Product)
             .where(Product.category.not_in_(["hardware"]))  # type: ignore[attr-defined]
@@ -222,7 +247,7 @@ def run() -> None:
         log.info("category not_in ['hardware']: %s", [p.id for p in excluded])
 
     # --- Boolean AND: & operator ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         active_books = (
             session.query(Product)
             .where(
@@ -234,7 +259,7 @@ def run() -> None:
         log.info("category='books' AND active=True: %s", [p.name for p in active_books])
 
     # --- Boolean OR: | operator ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         books_or_courses = (
             session.query(Product)
             .where(
@@ -248,7 +273,7 @@ def run() -> None:
         )
 
     # --- Boolean NOT: ~ operator ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         not_active = (
             session.query(Product)
             .where(~(Product.active == True))  # noqa: E712
@@ -257,7 +282,7 @@ def run() -> None:
         log.info("NOT active=True: %s", [p.name for p in not_active])
 
     # --- Three-condition compound: & chained ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         in_stock_books = (
             session.query(Product)
             .where(
@@ -270,37 +295,37 @@ def run() -> None:
         log.info("books AND active AND stock>0: %s", [p.name for p in in_stock_books])
 
     # --- order_by ASC (default) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         by_price_asc = session.query(Product).order_by(Product.price).all()
         log.info("ORDER BY price ASC: %s", [p.price for p in by_price_asc])
 
     # --- order_by DESC ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         by_price_desc = session.query(Product).order_by(Product.price, desc=True).all()
         log.info("ORDER BY price DESC: %s", [p.price for p in by_price_desc])
 
     # --- limit() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         top2 = session.query(Product).order_by(Product.price, desc=True).limit(2).all()
         log.info("LIMIT 2 by price desc: %s", [p.name for p in top2])
 
     # --- skip() + limit() (manual pagination) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         page2 = session.query(Product).order_by(Product.id).skip(2).limit(2).all()
         log.info("SKIP 2 LIMIT 2: %s", [p.id for p in page2])
 
     # --- distinct() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         cats = session.query(Product).project(Product.category).distinct().scalars()
         log.info("DISTINCT categories: %s", sorted(cats))
 
     # --- Terminal: count() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         total = session.query(Product).count()
         log.info("count(*): %d", total)
 
     # --- Terminal: count() with filter ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         active_count = (
             session.query(Product)
             .where(Product.active == True)  # noqa: E712
@@ -309,17 +334,17 @@ def run() -> None:
         log.info("count where active=True: %d", active_count)
 
     # --- Terminal: one() ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         p = session.query(Product).where(Product.id == "p1").one()
         log.info("one() p1: %s", p and p.name)
 
     # --- Terminal: one() — no match returns None ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         missing = session.query(Product).where(Product.id == "NOPE").one()
         log.info("one() no match: %s", missing)
 
     # --- Terminal: scalar() — first column of first row ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         lowest_price = (
             session.query(Product)
             .aggregate(min_(Product.price).as_("min_price"))
@@ -328,14 +353,14 @@ def run() -> None:
         log.info("scalar() min price: %s", lowest_price)
 
     # --- Terminal: scalars() — first column of every row ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         all_ids = (
             session.query(Product).order_by(Product.id).project(Product.id).scalars()
         )
         log.info("scalars() all ids: %s", all_ids)
 
     # --- project() → all_rows() — multi-field projection as dicts ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         rows = (
             session.query(Product)
             .where(Product.active == True)  # noqa: E712
@@ -346,7 +371,7 @@ def run() -> None:
         log.info("project all_rows: %s", rows)
 
     # --- build() — inspect generated Cypher without executing ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         cypher, params = (
             session.query(Product)
             .where(
@@ -360,7 +385,7 @@ def run() -> None:
         log.info("build() Cypher:\n%s\nparams: %s", cypher, params)
 
     # --- Multiple .where() calls are AND-combined ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         multi_where = (
             session.query(Product)
             .where(Product.category == "books")
@@ -374,7 +399,7 @@ def run() -> None:
         )
 
     # --- Aggregation: avg, sum, max ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         avg_price = (
             session.query(Product)
             .aggregate(avg(Product.price).as_("avg_price"))
@@ -398,13 +423,15 @@ def run() -> None:
         )
 
     # --- count(DISTINCT field) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         distinct_cats = (
             session.query(Product)
             .aggregate(count(Product.category, distinct=True).as_("n"))
             .scalar()
         )
         log.info("count(DISTINCT category): %s", distinct_cats)
+
+    driver.close()
 
 
 if __name__ == "__main__":

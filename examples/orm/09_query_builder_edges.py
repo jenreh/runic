@@ -8,20 +8,29 @@ Demonstrates:
   - Combining node and edge filters in one query
   - build() — inspect the generated Cypher for edge queries
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/09_query_builder_edges.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/09_query_builder_edges.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/09_query_builder_edges.py
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 from runic.orm import Edge, Field, Node, Relation, Session  # noqa: E402
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models: movie rating graph
@@ -72,17 +81,33 @@ class User(Node, labels=["User"]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_qb_edges",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_qb_edges")
+        return FalkorDBDriver(db.select_graph("example_qb_edges"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -91,10 +116,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = User(id="alice", name="Alice")
         bob = User(id="bob", name="Bob")
 
@@ -111,7 +136,7 @@ def run() -> None:
         session.commit()
         log.info("Created users and movies")
 
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = session.get(User, "alice")
         bob = session.get(User, "bob")
         inception = session.get(Movie, "inception")
@@ -164,7 +189,7 @@ def run() -> None:
         log.info("Created rating and watch edges")
 
     # --- Basic all_with_edges(): (User, Rated, Movie) tuples ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         rows = (
             session.query(User)
             .alias("u")
@@ -186,7 +211,7 @@ def run() -> None:
             )
 
     # --- Filter on edge property: only high scores ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         high_rated = (
             session.query(User)
             .alias("u")
@@ -202,7 +227,7 @@ def run() -> None:
             log.info("  %s → '%s' (%.1f)", user.name, movie.title, edge.score)
 
     # --- Filter on edge property: recommended only ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         recommended = (
             session.query(User)
             .alias("u")
@@ -216,7 +241,7 @@ def run() -> None:
         log.info("Alice's recommended movies: %s", [m.title for m in recommended])
 
     # --- Combine node + edge filters ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         sci_fi_recommended = (
             session.query(User)
             .alias("u")
@@ -239,7 +264,7 @@ def run() -> None:
             )
 
     # --- return_target("m"): only movies (discard user/edge from result) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         bobs_movies = (
             session.query(User)
             .alias("u")
@@ -252,7 +277,7 @@ def run() -> None:
         log.info("Bob's rated movies: %s", [m.title for m in bobs_movies])
 
     # --- Different edge model: Watched (required MATCH when filtering on edge) ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         # Use optional=False (required MATCH) when filtering on traversal edge
         # properties — OPTIONAL MATCH + WHERE nullifies non-matching rows rather
         # than removing them, which would yield None movies for non-matching users.
@@ -276,7 +301,7 @@ def run() -> None:
             )
 
     # --- Filter on both edge AND node simultaneously ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         recent_high = (
             session.query(User)
             .alias("u")
@@ -294,7 +319,7 @@ def run() -> None:
         )
 
     # --- build(): inspect Cypher for edge query ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         cypher, params = (
             session.query(User)
             .alias("u")
@@ -307,6 +332,8 @@ def run() -> None:
             .build()
         )
         log.info("Edge query Cypher:\n%s\nparams: %s", cypher, params)
+
+    driver.close()
 
 
 if __name__ == "__main__":

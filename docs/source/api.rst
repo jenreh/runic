@@ -108,6 +108,8 @@ runic.orm.driver — Drivers & Dialects
    :members:
    :show-inheritance:
 
+.. autofunction:: runic.orm.driver.falkordb.create_falkordb_driver
+
 .. autofunction:: runic.orm.driver.arcadedb.create_arcadedb_driver
 
 .. autofunction:: runic.orm.driver.factory.create_driver

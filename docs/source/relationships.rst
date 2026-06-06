@@ -50,7 +50,7 @@ Accessing the attribute triggers a graph query on first read:
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        person = session.get(Person, "alice")
        company = person.company     # ← one Cypher query here
 
@@ -68,12 +68,12 @@ Pass ``fetch=["field_name", ...]`` to ``session.get()`` or any
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        # Single entity
        person = session.get(Person, "alice", fetch=["company"])
        company = person.company    # ← no extra query
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        repo = Repository(session, Person)
        # Entire collection
        people = repo.find_all(fetch=["company"])
@@ -110,7 +110,7 @@ its most specific registered class:
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        repo = Repository(session, Location)
        all_locs = repo.find_all()
        # returns a mix of Country, City, etc. — type-resolved per node
@@ -126,7 +126,7 @@ remove relationships without writing Cypher:
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        alice = session.get(User, "alice")
        company = session.get(Company, "acme")
 
@@ -144,7 +144,7 @@ For async sessions the same methods are available as coroutines:
 
 .. code-block:: python
 
-   async with AsyncSession(graph) as session:
+   async with AsyncSession(driver) as session:
        alice = await session.get(User, "alice")
        company = await session.get(Company, "acme")
        await session.relate(alice, "company", company)
@@ -181,7 +181,7 @@ updated values will overwrite the existing properties:
 
 .. code-block:: python
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        user = session.get(User, "alice")
        trip = session.get(Trip, "paris-2026")
 
@@ -233,7 +233,7 @@ entities when the owning entity is added:
            cascade=True,
        )
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        company = Company(id="acme", name="Acme")
        person = Person(id="alice", name="Alice", company=company)
        session.add(person)     # also stages company

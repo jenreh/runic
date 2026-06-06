@@ -2,8 +2,8 @@ Query Builder
 =============
 
 The runic query builder provides a fluent, type-safe API for constructing
-FalkorDB Cypher queries from your ORM model declarations — without writing
-raw Cypher strings for the common cases.
+Cypher queries from your ORM model declarations — without writing raw Cypher
+strings for the common cases.
 
 Overview
 --------
@@ -14,7 +14,7 @@ session::
 
     from runic.orm import Session, QueryBuilder
 
-    with Session(graph) as session:
+    with Session(driver) as session:
         users = (
             session.query(User)
             .where(User.active == True)
@@ -393,7 +393,7 @@ Async usage
 The intermediate/chaining methods are identical; only the terminal methods are
 ``async``::
 
-    async with AsyncSession(graph) as session:
+    async with AsyncSession(driver) as session:
         users = await (
             session.query(User)
             .where(User.active == True)
