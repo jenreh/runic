@@ -9,8 +9,8 @@ on_rtd = os.environ.get("READTHEDOCS") == "True"
 project = "Runic"
 copyright = "2026, Jens Rehpöhler"
 author = "Jens Rehpöhler"
-release = "0.1.12"
-version = "0.1.12"
+release = "0.2.0"
+version = "0.2.0"
 
 # ReadTheDocs version handling
 if on_rtd:
