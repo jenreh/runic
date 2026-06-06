@@ -7,10 +7,12 @@ import weakref
 from types import TracebackType
 from typing import Any
 
+from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
 from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
+from runic.orm.mapper.relationship_writer import RelationshipWriter
 
 log = logging.getLogger(__name__)
 
@@ -28,18 +30,35 @@ class Session:
     sets only; cannot undo writes already sent to the graph.
     """
 
-    def __init__(self, graph: Any, mapper: Mapper | None = None) -> None:
+    def __init__(
+        self,
+        graph: Any,
+        mapper: Mapper | None = None,
+        *,
+        log_cypher: bool = False,
+    ) -> None:
         self._graph = graph
+        self._log_cypher = log_cypher
         self._mapper: Mapper = (
             mapper if mapper is not None else Mapper(_global_metadata)
         )
         self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
+        self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
         # Identity map: (EntityClass, pk) → entity instance
         self._identity_map: dict[tuple[type, Any], Any] = {}
         # Entities staged for CREATE
         self._pending: list[Any] = []
         # Entities staged for DETACH DELETE
         self._deleted: list[Any] = []
+
+    # ------------------------------------------------------------------
+    # Internal query runner
+    # ------------------------------------------------------------------
+
+    def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+        if self._log_cypher:
+            log.debug("Cypher: %s | params: %s", cypher, params)
+        return self._graph.query(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -129,7 +148,7 @@ class Session:
             return self._get_with_fetch(cls, pk, fetch)
 
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -156,7 +175,7 @@ class Session:
             return None
 
         cypher, params = self._rel_loader.build_lazy_load_query(entity, fi)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
         decoded = self._rel_loader.decode_lazy_result(result, fi)
 
         entity.__dict__[field_name] = decoded
@@ -241,6 +260,55 @@ class Session:
         self._deleted.clear()
 
     # ------------------------------------------------------------------
+    # Relationship mutations
+    # ------------------------------------------------------------------
+
+    def relate(
+        self,
+        source: Any,
+        field_name: str | FieldDescriptor,
+        target: Any,
+        edge: Any | None = None,
+    ) -> None:
+        """Create or update a relationship between *source* and *target*.
+
+        Uses ``MERGE`` semantics: if the relationship already exists its edge
+        properties are updated; if not, it is created.  Pass an ``Edge`` model
+        instance as *edge* to write properties on the relationship itself.
+
+        *field_name* may be a plain string **or** the class-level descriptor
+        attribute (e.g. ``User.invited_trips``) for type-safe call sites.
+
+        The cached value of the relation field on *source* is invalidated after
+        the write so the next access re-fetches fresh data from the graph.
+        """
+        fi = self._resolve_relation_fi(source, field_name)
+        cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
+        self._run_query(cypher, params)
+        source.__dict__[fi.name] = _NOT_LOADED
+        log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
+
+    def unrelate(
+        self,
+        source: Any,
+        field_name: str | FieldDescriptor,
+        target: Any,
+    ) -> None:
+        """Delete the relationship between *source* and *target*.
+
+        *field_name* may be a plain string **or** the class-level descriptor
+        attribute (e.g. ``User.invited_trips``) for type-safe call sites.
+
+        The cached value of the relation field on *source* is invalidated after
+        the write so the next access re-fetches fresh data from the graph.
+        """
+        fi = self._resolve_relation_fi(source, field_name)
+        cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
+        self._run_query(cypher, params)
+        source.__dict__[fi.name] = _NOT_LOADED
+        log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
+
+    # ------------------------------------------------------------------
     # Raw Cypher
     # ------------------------------------------------------------------
 
@@ -251,7 +319,115 @@ class Session:
         write: bool = False,  # noqa: ARG002  (reserved for future routing)
     ) -> Any:
         """Execute raw Cypher; returns ``QueryResult``; no entity mapping."""
-        return self._graph.query(cypher, params or {})
+        return self._run_query(cypher, params or {})
+
+    # ------------------------------------------------------------------
+    # Query builder entry points
+    # ------------------------------------------------------------------
+
+    def query(self, cls: type[Any]) -> Any:
+        """Return a :class:`~runic.orm.query.builder.QueryBuilder` for *cls*.
+
+        This is the primary entry point for the fluent query builder API::
+
+            users = (
+                session.query(User)
+                .where(User.active == True)
+                .order_by(User.name)
+                .limit(20)
+                .all()
+            )
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass.
+
+        Returns
+        -------
+        QueryBuilder[cls]
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        return QueryBuilder(self, cls)
+
+    def fulltext_search(
+        self,
+        cls: type[Any],
+        *,
+        query: str,
+        fields: list[str] | None = None,
+    ) -> Any:
+        """Return a :class:`~runic.orm.query.builder.FulltextQueryBuilder` for *cls*.
+
+        Uses FalkorDB's ``CALL db.idx.fulltext.queryNodes()`` procedure.  The
+        node label must have a fulltext index created.
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass with
+            at least one field with ``index_type="FULLTEXT"``.
+        query:
+            The fulltext search string.
+        fields:
+            Optional list of field names to search (informational; the
+            procedure uses the index it finds for the label).
+
+        Example
+        -------
+        .. code-block:: python
+
+            posts = (
+                session.fulltext_search(Post, query="graph databases")
+                .where(Post.published == True)
+                .limit(10)
+                .all()
+            )
+        """
+        from runic.orm.query.builder import FulltextQueryBuilder
+
+        return FulltextQueryBuilder(self, cls, query=query, fields=fields)
+
+    def vector_search(
+        self,
+        cls: type[Any],
+        *,
+        field: Any,
+        vector: list[float],
+        k: int = 10,
+    ) -> Any:
+        """Return a :class:`~runic.orm.query.builder.VectorQueryBuilder` for *cls*.
+
+        Performs a K-Nearest-Neighbour search using FalkorDB's HNSW index.
+
+        Parameters
+        ----------
+        cls:
+            A registered :class:`~runic.orm.core.models.Node` subclass.
+        field:
+            The :class:`~runic.orm.core.descriptors.FieldDescriptor` of the
+            ``Vector`` field to search (e.g. ``Document.embedding``).
+        vector:
+            The query embedding as a list of floats.
+        k:
+            Number of nearest neighbours to return (default ``10``).
+
+        Example
+        -------
+        .. code-block:: python
+
+            similar = (
+                session.vector_search(
+                    Document, field=Document.embedding, vector=my_vec, k=5
+                )
+                .where(Document.active == True)
+                .all()
+            )
+        """
+        from runic.orm.query.builder import VectorQueryBuilder
+
+        return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -285,7 +461,7 @@ class Session:
         cypher, params, fetch_meta = self._rel_loader.build_get_with_fetch_query(
             cls, pk, fetch
         )
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             return None
@@ -320,7 +496,7 @@ class Session:
         """CREATE all entities in the pending list."""
         for entity in list(self._pending):
             cypher, params = self._mapper.build_create_query(entity)
-            result = self._graph.query(cypher, params)
+            result = self._run_query(cypher, params)
 
             falkor_node = result.result_set[0][0] if result.result_set else None
             if falkor_node is not None:
@@ -349,7 +525,7 @@ class Session:
                 entity.__dict__["_dirty"] = False
                 continue
 
-            result = self._graph.query(cypher, params)
+            result = self._run_query(cypher, params)
             if result.result_set:
                 self._mapper.update_entity_from_node(entity, result.result_set[0][0])
             else:
@@ -361,7 +537,7 @@ class Session:
         """DETACH DELETE all entities in the deleted list."""
         for entity in list(self._deleted):
             cypher, params = self._mapper.build_delete_query(entity)
-            self._graph.query(cypher, params)
+            self._run_query(cypher, params)
 
             cls = type(entity)
             pk = self._mapper.get_pk_value(entity)
@@ -371,10 +547,31 @@ class Session:
 
         self._deleted.clear()
 
+    def _resolve_relation_fi(
+        self, source: Any, field_name: str | FieldDescriptor
+    ) -> FieldInfo:
+        """Return the ``FieldInfo`` for a declared ``Relation`` field on *source*.
+
+        *field_name* may be a plain string or the class-level ``FieldDescriptor``
+        (e.g. ``User.invited_trips``).
+
+        Raises ``TypeError`` when *field_name* does not correspond to a Relation.
+        """
+        name = (
+            field_name.name if isinstance(field_name, FieldDescriptor) else field_name
+        )
+        node_meta = self._mapper.require_node_meta(type(source))
+        fi = next((f for f in node_meta.fields if f.name == name), None)
+        if fi is None or fi.field.relationship is None:
+            raise TypeError(
+                f"{type(source).__name__!r} has no Relation field named {name!r}"
+            )
+        return fi
+
     def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         """Re-query a single entity from the graph and update it in-place."""
         cypher, params = self._mapper.build_get_query(cls, pk)
-        result = self._graph.query(cypher, params)
+        result = self._run_query(cypher, params)
 
         if not result.result_set:
             raise EntityNotFoundError(

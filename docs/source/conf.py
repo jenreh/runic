@@ -9,8 +9,8 @@ on_rtd = os.environ.get("READTHEDOCS") == "True"
 project = "Runic"
 copyright = "2026, Jens Rehpöhler"
 author = "Jens Rehpöhler"
-release = "0.1.12"
-version = "0.1.12"
+release = "0.2.0"
+version = "0.2.0"
 
 # ReadTheDocs version handling
 if on_rtd:
@@ -51,9 +51,6 @@ _BRAND_CONTENT_DARK = "#6bd4e5"
 html_theme_options = {
     "sidebar_hide_name": False,
     "navigation_with_keys": True,
-    "source_repository_url": "https://github.com/jenreh/runic",
-    "source_branch": "main",
-    "source_directory": "docs/source",
     "light_css_variables": {
         # Core brand
         "color-brand-primary": _BRAND_LIGHT,

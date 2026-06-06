@@ -20,7 +20,7 @@ Graph ORM and Schema Migrations for FalkorDB
    :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
    :alt: License
 
-Documentation for version: 0.1.12.
+Documentation for version: 0.2.0.
 
 -----
 
@@ -82,11 +82,19 @@ Documentation for version: 0.1.12.
 
 .. grid:: 2
 
+   .. grid-item-card:: Query builder
+      :link: query_builder
+      :link-type: doc
+
+      Fluent filter, traversal, aggregation, fulltext and vector KNN API.
+
    .. grid-item-card:: Schema management
       :link: schema
       :link-type: doc
 
       IndexManager and SchemaManager — sync indexes to FalkorDB.
+
+.. grid:: 2
 
    .. grid-item-card:: ORM API reference
       :link: api
@@ -137,6 +145,7 @@ Documentation for version: 0.1.12.
    concepts
    relationships
    session
+   query_builder
    schema
    api
 

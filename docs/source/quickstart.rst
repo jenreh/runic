@@ -61,6 +61,13 @@ Hello, Node
        session.delete(en)
        session.commit()
 
+
+.. seealso::
+
+   `examples/orm/01_simple_crud.py <https://github.com/jenreh/runic/blob/main/examples/orm/01_simple_crud.py>`_
+      End-to-end runnable example covering create, read, update, delete, and basic query-builder usage.
+
+
 Key takeaways
 -------------
 

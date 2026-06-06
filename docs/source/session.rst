@@ -6,6 +6,14 @@ The :class:`~runic.orm.session.session.Session` (and its async twin
 manager for FalkorDB.  It owns all mutations, manages the identity map, and
 controls the flush/commit lifecycle.
 
+.. seealso::
+
+   `examples/orm/01_simple_crud.py <https://github.com/jenreh/runic/blob/main/examples/orm/01_simple_crud.py>`_
+      Session lifecycle, mutations, flush, commit, and rollback in a single runnable file.
+
+   `examples/orm/04_pagination_and_custom_queries.py <https://github.com/jenreh/runic/blob/main/examples/orm/04_pagination_and_custom_queries.py>`_
+      ``session.execute()`` for raw write queries; custom repository methods; offset pagination.
+
 Opening a session
 -----------------
 
