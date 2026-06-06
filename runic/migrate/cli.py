@@ -39,11 +39,13 @@ def _resolve_config(config: Path) -> Path:
     return config
 
 
-_DB_CONNECTION_ERROR_NAMES = frozenset({
-    "AuthenticationError",
-    "ConnectionError",
-    "TimeoutError",
-})
+_DB_CONNECTION_ERROR_NAMES = frozenset(
+    {
+        "AuthenticationError",
+        "ConnectionError",
+        "TimeoutError",
+    }
+)
 
 
 def _exec_env(config: Path, preview: bool = False) -> dict:  # noqa: ARG001
@@ -356,17 +358,19 @@ def history(
         from runic.migrate.script import RevisionInfo
 
         items = list(
-            reversed([
-                RevisionInfo(
-                    revision=r.revision,
-                    down_revision=r.down_revision,
-                    message=r.message,
-                    create_date=r.create_date,
-                    is_head=False,
-                    is_branch_point=r.revision in bp_set,
-                )
-                for r in sd.walk_revisions(start, end, "up")
-            ])
+            reversed(
+                [
+                    RevisionInfo(
+                        revision=r.revision,
+                        down_revision=r.down_revision,
+                        message=r.message,
+                        create_date=r.create_date,
+                        is_head=False,
+                        is_branch_point=r.revision in bp_set,
+                    )
+                    for r in sd.walk_revisions(start, end, "up")
+                ]
+            )
         )
     else:
         items = list(reversed(sd.revision_history()))

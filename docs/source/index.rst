@@ -3,7 +3,7 @@
 Welcome to **Runic**
 ====================
 
-Graph Schema Migrations for FalkorDB
+Graph ORM and Schema Migrations for FalkorDB
 
 |PyPI| |Python| |License|
 
@@ -24,49 +24,88 @@ Documentation for version: 0.1.12.
 
 -----
 
-**runic** is a lightweight, Alembic-style migration framework for
-`FalkorDB <https://falkordb.com>`_ graph databases.  It tracks every change
-to your graph's indexes and constraints as a versioned, replayable script and
-gives you a CLI to apply, roll back, inspect, and test those changes safely.
+**runic** ships two tools:
 
-.. code-block:: bash
+* **runic.orm** — a lightweight, graph-optimized ORM that maps Python classes
+  to FalkorDB nodes and edges.
+* **runic.migrate** — an Alembic-style migration engine that tracks index and
+  constraint changes as versioned, replayable scripts.
 
-   $ runic init
-   $ runic revision -m "add person email index"
-   # edit the generated file, then:
-   $ runic upgrade
-   Upgraded to: head
+.. code-block:: python
 
-.. admonition:: Key concepts
+   from runic.orm import Field, Node, Repository, Session
 
-   * **Revision** — a Python file that defines ``upgrade(op)`` and
-     ``downgrade(op)`` functions for one schema change.
-   * **op** — the operations proxy; your migrations call
-     ``op.create_range_index(...)``, ``op.create_constraint(...)``, etc.
-   * **env.py** — your project's connection script, executed by the CLI on
-     every command that needs a live database.
-   * **Version node** — a ``_FalkorMigrateVersion`` node stored inside the
-     graph itself that tracks which revision is currently applied.
+   class Person(Node, labels=["Person"]):
+       id: str = Field()
+       name: str = Field()
+       email: str = Field(index=True, unique=True)
+
+   with Session(graph) as session:
+       session.add(Person(id="alice", name="Alice", email="alice@example.com"))
+       session.commit()
+
+       repo = Repository(session, Person)
+       print(repo.count())   # 1
 
 ----
 
+.. rubric:: ORM
+
 .. grid:: 2
 
-   .. grid-item-card:: Migration — get started
+   .. grid-item-card:: ORM quickstart
+      :link: quickstart
+      :link-type: doc
+
+      Define your first node, open a session, and persist it in under a
+      minute.
+
+   .. grid-item-card:: Core concepts
+      :link: concepts
+      :link-type: doc
+
+      Node, Edge, Field, object states, dirty tracking, identity map.
+
+.. grid:: 2
+
+   .. grid-item-card:: Relationships
+      :link: relationships
+      :link-type: doc
+
+      Lazy/eager loading, polymorphic hierarchies, edge properties.
+
+   .. grid-item-card:: Session & Unit of Work
+      :link: session
+      :link-type: doc
+
+      add · delete · get · flush · commit · rollback · expire.
+
+.. grid:: 2
+
+   .. grid-item-card:: Schema management
+      :link: schema
+      :link-type: doc
+
+      IndexManager and SchemaManager — sync indexes to FalkorDB.
+
+   .. grid-item-card:: ORM API reference
+      :link: api
+      :link-type: doc
+
+      Full autodoc reference for every public class and function.
+
+----
+
+.. rubric:: Migration
+
+.. grid:: 2
+
+   .. grid-item-card:: Migration quickstart
       :link: migration/quickstart
       :link-type: doc
 
       Install runic, run ``runic init``, write your first migration, and
       apply it — all in one page.
-
-   .. grid-item-card:: Migration tutorial
-      :link: migration/tutorial/index
-      :link-type: doc
-
-      Step-by-step walkthroughs covering the full workflow: creating
-      revisions, applying and rolling back, branching, and testing.
-
-.. grid:: 2
 
    .. grid-item-card:: CLI reference
       :link: migration/cli_reference
@@ -74,19 +113,13 @@ gives you a CLI to apply, roll back, inspect, and test those changes safely.
 
       Every command, option, and flag documented with examples.
 
+.. grid:: 2
+
    .. grid-item-card:: Operations reference
       :link: migration/operations_reference
       :link-type: doc
 
       Full list of ``op.*`` calls available inside migration scripts.
-
-.. grid:: 2
-
-   .. grid-item-card:: ORM API reference
-      :link: api
-      :link-type: doc
-
-      ``runic.orm`` — models, sessions, repositories, and type converters.
 
    .. grid-item-card:: Migration API reference
       :link: migration/api
@@ -94,28 +127,22 @@ gives you a CLI to apply, roll back, inspect, and test those changes safely.
 
       ``runic.migrate`` — programmatic migration engine API.
 
-   .. grid-item-card:: Limitations
-      :link: limitations
-      :link-type: doc
-
-      What runic explicitly does **not** cover, and why.
-
+----
 
 .. toctree::
    :hidden:
-   :caption: Getting started
+   :caption: ORM
 
-   installation
+   quickstart
+   concepts
+   relationships
+   session
+   schema
+   api
 
 .. toctree::
    :hidden:
    :caption: Migration
 
+   installation
    migration/index
-
-.. toctree::
-   :hidden:
-   :caption: ORM & API
-
-   api
-   limitations

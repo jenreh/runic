@@ -157,19 +157,19 @@ Internal revision DAG types returned by methods on
 
 ----
 
-runic.exceptions — Migration Exceptions
------------------------------------------
+runic.migrate.exceptions — Migration Exceptions
+-----------------------------------------------
 
-.. autoexception:: runic.exceptions.MultipleHeadsError
+.. autoexception:: runic.migrate.exceptions.MultipleHeadsError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.MultipleBasesError
+.. autoexception:: runic.migrate.exceptions.MultipleBasesError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.ConstraintFailedError
+.. autoexception:: runic.migrate.exceptions.ConstraintFailedError
    :show-inheritance:
 
-.. autoexception:: runic.exceptions.ConstraintTimeoutError
+.. autoexception:: runic.migrate.exceptions.ConstraintTimeoutError
    :show-inheritance:
 
 ----

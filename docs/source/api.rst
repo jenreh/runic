@@ -104,6 +104,31 @@ runic.orm.repository — Repository & Pagination
 
 ----
 
+runic.orm.schema — Index & Schema Management
+---------------------------------------------
+
+.. autoclass:: runic.orm.schema.index_manager.IndexSpec
+   :members:
+   :show-inheritance:
+
+.. autofunction:: runic.orm.schema.index_manager.extract_declared_specs
+
+.. autofunction:: runic.orm.schema.index_manager.parse_existing_specs
+
+.. autoclass:: runic.orm.schema.index_manager.IndexManager
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.schema.schema_manager.ValidationResult
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.schema.schema_manager.SchemaManager
+   :members:
+   :show-inheritance:
+
+----
+
 runic.orm.exceptions
 ---------------------
 
