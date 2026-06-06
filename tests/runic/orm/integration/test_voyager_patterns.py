@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from runic.orm.core.descriptors import Field
+from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.models import Edge, Node
 from runic.orm.repository.pagination import Pageable
 from runic.orm.repository.repository import Repository
@@ -75,11 +75,10 @@ class VUser(Node, labels=["VUser"]):
     id: str = Field()
     name: str = Field()
     email: str = Field()
-    invited_trips: list[VTrip] = Field(
+    invited_trips: list[VTrip] = Relation(
         relationship="INVITED_TO",
         direction="OUTGOING",
         target="VTrip",
-        default=None,
         edge_model="VInvitationEdge",
     )
 

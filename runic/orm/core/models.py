@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, ClassVar, dataclass_transform
 
-from runic.orm.core.descriptors import Field, FieldInfo
+from runic.orm.core.descriptors import Field, FieldDescriptor, FieldInfo
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def _synthesize_plain_annotations(cls: type) -> None:
         ann_str = ann if isinstance(ann, str) else repr(ann)
         if "ClassVar" in ann_str:
             continue
-        if isinstance(cls.__dict__.get(name), Field):
+        if isinstance(cls.__dict__.get(name), FieldDescriptor):
             continue
         val = cls.__dict__.get(name, _ABSENT)
         field = Field() if val is _ABSENT else Field(default=val)
@@ -80,7 +80,7 @@ def _collect_fields(cls: type, stop_at: type) -> list[FieldInfo]:
         if base is object or base is stop_at:
             continue
         for name, val in base.__dict__.items():
-            if isinstance(val, Field) and name not in seen:
+            if isinstance(val, FieldDescriptor) and name not in seen:
                 ann = annotations.get(name)
                 is_coll = _is_collection_annotation(ann)
                 result.append(FieldInfo(name=name, field=val, is_collection=is_coll))

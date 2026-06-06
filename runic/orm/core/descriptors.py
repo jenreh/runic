@@ -1,4 +1,4 @@
-"""Field descriptor for graph entity properties and relationships."""
+"""Field and Relation descriptors for graph entity properties and relationships."""
 
 from __future__ import annotations
 
@@ -52,22 +52,8 @@ class _MissingType:
 MISSING: _MissingType = _MissingType()
 
 
-class FieldInfo:
-    """Pairs a field name with its Field descriptor; used during __init__ generation."""
-
-    __slots__ = ("field", "is_collection", "name")
-
-    def __init__(self, name: str, field: Field, is_collection: bool = False) -> None:
-        self.name = name
-        self.field = field
-        self.is_collection = is_collection
-
-    def __repr__(self) -> str:
-        return f"FieldInfo(name={self.name!r}, field={self.field!r})"
-
-
-class Field:
-    """Descriptor for a graph entity property, index, or relationship.
+class FieldDescriptor:
+    """Descriptor backing both Field() and Relation() declarations.
 
     Behaves as a data descriptor: values are stored per-instance in ``__dict__``.
     Writing to an instance attribute via this descriptor sets ``instance._dirty = True``,
@@ -87,7 +73,7 @@ class Field:
         unique: bool = False,
         required: bool = False,
         primary_key: bool = False,
-        # Relationship options
+        # Relationship options (set only by Relation())
         relationship: str | None = None,
         direction: Literal["OUTGOING", "INCOMING", "BOTH"] | None = None,
         target: str | type | None = None,
@@ -108,7 +94,6 @@ class Field:
                 )
             if target is None:
                 raise ValueError("Relationship fields must specify 'target'.")
-            # Relationship fields default to None unless caller specifies otherwise.
             if default is MISSING and default_factory is None:
                 default = None
 
@@ -205,4 +190,107 @@ class Field:
             parts.append(f"default={self.default!r}")
         if self.relationship:
             parts.append(f"relationship={self.relationship!r}")
-        return f"Field({', '.join(parts)})"
+        return f"FieldDescriptor({', '.join(parts)})"
+
+
+class FieldInfo:
+    """Pairs a field name with its FieldDescriptor; used during __init__ generation."""
+
+    __slots__ = ("field", "is_collection", "name")
+
+    def __init__(
+        self, name: str, field: FieldDescriptor, is_collection: bool = False
+    ) -> None:
+        self.name = name
+        self.field = field
+        self.is_collection = is_collection
+
+    def __repr__(self) -> str:
+        return f"FieldInfo(name={self.name!r}, field={self.field!r})"
+
+
+def Field(  # noqa: N802
+    *,
+    default: Any = MISSING,
+    default_factory: Callable[[], Any] | None = None,
+    init: bool = True,
+    kw_only: bool = True,
+    index: bool = False,
+    index_type: Literal["FULLTEXT", "VECTOR"] | None = None,
+    unique: bool = False,
+    required: bool = False,
+    primary_key: bool = False,
+    converter: TypeConverter | None = None,
+    generated: bool = False,
+) -> Any:
+    """Declare a property field on a Node or Edge.
+
+    Returns a :class:`FieldDescriptor` typed as ``Any`` so that
+    ``name: str = Field()`` is accepted by type checkers without error.
+
+    Example::
+
+        class Person(Node, labels=["Person"]):
+            id: str = Field(primary_key=True)
+            name: str = Field()
+            age: int | None = Field(default=None)
+            email: str = Field(index=True, unique=True)
+    """
+    return FieldDescriptor(
+        default=default,
+        default_factory=default_factory,
+        init=init,
+        kw_only=kw_only,
+        index=index,
+        index_type=index_type,
+        unique=unique,
+        required=required,
+        primary_key=primary_key,
+        converter=converter,
+        generated=generated,
+    )
+
+
+def Relation(  # noqa: N802
+    *,
+    relationship: str,
+    direction: Literal["OUTGOING", "INCOMING", "BOTH"],
+    target: str | type,
+    edge_model: str | type | None = None,
+    cascade: bool = False,
+    lazy: bool = True,
+    default: Any = None,
+    default_factory: Callable[[], Any] | None = None,
+    init: bool = True,
+) -> Any:
+    """Declare a relationship field on a Node.
+
+    Returns a :class:`FieldDescriptor` typed as ``Any`` so that
+    ``company: Company | None = Relation(...)`` is accepted by type checkers.
+
+    Example::
+
+        class Person(Node, labels=["Person"]):
+            id: str = Field()
+            company: Company | None = Relation(
+                relationship="WORKS_FOR",
+                direction="OUTGOING",
+                target="Company",
+            )
+            friends: list["Person"] = Relation(
+                relationship="KNOWS",
+                direction="OUTGOING",
+                target="Person",
+            )
+    """
+    return FieldDescriptor(
+        relationship=relationship,
+        direction=direction,
+        target=target,
+        edge_model=edge_model,
+        cascade=cascade,
+        lazy=lazy,
+        default=default,
+        default_factory=default_factory,
+        init=init,
+    )

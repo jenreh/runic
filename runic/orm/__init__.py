@@ -1,6 +1,13 @@
 """runic.orm — lightweight graph ORM for FalkorDB."""
 
-from runic.orm.core.descriptors import MISSING, Field, FieldInfo, _NOT_LOADED
+from runic.orm.core.descriptors import (
+    MISSING,
+    Field,
+    FieldDescriptor,
+    FieldInfo,
+    Relation,
+    _NOT_LOADED,
+)
 from runic.orm.core.metadata import EdgeMeta, MetaData, NodeMeta, get_metadata, metadata
 from runic.orm.core.models import Edge, Node
 from runic.orm.core.types import DatetimeConverter, EnumConverter, TypeConverter
@@ -37,6 +44,7 @@ __all__ = [
     "EntityNotFoundError",
     "EnumConverter",
     "Field",
+    "FieldDescriptor",
     "FieldInfo",
     "FieldValidationError",
     "IndexManager",
@@ -50,6 +58,7 @@ __all__ = [
     "OrmError",
     "Page",
     "Pageable",
+    "Relation",
     "RelationshipLoader",
     "Repository",
     "SchemaManager",

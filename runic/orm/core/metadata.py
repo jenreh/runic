@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from runic.orm.core.descriptors import FieldInfo
+from runic.orm.core.descriptors import FieldDescriptor, FieldInfo
 
 log = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ def _find_pk_field(fields: list[FieldInfo]) -> str | None:
 
 def _resolve_fields(fields: list[FieldInfo], registry: MetaData) -> None:
     for fi in fields:
-        f = fi.field
+        f: FieldDescriptor = fi.field
         if isinstance(f.target, str):
             resolved = registry.resolve_target(f.target)
             if resolved is not None:

@@ -1,12 +1,19 @@
-"""Unit tests for the Field descriptor."""
+"""Unit tests for the Field and Relation descriptors."""
 
 import pytest
 
-from runic.orm.core.descriptors import MISSING, Field, FieldInfo
+from runic.orm.core.descriptors import (
+    MISSING,
+    Field,
+    FieldDescriptor,
+    FieldInfo,
+    Relation,
+)
+from runic.orm.core.models import Node
 
 
-class _Holder:
-    """Minimal class to host a Field descriptor for testing."""
+class _Holder(Node, labels=["_Holder"]):
+    """Minimal Node to host Field descriptors for testing."""
 
     value: int = Field(default=0)
     name: str = Field()
@@ -14,7 +21,7 @@ class _Holder:
 
 
 # --------------------------------------------------------------------------
-# Construction
+# Field construction
 # --------------------------------------------------------------------------
 
 
@@ -34,7 +41,6 @@ def test_field_default_factory() -> None:
     f = Field(default_factory=list)
     assert f.has_default is True
     assert f.get_default() == []
-    # Each call returns a fresh list.
     assert f.get_default() is not f.get_default()
 
 
@@ -55,29 +61,81 @@ def test_field_index_params() -> None:
     assert f.unique is True
 
 
-def test_field_relationship_auto_defaults_none() -> None:
-    f = Field(relationship="KNOWS", direction="OUTGOING", target="Person")
-    assert f.default is None
-
-
-def test_field_relationship_requires_target() -> None:
-    with pytest.raises(ValueError, match="target"):
-        Field(relationship="KNOWS", direction="OUTGOING")
-
-
-def test_field_relationship_rejects_index() -> None:
-    with pytest.raises(ValueError, match="index"):
-        Field(relationship="KNOWS", direction="OUTGOING", target="X", index=True)
-
-
-def test_field_relationship_rejects_unique() -> None:
-    with pytest.raises(ValueError, match="index"):
-        Field(relationship="KNOWS", direction="OUTGOING", target="X", unique=True)
-
-
 def test_field_primary_key_flag() -> None:
     f = Field(primary_key=True)
     assert f.primary_key is True
+
+
+def test_field_returns_field_descriptor() -> None:
+    f = Field(default=0)
+    assert isinstance(f, FieldDescriptor)
+
+
+# --------------------------------------------------------------------------
+# Relation construction
+# --------------------------------------------------------------------------
+
+
+def test_relation_auto_defaults_none() -> None:
+    r = Relation(relationship="KNOWS", direction="OUTGOING", target="Person")
+    assert r.default is None
+
+
+def test_relation_stores_relationship_params() -> None:
+    r = Relation(
+        relationship="KNOWS",
+        direction="OUTGOING",
+        target="Person",
+        edge_model=None,
+        cascade=False,
+        lazy=True,
+    )
+    assert r.relationship == "KNOWS"
+    assert r.direction == "OUTGOING"
+    assert r.target == "Person"
+    assert r.lazy is True
+    assert r.cascade is False
+
+
+def test_relation_requires_relationship() -> None:
+    with pytest.raises(TypeError):
+        Relation(direction="OUTGOING", target="Person")  # type: ignore[call-arg]
+
+
+def test_relation_requires_direction() -> None:
+    with pytest.raises(TypeError):
+        Relation(relationship="KNOWS", target="Person")  # type: ignore[call-arg]
+
+
+def test_relation_requires_target() -> None:
+    with pytest.raises(TypeError):
+        Relation(relationship="KNOWS", direction="OUTGOING")  # type: ignore[call-arg]
+
+
+def test_relation_rejects_index() -> None:
+    with pytest.raises(ValueError, match="index"):
+        FieldDescriptor(
+            relationship="KNOWS", direction="OUTGOING", target="X", index=True
+        )
+
+
+def test_relation_rejects_unique() -> None:
+    with pytest.raises(ValueError, match="index"):
+        FieldDescriptor(
+            relationship="KNOWS", direction="OUTGOING", target="X", unique=True
+        )
+
+
+def test_relation_returns_field_descriptor() -> None:
+    r = Relation(relationship="KNOWS", direction="OUTGOING", target="Person")
+    assert isinstance(r, FieldDescriptor)
+
+
+def test_relation_custom_default() -> None:
+    r = Relation(
+        relationship="KNOWS", direction="OUTGOING", target="Person", default=[]
+    )
+    assert r.default == []
 
 
 # --------------------------------------------------------------------------
@@ -100,7 +158,6 @@ def test_get_returns_default_when_unset() -> None:
     obj = object.__new__(_Holder)
     obj.__dict__["_dirty"] = False
     obj.__dict__["_new"] = True
-    # 'value' field has default=0; no value stored yet.
     assert _Holder.__dict__["value"].__get__(obj, _Holder) == 0
 
 
@@ -122,7 +179,7 @@ def test_set_stores_value_and_marks_dirty() -> None:
 
 
 def test_get_on_class_returns_descriptor() -> None:
-    assert isinstance(_Holder.__dict__["value"], Field)
+    assert isinstance(_Holder.__dict__["value"], FieldDescriptor)
 
 
 def test_get_raises_when_no_default_and_no_value() -> None:
