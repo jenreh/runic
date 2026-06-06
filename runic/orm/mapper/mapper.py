@@ -208,6 +208,81 @@ class Mapper:
         log.debug("Decoded node as %s", target_cls.__name__)
         return instance
 
+    def decode_edge(self, falkor_edge: Any, hint_cls: type | None = None) -> Any:
+        """Decode a ``falkordb.Edge`` to an ORM Edge instance.
+
+        This is the relationship counterpart of :meth:`decode_node`.  It
+        extracts ``falkor_edge.properties`` into an Edge subclass instance and
+        applies any registered :class:`~runic.orm.core.types.TypeConverter`.
+
+        When an edge alias is present in a query (``(u)-[r:RATED]->(m)``),
+        the ``r`` column is a ``falkordb.Edge`` object; pass it here to get a
+        typed :class:`~runic.orm.core.models.Edge` instance back.
+
+        Parameters
+        ----------
+        falkor_edge:
+            A ``falkordb.Edge`` as returned in a ``QueryResult`` row.
+        hint_cls:
+            The Edge subclass to decode into.  When ``None``, the edge type
+            string from ``falkor_edge.type`` is used to look up the registered
+            class from :attr:`~runic.orm.core.metadata.MetaData`.  Falls back
+            to a plain ``Edge`` instance if no match is found.
+
+        Returns
+        -------
+        Any
+            A decoded instance of *hint_cls* (or the resolved Edge subclass),
+            with ``_new=False`` and ``_dirty=False``.
+
+        Example
+        -------
+        .. code-block:: python
+
+            rows = (
+                session.query(User)
+                .alias("u")
+                .traverse(User.rated, edge_alias="r")
+                .alias("m")
+                .return_nodes("u", "m")
+                .return_edge("r")
+                .all_with_edges()
+            )
+            user, edge, movie = rows[0]
+            # edge is a decoded Rated instance with .score populated
+        """
+        # Resolve the target class
+        target_cls: type | None = hint_cls
+        if target_cls is None:
+            edge_type = getattr(falkor_edge, "type", None) or getattr(
+                falkor_edge, "relation", None
+            )
+            if edge_type is not None:
+                edge_meta = self._meta.resolve_edge_by_type(str(edge_type))
+                if edge_meta is not None:
+                    target_cls = edge_meta.cls
+
+        if target_cls is None:
+            log.debug("No Edge class resolved for falkor_edge; returning raw props")
+            return falkor_edge
+
+        edge_meta_entry = self._meta.get_edge_meta(target_cls)
+        if edge_meta_entry is None:
+            raise MetadataError(
+                f"Class {target_cls.__name__!r} is not a registered Edge subclass"
+            )
+
+        instance: Any = object.__new__(target_cls)
+        instance.__dict__["_new"] = False
+        instance.__dict__["_dirty"] = False
+
+        props: dict[str, Any] = getattr(falkor_edge, "properties", {}) or {}
+        for fi in edge_meta_entry.fields:
+            self._decode_field(instance, fi, props)
+
+        log.debug("Decoded edge as %s", target_cls.__name__)
+        return instance
+
     def update_entity_from_node(self, entity: Any, falkor_node: Any) -> None:
         """Update an existing entity in-place from a FalkorDB node."""
         cls = type(entity)

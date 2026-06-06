@@ -503,3 +503,32 @@ def test_close_clears_identity_map(session: Session, mock_graph: MagicMock) -> N
     session.get(Person, "p1")
     session.close()
     assert len(session._identity_map) == 0
+
+
+# ---------------------------------------------------------------------------
+# log_cypher flag
+# ---------------------------------------------------------------------------
+
+
+def test_log_cypher_logs_query(
+    mock_graph: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    mock_graph.query.return_value = _empty_result()
+    session = Session(mock_graph, log_cypher=True)
+    with caplog.at_level(logging.DEBUG, logger="runic.orm.session.session"):
+        session.execute("MATCH (n) RETURN n", {"x": 1})
+    assert any("MATCH (n) RETURN n" in r.message for r in caplog.records)
+
+
+def test_log_cypher_disabled_by_default(
+    mock_graph: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    mock_graph.query.return_value = _empty_result()
+    session = Session(mock_graph)
+    with caplog.at_level(logging.DEBUG, logger="runic.orm.session.session"):
+        session.execute("MATCH (n) RETURN n")
+    assert not any("MATCH (n) RETURN n" in r.message for r in caplog.records)

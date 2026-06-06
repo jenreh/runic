@@ -5,6 +5,7 @@ Demonstrates:
   - find_all_paginated() → page traversal
   - cypher() / cypher_one() / cypher_raw() helpers in a custom Repository
   - Raw session.execute() for write queries that don't map to a single entity
+  - QueryBuilder: .skip()/.limit() pagination, .where() with OR, aggregations via .all_rows()
 
 Run:
     uv run python examples/orm/04_pagination_and_custom_queries.py
@@ -143,7 +144,8 @@ def run() -> None:
             total_seen += len(items)
             if not page.has_next():
                 break
-            page = repo.find_all_paginated(pageable.next())
+            pageable = pageable.next()
+            page = repo.find_all_paginated(pageable)
         log.info("Walked all pages — total items seen: %d", total_seen)
 
     # --- Custom Cypher helpers ---
@@ -180,6 +182,77 @@ def run() -> None:
         for row in raw.result_set:
             row_dict = dict(zip(header, row, strict=False))
             log.info("  %s", row_dict)
+
+    # --- Query builder: manual skip/limit pagination ---
+    with Session(graph) as session:
+        page_size = 10
+        page_0 = (
+            session.query(Article)
+            .where(Article.status == "published")
+            .order_by(Article.id)
+            .skip(0)
+            .limit(page_size)
+            .all()
+        )
+        page_1 = (
+            session.query(Article)
+            .where(Article.status == "published")
+            .order_by(Article.id)
+            .skip(page_size)
+            .limit(page_size)
+            .all()
+        )
+        log.info(
+            "QueryBuilder page 0: %d items, page 1: %d items",
+            len(page_0),
+            len(page_1),
+        )
+
+    # --- Query builder: OR predicate — articles by alice or bob ---
+    with Session(graph) as session:
+        results = (
+            session.query(Article)
+            .where((Article.author == "alice") | (Article.author == "bob"))
+            .order_by(Article.views, desc=True)
+            .limit(5)
+            .all()
+        )
+        log.info(
+            "QueryBuilder OR top 5 by views: %s",
+            [(a.author, a.views) for a in results],
+        )
+
+    # --- Query builder: in_() membership filter ---
+    with Session(graph) as session:
+        selected = (
+            session.query(Article)
+            .where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
+            .all()
+        )
+        log.info("QueryBuilder in_(): %s", [a.id for a in selected])
+
+    # --- Query builder: count() per status ---
+    with Session(graph) as session:
+        pub_count = session.query(Article).where(Article.status == "published").count()
+        arc_count = session.query(Article).where(Article.status == "archived").count()
+        log.info("QueryBuilder count: published=%d archived=%d", pub_count, arc_count)
+
+    # --- Query builder: project() → author names only ---
+    with Session(graph) as session:
+        from runic.orm import avg, count, sum_
+
+        rows = (
+            session.query(Article)
+            .alias("a")
+            .aggregate(
+                count("*").as_("total"),
+                avg(Article.views).as_("avg_views"),
+                sum_(Article.views).as_("total_views"),
+                group_by="a",
+            )
+            .all_rows()
+        )
+        log.info("QueryBuilder aggregate all_rows: %d rows returned", len(rows))
 
 
 if __name__ == "__main__":

@@ -4,8 +4,9 @@ Demonstrates:
   - OUTGOING relationship from User to Trip
   - Edge model (InvitationEdge) with properties on the edge itself
   - Lazy loading (default) vs eager loading via fetch=
+  - session.relate() / session.unrelate() for mutation without raw Cypher
   - Custom repository methods for reading edge properties
-  - Raw session.execute() for edge creation/reading
+  - QueryBuilder: .traverse(), .all_with_edges(), edge property filtering via .where(on=)
 
 Run:
     uv run python examples/orm/03_relationships_and_edges.py
@@ -150,32 +151,45 @@ def run() -> None:
         session.commit()
         log.info("Created %d users and %d trips", len(users), len(trips))
 
-    # --- Create invitation edges via raw Cypher ---
+    # --- Create invitation edges via session.relate() ---
     with Session(graph) as session:
-        # Alice organises Paris and Tokyo; Bob is invited to Paris
-        invitations = [
-            ("alice", "paris-2026", "owner", "accepted", "2026-01-01T00:00:00"),
-            ("alice", "tokyo-2026", "owner", "accepted", "2026-01-02T00:00:00"),
-            ("bob", "paris-2026", "viewer", "pending", "2026-03-15T09:00:00"),
-        ]
-        for uid, tid, role, status, invited_at in invitations:
-            session.execute(
-                """
-                MATCH (u:User {id: $uid}), (t:Trip {id: $tid})
-                CREATE (u)-[:INVITED_TO {
-                    role: $role, status: $status, invited_at: $invited_at
-                }]->(t)
-                """,
-                {
-                    "uid": uid,
-                    "tid": tid,
-                    "role": role,
-                    "status": status,
-                    "invited_at": invited_at,
-                },
-                write=True,
-            )
-        log.info("Created %d invitation edges", len(invitations))
+        alice = session.get(User, "alice")
+        bob = session.get(User, "bob")
+        paris = session.get(Trip, "paris-2026")
+        tokyo = session.get(Trip, "tokyo-2026")
+        assert alice is not None
+        assert bob is not None
+        assert paris is not None
+        assert tokyo is not None
+
+        # Alice organises Paris and Tokyo; Bob is invited to Paris.
+        # Pass the class-level descriptor (User.invited_trips) instead of a string
+        # for IDE completion and type-checker coverage.
+        session.relate(
+            alice,
+            User.invited_trips,
+            paris,
+            edge=InvitationEdge(
+                role="owner", status="accepted", invited_at="2026-01-01T00:00:00"
+            ),
+        )
+        session.relate(
+            alice,
+            User.invited_trips,
+            tokyo,
+            edge=InvitationEdge(
+                role="owner", status="accepted", invited_at="2026-01-02T00:00:00"
+            ),
+        )
+        session.relate(
+            bob,
+            User.invited_trips,
+            paris,
+            edge=InvitationEdge(
+                role="viewer", status="pending", invited_at="2026-03-15T09:00:00"
+            ),
+        )
+        log.info("Created 3 invitation edges")
 
     # --- Lazy loading ---
     with Session(graph) as session:
@@ -209,6 +223,56 @@ def run() -> None:
         repo.accept_invitation("bob", "paris-2026")
         inv_after = repo.get_invitation("bob", "paris-2026")
         log.info("After accept: status=%s", inv_after and inv_after.get("status"))
+
+    # --- Query builder: traverse User → Trip ---
+    with Session(graph) as session:
+        alice_trips = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips)
+            .alias("t")
+            .return_target("t")
+            .all()
+        )
+        log.info("QueryBuilder: Alice's trips: %s", [t.title for t in alice_trips])
+
+    # --- Query builder: traverse with edge alias + filter on edge property ---
+    with Session(graph) as session:
+        owner_trips = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips, edge_alias="e")
+            .alias("t")
+            .where(InvitationEdge.role == "owner", on="e")
+            .return_target("t")
+            .all()
+        )
+        log.info(
+            "QueryBuilder: Alice owner-role trips: %s",
+            [t.title for t in owner_trips],
+        )
+
+    # --- Query builder: all_with_edges() — returns (User, InvitationEdge, Trip) tuples ---
+    with Session(graph) as session:
+        rows = (
+            session.query(User)
+            .alias("u")
+            .where(User.id == "alice")
+            .traverse(User.invited_trips, edge_alias="e")
+            .alias("t")
+            .return_nodes("u", "t")
+            .return_edge("e")
+            .all_with_edges()
+        )
+        for user, edge, trip in rows:
+            log.info(
+                "QueryBuilder all_with_edges: %s -[%s]-> %s",
+                user.name,
+                edge.role if edge else "?",
+                trip.title,
+            )
 
 
 if __name__ == "__main__":
