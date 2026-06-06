@@ -39,7 +39,10 @@ class Mapper:
         props = self._encode_props(entity, node_meta, include_pk=not generated)
 
         if props:
-            param_str = ", ".join(f"{k}: ${k}" for k in props)
+            param_str = ", ".join(
+                f"{k}: {self._prop_ref(k, self._find_field(node_meta.fields, k))}"
+                for k in props
+            )
             cypher = f"CREATE (n:{labels_str} {{{param_str}}}) RETURN n"
         else:
             cypher = f"CREATE (n:{labels_str}) RETURN n"
@@ -57,7 +60,10 @@ class Mapper:
         if not props:
             return "", {}
 
-        set_str = ", ".join(f"n.{k} = ${k}" for k in props)
+        set_str = ", ".join(
+            f"n.{k} = {self._prop_ref(k, self._find_field(node_meta.fields, k))}"
+            for k in props
+        )
         params: dict[str, Any] = {"__pk": pk_val, **props}
 
         if generated:
@@ -322,6 +328,22 @@ class Mapper:
             return best_cls
 
         raise MetadataError(f"No ORM class registered for labels {list(node_labels)!r}")
+
+    def _field_cypher_fn(self, fi: FieldInfo) -> str | None:
+        """Return the Cypher function name to wrap a param reference, or None."""
+        if fi.field.converter is not None:
+            return getattr(fi.field.converter, "cypher_fn", None)
+        if fi.field.interned:
+            return "intern"
+        return None
+
+    def _prop_ref(self, k: str, fi: FieldInfo | None) -> str:
+        """Return the Cypher param expression for field *k*, wrapping with a function if needed."""
+        if fi is not None:
+            fn = self._field_cypher_fn(fi)
+            if fn:
+                return f"{fn}(${k})"
+        return f"${k}"
 
     def _decode_field(
         self, instance: Any, fi: FieldInfo, props: dict[str, Any]

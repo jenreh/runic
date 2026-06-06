@@ -15,26 +15,26 @@ or :class:`~runic.orm.core.models.Edge`.
    from runic.orm import Edge, Field, Node
 
    class Person(Node, labels=["Person"]):
-       id: str = Field()
-       name: str = Field()
+       id: str = Field(primary_key=True, generated=True)
+       name: str
        email: str = Field(index=True, unique=True)
 
    class InvitationEdge(Edge, type="INVITED_TO"):
-       role: str = Field()
-       status: str = Field()
-       invited_at: str = Field()
+       role: str
+       status: str
+       invited_at: str
 
-**``labels``** controls which FalkorDB labels are applied.  Multi-label
+**labels** controls which FalkorDB labels are applied.  Multi-label
 nodes implement polymorphic hierarchies — see :doc:`relationships`.
 
-**``primary_label``** (optional) is the label used in ``MATCH`` predicates
+**primary_label** (optional) is the label used in ``MATCH`` predicates
 when the node has more than one label:
 
 .. code-block:: python
 
    class Location(Node, labels=["Location"], primary_label="Location"):
-       id: str = Field()
-       title: str = Field()
+       id: str
+       title: str
 
    class Country(Location, labels=["Location", "Country"], primary_label="Location"):
        iso_code: str = Field(unique=True)
@@ -81,10 +81,15 @@ error.
      - Validated on save; raises :exc:`~runic.orm.exceptions.FieldValidationError`
    * - ``converter``
      - :class:`~runic.orm.core.types.TypeConverter`
-     - Custom encode/decode (e.g. datetime ↔ ISO-8601 string)
+     - Custom encode/decode; omit for ``datetime``, ``Enum``, ``Vector``,
+       and ``GeoLocation`` — converters are assigned automatically
    * - ``generated``
      - ``bool``
      - FalkorDB assigns the node ID on ``CREATE``
+   * - ``interned``
+     - ``bool``
+     - Store via FalkorDB's ``intern()`` for deduplication of repeated strings
+       (country names, tags, status codes, etc.)
 
 **Relation parameters**
 
@@ -171,28 +176,70 @@ Repository reads also register entities in the identity map.
 Type converters
 ---------------
 
-Custom Python types can be encoded/decoded with a
-:class:`~runic.orm.core.types.TypeConverter`:
+The ORM assigns converters *automatically* for well-known annotation types —
+no ``converter=`` argument needed:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Annotation type
+     - Converter assigned automatically
+   * - ``datetime``
+     - :class:`~runic.orm.core.types.DatetimeConverter` — stores as ISO-8601 string
+   * - ``Enum`` subclass
+     - :class:`~runic.orm.core.types.EnumConverter` — stores ``.value``
+   * - :class:`~runic.orm.core.types.Vector`
+     - :class:`~runic.orm.core.types.VectorConverter` — stores via ``vecf32()``
+   * - :class:`~runic.orm.core.types.GeoLocation`
+     - :class:`~runic.orm.core.types.GeoLocationConverter` — stores via ``point()``
 
 .. code-block:: python
 
-   from runic.orm import DatetimeConverter, EnumConverter, Field, Node
    from datetime import datetime
-   from enum import Enum
+   from enum import StrEnum
+   from runic.orm import Field, GeoLocation, Node, Vector
 
-   class Status(str, Enum):
+   class Status(StrEnum):
        ACTIVE = "active"
        ARCHIVED = "archived"
 
-   class Trip(Node, labels=["Trip"]):
-       id: str = Field()
-       status: Status = Field(converter=EnumConverter(Status))
-       created_at: datetime = Field(converter=DatetimeConverter())
+   class Place(Node, labels=["Place"]):
+       id: str
+       status: Status                         # EnumConverter auto-assigned
+       created_at: datetime                   # DatetimeConverter auto-assigned
+       embedding: Vector = Field(index_type="VECTOR")  # VectorConverter
+       location: GeoLocation                  # GeoLocationConverter
 
-Built-in converters: :class:`~runic.orm.core.types.DatetimeConverter` and
-:class:`~runic.orm.core.types.EnumConverter`.  Implement
-:class:`~runic.orm.core.types.TypeConverter` (``to_graph`` / ``from_graph``)
-for custom types such as ``GeoPoint``.
+An explicit ``converter=`` always takes precedence over auto-assignment.
+
+**Interned strings**
+
+Use ``interned=True`` to store a string property via FalkorDB's ``intern()``
+function, which deduplicates the value across the database.  Useful for
+high-cardinality-but-low-variety fields like country names or status codes:
+
+.. code-block:: python
+
+   class Person(Node, labels=["Person"]):
+       id: str = Field()
+       country: str = Field(interned=True)
+
+**Custom converters**
+
+Implement :class:`~runic.orm.core.types.TypeConverter` (``to_graph`` /
+``from_graph``) for any type not covered above.  Set ``cypher_fn`` on the
+converter class to wrap the Cypher parameter with a FalkorDB function:
+
+.. code-block:: python
+
+   from runic.orm import TypeConverter
+
+   class MyConverter(TypeConverter):
+       cypher_fn = "myFunc"   # emits myFunc($field) in Cypher
+
+       def to_graph(self, value): ...
+       def from_graph(self, value): ...
 
 Metadata registry
 -----------------

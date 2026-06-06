@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import typing
 from collections.abc import Callable
 from typing import Any, ClassVar, dataclass_transform
 
@@ -134,6 +135,56 @@ def _make_init(field_infos: list[FieldInfo]) -> Callable[..., None]:
     return _generated_init
 
 
+def _apply_auto_converters(cls: type, fields: list[FieldInfo]) -> None:
+    """Assign TypeConverters automatically for well-known annotation types.
+
+    Handles ``datetime``, ``Enum`` subclasses, ``Vector``, and ``GeoLocation``
+    on any field that has no explicit converter and is not a relationship.
+    Falls back silently when annotations cannot be resolved (e.g. forward refs).
+    """
+    from datetime import datetime
+    from enum import Enum
+
+    from runic.orm.core.types import (
+        DatetimeConverter,
+        EnumConverter,
+        GeoLocation,
+        GeoLocationConverter,
+        Vector,
+        VectorConverter,
+    )
+
+    try:
+        hints = typing.get_type_hints(cls)
+    except Exception:
+        return
+
+    for fi in fields:
+        if fi.field.relationship is not None:
+            continue
+        if fi.field.converter is not None:
+            continue
+
+        ann = hints.get(fi.name)
+        if ann is None:
+            continue
+
+        # Unwrap Optional[X] / X | None → X
+        origin = typing.get_origin(ann)
+        args = typing.get_args(ann)
+        if origin is typing.Union and len(args) == 2 and type(None) in args:
+            ann = next(a for a in args if a is not type(None))
+
+        if ann is datetime:
+            fi.field.converter = DatetimeConverter()
+        elif ann is Vector:
+            fi.field.converter = VectorConverter()
+        elif ann is GeoLocation:
+            fi.field.converter = GeoLocationConverter()
+        elif isinstance(ann, type) and issubclass(ann, Enum) and ann is not Enum:
+            fi.field.converter = EnumConverter(ann)
+
+
 # ---------------------------------------------------------------------------
 # Node
 # ---------------------------------------------------------------------------
@@ -183,6 +234,7 @@ class Node:
         cls._primary_label = effective_primary
         _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Node)
+        _apply_auto_converters(cls, cls._fields)
         cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
 
         from runic.orm.core.metadata import metadata
@@ -242,6 +294,7 @@ class Edge:
         cls._edge_type = type if type is not None else cls.__name__
         _synthesize_plain_annotations(cls)
         cls._fields = _collect_fields(cls, Edge)
+        _apply_auto_converters(cls, cls._fields)
         cls.__init__ = _make_init(cls._fields)  # type: ignore[method-assign]
 
         from runic.orm.core.metadata import metadata

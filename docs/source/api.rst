@@ -66,6 +66,22 @@ runic.orm.core — Type Converters
    :members:
    :show-inheritance:
 
+.. autoclass:: runic.orm.core.types.Vector
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.core.types.VectorConverter
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.core.types.GeoLocation
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.core.types.GeoLocationConverter
+   :members:
+   :show-inheritance:
+
 ----
 
 runic.orm.session — Session

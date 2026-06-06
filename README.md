@@ -168,4 +168,4 @@ print("history:", runic.migrate.get_history())
 
 ## Documentation
 
-For a full conceptual overview, advanced CLI usage, and deep dives into branching or multi-head resolution, visit the complete [Runic Documentation](https://runic-migrate.readthedocs.io/latest/).
+For a full conceptual overview, advanced CLI usage, and deep dives into branching or multi-head resolution, visit the complete [Runic Documentation](https://runic-py.readthedocs.io/latest/).
