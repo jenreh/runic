@@ -895,7 +895,7 @@ wheels = [
 
 [[package]]
 name = "runic-py"
-version = "0.2.2"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mako" },
