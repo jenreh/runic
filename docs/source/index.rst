@@ -97,6 +97,12 @@ Documentation for version: 0.2.2.
 
 .. grid:: 2
 
+   .. grid-item-card:: Supported drivers
+      :link: drivers
+      :link-type: doc
+
+      FalkorDB, ArcadeDB, and generic Bolt — feature matrix and limitations.
+
    .. grid-item-card:: ORM API reference
       :link: api
       :link-type: doc
@@ -148,6 +154,7 @@ Documentation for version: 0.2.2.
    session
    query_builder
    schema
+   drivers
    api
 
 .. toctree::
