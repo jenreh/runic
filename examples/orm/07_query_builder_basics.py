@@ -427,9 +427,11 @@ def run() -> None:
     # --- count(DISTINCT field) ---
     with Session(driver) as session:
         rows_dc = session.all_rows(
-            select(Product).aggregate(count(Product.category, distinct=True).as_("n"))
+            select(Product).aggregate(
+                count(Product.category, distinct=True).as_("distinct_cats")
+            )
         )
-        distinct_cats: int | None = rows_dc[0]["n"] if rows_dc else None
+        distinct_cats: int | None = rows_dc[0]["distinct_cats"] if rows_dc else None
         log.info("count(DISTINCT category): %s", distinct_cats)
 
     driver.close()
