@@ -1,7 +1,7 @@
 [project]
 name = "runic-py"
 version = "0.2.2"
-description = "OGM and schema migrations for FalkorDB."
+description = "OGM and schema migrations for Graph Databases."
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
@@ -18,8 +18,19 @@ classifiers = [
 dependencies = [
     "typer>=0.26.0,<1.0.0",
     "rich>=15.0.0,<16.0.0",
-    "falkordb>=1.6.0,<2.0.0",
     "mako>=1.3.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+falkordb = ["falkordb>=1.6.0,<2.0.0"]
+neo4j = ["neo4j>=6.2.0"]
+memgraph = ["neo4j>=6.2.0"]
+arcadedb = ["neo4j>=6.2.0"]
+age = ["psycopg[binary]>=3.3.4"]
+all = [
+    "falkordb>=1.6.0,<2.0.0",
+    "neo4j>=6.2.0",
+    "psycopg[binary]>=3.3.4",
 ]
 
 [dependency-groups]
@@ -38,13 +49,14 @@ dev = [
     "sphinx-copybutton==0.5.2",
     "sphinx-design==0.7.0",
     "ty>=0.0.44",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.scripts]
 runic = "runic.migrate.cli:app"
 
 [project.urls]
-Homepage = "https://runic-py.readthedocs.io/latest/"
+Homepage = "https://runic-py.readthedocs.io/en/latest/"
 Repository = "https://github.com/jenreh/runic"
 
 [tool.hatch.build.targets.wheel]
@@ -230,8 +242,9 @@ cache_dir = ".cache/pytest"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "sonos_live: requires real Sonos hardware on the network",
-    "integration: requires falkordblite (embedded FalkorDB, no external server)",
+    "integration: requires a live graph backend (embedded FalkorDB via redislite by default; other backends via RUNIC_TEST_BACKENDS env var + docker-compose.test.yml)",
+    "requires_multi_label: test requires multi-label node support (not available on Apache AGE)",
+    "requires_geo_update: test requires SET n.prop = point() support (not available on ArcadeDB via Bolt)",
 ]
 
 [tool.ty.environment]
@@ -245,11 +258,15 @@ exclude = [
     ".venv",
     "build",
     "dist",
+    "examples",
 ]
 
 [tool.ty.rules]
 unresolved-import = "warn"
 missing-argument = "error"
+
+[tool.mypy]
+cache_dir = ".cache/mypy"
 
 [tool.coverage.run]
 branch = true

@@ -1,134 +1,19 @@
 """Fluent query builder for the runic ORM.
 
-The :class:`QueryBuilder` (and its async twin :class:`AsyncQueryBuilder`)
-provide a chainable API for constructing graph queries against FalkorDB without
-writing raw Cypher.  Queries are compiled lazily—Cypher + parameters are only
-generated when a terminal method is called (``all()``, ``one()``, ``count()``,
-etc.).
+See :doc:`/query_builder` for the full API reference and examples.
 
-Architecture
-------------
-- :meth:`~Session.query` is the entry point; it returns a ``QueryBuilder[T]``
-  bound to the session and the root Node class.
-- All intermediate methods (``where``, ``traverse``, ``alias``, etc.) mutate
-  the builder **in-place** and return ``self`` for chaining.
-- :meth:`build` compiles the accumulated state to ``(cypher_str, params_dict)``.
-- Terminal methods call :meth:`build`, execute via the session, and decode
-  results using the existing ``Mapper`` / ``map_cypher_result`` machinery.
-
-Quick reference
----------------
-
-.. code-block:: python
-
-    # ── Simple filter ─────────────────────────────────────────────────────
-    users = (
-        session.query(User)
-        .where(User.name == "Alice")
-        .where(User.age > 18)
-        .order_by(User.age, desc=True)
-        .limit(20)
-        .all()
-    )
-
-    # ── Single-hop traversal (OPTIONAL MATCH by default) ──────────────────
-    friends = (
-        session.query(User)
-        .alias("u")
-        .where(User.id == uid)
-        .traverse(User.friends)
-        .alias("f")
-        .where(User.age > 25, on="f")
-        .return_target("f")
-        .all()
-    )
-
-    # ── Traversal with edge properties ────────────────────────────────────
-    rows = (
-        session.query(User)
-        .alias("u")
-        .traverse(User.rated, edge_alias="r")
-        .alias("m")
-        .where(Rated.score > 4.0, on="r")
-        .return_nodes("u", "m")
-        .return_edge("r")
-        .all_with_edges()  # list[tuple[User, Rated, Movie]]
-    )
-
-    # ── Multi-hop traversal ───────────────────────────────────────────────
-    posts = (
-        session.query(User)
-        .alias("u")
-        .traverse(User.friends)
-        .alias("f")
-        .traverse(User.authored_posts)
-        .alias("p")
-        .where(Post.title.contains("graph"), on="p")
-        .return_target("p")
-        .all()
-    )
-
-    # ── Variable-length paths ─────────────────────────────────────────────
-    ancestors = (
-        session.query(Person)
-        .alias("p")
-        .where(Person.id == start_id)
-        .repeat(Person.parent, min_hops=1, max_hops=5)
-        .alias("anc")
-        .all()
-    )
-
-    # ── Aggregation ───────────────────────────────────────────────────────
-    from runic.orm.query import count, avg
-
-    result = (
-        session.query(User)
-        .alias("u")
-        .traverse(User.friends)
-        .aggregate(count("*").as_("friend_count"), group_by="u")
-        .all_rows()  # list[dict] with {"u": User, "friend_count": int}
-    )
-
-    # ── FalkorDB fulltext search ──────────────────────────────────────────
-    posts = (
-        session.fulltext_search(Post, query="graph databases", fields=["title"])
-        .where(Post.published == True)
-        .all()
-    )
-
-    # ── FalkorDB vector KNN search ────────────────────────────────────────
-    similar = (
-        session.vector_search(Document, field=Document.embedding, vector=my_vec, k=10)
-        .where(Document.active == True)
-        .all()
-    )
-
-    # ── Raw escape hatch (still typed via Repository.cypher) ─────────────
-    repo.cypher("MATCH (n:User) WHERE n.score > 0 RETURN n", returns=User)
-
-Cypher generation rules
------------------------
-1. ``MATCH (root_alias:Label)`` is emitted for the root class.
-2. Each :meth:`traverse` / :meth:`repeat` appends an ``OPTIONAL MATCH`` (or
-   ``MATCH``) clause: ``(src)-[:TYPE]->(tgt:Label)`` or
-   ``(src)-[edge:TYPE]->(tgt:Label)`` when an edge alias was given.
-3. Variable-length paths use the ``*min..max`` quantifier:
-   ``(src)-[:TYPE*1..5]->(tgt:Label)``.
-4. :meth:`where` conditions are collected and emitted as a single ``WHERE``
-   clause joined by ``AND``.
-5. ``RETURN`` emits the last traversal target alias (or root alias) by
-   default; use :meth:`return_target`, :meth:`return_nodes`, or
-   :meth:`project` to override.
-6. TypeConverters are respected: if a field has a ``cypher_fn``
-   (e.g. ``"vecf32"``, ``"point"``), the parameter reference is wrapped:
-   ``vecf32($p0)`` instead of ``$p0``.
-7. All user-supplied values are bound as numbered parameters ``$p0``,
-   ``$p1``, … to prevent injection.
+:class:`QueryBuilder` is the core builder; specialised subclasses
+(:class:`~runic.orm.query.specialised.AsyncQueryBuilder`,
+:class:`~runic.orm.query.specialised.FulltextQueryBuilder`,
+:class:`~runic.orm.query.specialised.VectorQueryBuilder`) live in
+:mod:`runic.orm.query.specialised`.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any, Generic, TypeVar
 
 from runic.orm.core.descriptors import FieldDescriptor, FieldInfo
@@ -200,14 +85,13 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         The root Node subclass to query.
     """
 
-    def __init__(self, session: Any, root_cls: type[T]) -> None:
+    def __init__(self, session: Any | None, root_cls: type[T]) -> None:
         from runic.orm.core.metadata import MetaData
 
-        self._session = session
+        self._session: Any = session  # None when unbound (created via select())
         self._root_cls: type[T] = root_cls
-        self._meta: MetaData = getattr(
-            getattr(session, "_mapper", None), "meta", _global_metadata
-        )
+        _mapper = getattr(session, "mapper", None)
+        self._meta: MetaData = getattr(_mapper, "meta", _global_metadata)
 
         # Alias tracking -------------------------------------------------
         # alias → ORM class (Node or Edge)
@@ -246,6 +130,45 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         # Parameter counter ----------------------------------------------
         self._param_counter: int = 0
         self._params: dict[str, Any] = {}
+
+    # ------------------------------------------------------------------
+    # Dialect access
+    # ------------------------------------------------------------------
+
+    @property
+    def _dialect(self) -> Any:
+        if self._session is None:
+            return None
+        return self._session.mapper.dialect
+
+    # ------------------------------------------------------------------
+    # Unbound-statement guard
+    # ------------------------------------------------------------------
+
+    def _check_bound(self) -> None:
+        if self._session is None:
+            raise RuntimeError(
+                "This statement is not bound to a session. "
+                "Use session.scalars(stmt), session.scalar(stmt), "
+                "session.all_rows(stmt), session.all_with_edges(stmt), "
+                "or session.count(stmt) to execute it."
+            )
+
+    @contextmanager
+    def _bound_to(self, session: Any) -> Generator[QueryBuilder[T]]:
+        """Temporarily bind this statement to *session* for execution.
+
+        Used by :class:`~runic.orm.session.session.Session` execution methods
+        so that :meth:`build` has access to the dialect and the identity map is
+        populated correctly.  The binding is restored after the ``with`` block,
+        leaving the statement reusable.
+        """
+        old = self._session
+        self._session = session
+        try:
+            yield self
+        finally:
+            self._session = old
 
     # ------------------------------------------------------------------
     # Alias management
@@ -670,8 +593,13 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             raise ValueError(
                 f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
             )
-        labels_str = ":".join(root_meta.labels)
+        _lc = getattr(self._dialect, "labels_clause", None)
+        labels_str = _lc(root_meta.labels) if _lc else ":".join(root_meta.labels)
+        _sw = getattr(self._dialect, "subtype_where", None)
+        subtype_filter = _sw(self._root_alias, root_meta.labels) if _sw else None
         parts.append(f"MATCH ({self._root_alias}:{labels_str})")
+        if subtype_filter:
+            parts.append(f"WHERE {subtype_filter}")
 
         # ── WHERE (root conditions) + WITH + Traversal + WHERE (post)
         #
@@ -750,6 +678,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             Decoded Node instances of the root type (or target type when
             ``return_target()`` was called).
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -794,6 +723,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             for user, rated_edge, movie in rows:
                 print(f"{user.name} rated {movie.title} with {rated_edge.score}")
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all_with_edges: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -808,6 +738,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             rows = q.aggregate(count("*").as_("n"), group_by="u").all_rows()
             # [{"u": <User>, "n": 5}, ...]
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all_rows: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -819,6 +750,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         Overrides any existing RETURN spec to emit ``RETURN count(*)``.
         Ignores :meth:`limit` and :meth:`skip`.
         """
+        self._check_bound()
         saved_agg = self._agg_exprs
         saved_group = self._group_by_alias
         saved_return = self._return_aliases
@@ -841,21 +773,23 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         self._return_aliases = saved_return
         self._project_fields = saved_project
 
-        if result.result_set:
-            return int(result.result_set[0][0])
+        if result.rows:
+            return int(result.rows[0][0])
         return 0
 
     def scalar(self) -> Any:
         """Execute and return the first column of the first row, or ``None``."""
+        self._check_bound()
         result = self._session.execute(*self.build())
-        if result.result_set and result.result_set[0]:
-            return result.result_set[0][0]
+        if result.rows and result.rows[0]:
+            return result.rows[0][0]
         return None
 
     def scalars(self) -> list[Any]:
         """Execute and return the first column of every row as a flat list."""
+        self._check_bound()
         result = self._session.execute(*self.build())
-        return [row[0] for row in result.result_set]
+        return [row[0] for row in result.rows]
 
     # ------------------------------------------------------------------
     # Internal: traversal registration (called by TraversalStep.alias)
@@ -967,10 +901,11 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
         param_name = self._next_param(param_value)
 
-        # Wrap param ref with cypher_fn if needed
-        cypher_fn = getattr(converter, "cypher_fn", None) if converter else None
-        if fi is not None and fi.field.interned:
-            cypher_fn = "intern"
+        # Wrap param ref with cypher_fn if needed (dialect-aware)
+        _d = self._dialect
+        cypher_fn = (
+            _d.cypher_fn_for_field(fi) if (fi is not None and _d is not None) else None
+        )
         param_ref = f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
 
         if expr.op in ("IN", "NOT IN"):
@@ -1041,7 +976,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         target_cls = self._alias_map.get(return_alias, self._root_cls)
 
         entities: list[T] = []
-        for row in result.result_set:
+        for row in result.rows:
             val = row[0]
             if val is None:
                 continue
@@ -1068,7 +1003,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             columns = [(self._last_alias, False)]
 
         tuples: list[tuple[Any, ...]] = []
-        for row in result.result_set:
+        for row in result.rows:
             decoded_row: list[Any] = []
             for col_idx, (col_alias, is_edge) in enumerate(columns):
                 val = row[col_idx] if col_idx < len(row) else None
@@ -1087,14 +1022,12 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     def _decode_rows_as_dicts(self, result: Any) -> list[dict[str, Any]]:
         """Decode a multi-column result into column-keyed dicts."""
-        from runic.orm.repository.cypher import _extract_header
-
         mapper = self._session.mapper
         register = self._session.register_or_get
-        header = _extract_header(result)
+        header = result.columns
 
         rows: list[dict[str, Any]] = []
-        for row in result.result_set:
+        for row in result.rows:
             d: dict[str, Any] = {}
             for i, val in enumerate(row):
                 col_name = header[i] if i < len(header) else str(i)
@@ -1179,338 +1112,3 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         if isinstance(expr, NegatedExpr):
             return self._expr_targets_root_only(expr.operand)
         return False
-
-
-# ---------------------------------------------------------------------------
-# AsyncQueryBuilder
-# ---------------------------------------------------------------------------
-
-
-class AsyncQueryBuilder(QueryBuilder[T]):
-    """Async variant of :class:`QueryBuilder` for use with
-    :class:`~runic.orm.session.async_session.AsyncSession`.
-
-    All intermediate (chainable) methods are identical to the sync version.
-    Only the **terminal** methods are replaced with ``async def`` equivalents.
-
-    Example
-    -------
-    .. code-block:: python
-
-        async with AsyncSession(graph) as session:
-            users = await (
-                session.query(User)
-                .where(User.active == True)
-                .order_by(User.name)
-                .limit(50)
-                .all()
-            )
-    """
-
-    async def all(self) -> list[T]:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.all`."""
-        cypher, params = self.build()
-        log.debug("AsyncQueryBuilder.all: %s", cypher)
-        result = await self._session.execute(cypher, params)
-        return self._decode_node_result(result)
-
-    async def one(self) -> T | None:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.one`."""
-        self.limit(1)
-        items = await self.all()
-        return items[0] if items else None
-
-    async def all_with_edges(self) -> list[tuple[Any, ...]]:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.all_with_edges`."""
-        cypher, params = self.build()
-        log.debug("AsyncQueryBuilder.all_with_edges: %s", cypher)
-        result = await self._session.execute(cypher, params)
-        return self._decode_edge_result(result)
-
-    async def all_rows(self) -> list[dict[str, Any]]:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.all_rows`."""
-        cypher, params = self.build()
-        log.debug("AsyncQueryBuilder.all_rows: %s", cypher)
-        result = await self._session.execute(cypher, params)
-        return self._decode_rows_as_dicts(result)
-
-    async def count(self) -> int:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.count`."""
-        saved_agg = self._agg_exprs
-        saved_group = self._group_by_alias
-        saved_return = self._return_aliases
-        saved_project = self._project_fields
-
-        from runic.orm.query.expressions import count as _count_fn
-
-        self._agg_exprs = [_count_fn("*").as_("_count")]
-        self._group_by_alias = None
-        self._return_aliases = None
-        self._project_fields = []
-
-        cypher, params = self.build()
-        log.debug("AsyncQueryBuilder.count: %s", cypher)
-        result = await self._session.execute(cypher, params)
-
-        self._agg_exprs = saved_agg
-        self._group_by_alias = saved_group
-        self._return_aliases = saved_return
-        self._project_fields = saved_project
-
-        if result.result_set:
-            return int(result.result_set[0][0])
-        return 0
-
-    async def scalar(self) -> Any:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.scalar`."""
-        result = await self._session.execute(*self.build())
-        if result.result_set and result.result_set[0]:
-            return result.result_set[0][0]
-        return None
-
-    async def scalars(self) -> list[Any]:  # type: ignore[override]
-        """Async version of :meth:`~QueryBuilder.scalars`."""
-        result = await self._session.execute(*self.build())
-        return [row[0] for row in result.result_set]
-
-
-# ---------------------------------------------------------------------------
-# FulltextQueryBuilder
-# ---------------------------------------------------------------------------
-
-
-class FulltextQueryBuilder(QueryBuilder[T]):
-    """QueryBuilder variant for FalkorDB fulltext search queries.
-
-    Constructed via :meth:`~runic.orm.session.session.Session.fulltext_search`.
-    The root MATCH is replaced with a ``CALL db.idx.fulltext.queryNodes(...)``
-    invocation that uses the declared fulltext index.
-
-    The fulltext index must have been created for the node's label, e.g.::
-
-        class Post(Node, labels=["Post"]):
-            title: str = Field(index_type="FULLTEXT")
-
-    Example
-    -------
-    .. code-block:: python
-
-        posts = (
-            session.fulltext_search(Post, query="graph databases", fields=["title"])
-            .where(Post.published == True)
-            .order_by(Post.created_at, desc=True)
-            .limit(20)
-            .all()
-        )
-
-    Cypher emitted::
-
-        CALL db.idx.fulltext.queryNodes('Post', $__fts_query) YIELD node AS n
-        WHERE n.published = $p0
-        RETURN n
-        ORDER BY n.created_at DESC
-        LIMIT 20
-    """
-
-    def __init__(
-        self,
-        session: Any,
-        root_cls: type[T],
-        query: str,
-        fields: list[str] | None = None,
-    ) -> None:
-        super().__init__(session, root_cls)
-        self._fts_query = query
-        self._fts_fields = fields
-
-    def build(self) -> tuple[str, dict[str, Any]]:
-        """Compile to Cypher, replacing MATCH with CALL fulltext procedure."""
-        self._param_counter = 0
-        self._params = {"__fts_query": self._fts_query}
-
-        root_meta = self._meta.get_node_meta(self._root_cls)
-        if root_meta is None:
-            raise ValueError(
-                f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
-            )
-
-        alias = self._root_alias
-        label = root_meta.primary_label
-        parts: list[str] = [
-            f"CALL db.idx.fulltext.queryNodes('{label}', $__fts_query) YIELD node AS {alias}"
-        ]
-
-        # Extra OPTIONAL MATCHes for traversals (root WHERE + WITH go first)
-        if self._where_exprs and self._match_clauses:
-            root_exprs, post_exprs = self._split_where_exprs()
-        else:
-            root_exprs = []
-            post_exprs = self._where_exprs
-
-        if root_exprs:
-            cond = self._compile_expr(
-                root_exprs[0]
-                if len(root_exprs) == 1
-                else CompoundExpr(op="AND", operands=root_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
-
-        if post_exprs:
-            cond = self._compile_expr(
-                post_exprs[0]
-                if len(post_exprs) == 1
-                else CompoundExpr(op="AND", operands=post_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        parts.append(self._compile_return())
-
-        if self._order:
-            parts.append(f"ORDER BY {', '.join(o.to_cypher() for o in self._order)}")
-        if self._skip_val is not None:
-            parts.append(f"SKIP {self._skip_val}")
-        if self._limit_val is not None:
-            parts.append(f"LIMIT {self._limit_val}")
-
-        return "\n".join(parts), dict(self._params)
-
-
-# ---------------------------------------------------------------------------
-# VectorQueryBuilder
-# ---------------------------------------------------------------------------
-
-
-class VectorQueryBuilder(QueryBuilder[T]):
-    """QueryBuilder variant for FalkorDB vector KNN search.
-
-    Constructed via :meth:`~runic.orm.session.session.Session.vector_search`.
-    Appends a KNN distance expression to the ORDER BY and RETURN clauses.
-
-    The field must have ``index_type="VECTOR"`` and an HNSW vector index
-    must be created via :meth:`~runic.orm.schema.schema_manager.SchemaManager`::
-
-        class Document(Node, labels=["Document"]):
-            embedding: Vector = Field(index_type="VECTOR")
-
-    Example
-    -------
-    .. code-block:: python
-
-        similar = (
-            session.vector_search(
-                Document,
-                field=Document.embedding,
-                vector=[0.1, 0.2, 0.3],
-                k=10,
-            )
-            .where(Document.active == True)
-            .all()
-        )
-
-    Cypher emitted (FalkorDB KNN syntax)::
-
-        MATCH (n:Document)
-        WHERE n.active = $p0
-        RETURN n, vecf32(n.embedding) <-> vecf32($__knn_vec) AS __score
-        ORDER BY __score ASC
-        LIMIT 10
-
-    Note
-    ----
-    The exact FalkorDB KNN Cypher syntax may vary by version.  If the above
-    pattern does not work, use ``repo.cypher()`` with a hand-written query.
-    """
-
-    def __init__(
-        self,
-        session: Any,
-        root_cls: type[T],
-        field: FieldDescriptor,
-        vector: list[float],
-        k: int,
-    ) -> None:
-        super().__init__(session, root_cls)
-        self._knn_field = field
-        self._knn_vector = vector
-        self._knn_k = k
-
-    def build(self) -> tuple[str, dict[str, Any]]:
-        """Compile to Cypher with KNN ORDER BY."""
-        self._param_counter = 0
-        self._params = {"__knn_vec": list(self._knn_vector)}
-
-        root_meta = self._meta.get_node_meta(self._root_cls)
-        if root_meta is None:
-            raise ValueError(
-                f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
-            )
-
-        labels_str = ":".join(root_meta.labels)
-        alias = self._root_alias
-        field_alias = (
-            self._alias_for_cls(self._knn_field.owner)
-            if self._knn_field.owner
-            else self._root_alias
-        )
-        field_name = self._knn_field.field_name
-
-        parts: list[str] = [f"MATCH ({alias}:{labels_str})"]
-
-        if self._where_exprs and self._match_clauses:
-            root_exprs, post_exprs = self._split_where_exprs()
-        else:
-            root_exprs = []
-            post_exprs = self._where_exprs
-
-        if root_exprs:
-            cond = self._compile_expr(
-                root_exprs[0]
-                if len(root_exprs) == 1
-                else CompoundExpr(op="AND", operands=root_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
-
-        if post_exprs:
-            cond = self._compile_expr(
-                post_exprs[0]
-                if len(post_exprs) == 1
-                else CompoundExpr(op="AND", operands=post_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        # KNN return includes the distance score
-        return_part = self._compile_return()
-        if "RETURN" in return_part and "__score" not in return_part:
-            knn_expr = (
-                f"vecf32({field_alias}.{field_name}) <-> vecf32($__knn_vec) AS __score"
-            )
-            return_part = return_part + f", {knn_expr}"
-        parts.append(return_part)
-
-        # KNN ordering: always by score ASC, then any user orders
-        knn_order = "ORDER BY __score ASC"
-        if self._order:
-            user_order = ", ".join(o.to_cypher() for o in self._order)
-            parts.append(f"{knn_order}, {user_order}")
-        else:
-            parts.append(knn_order)
-
-        if self._skip_val is not None:
-            parts.append(f"SKIP {self._skip_val}")
-        # k overrides limit if no explicit limit was set
-        effective_limit = (
-            self._limit_val if self._limit_val is not None else self._knn_k
-        )
-        parts.append(f"LIMIT {effective_limit}")
-
-        return "\n".join(parts), dict(self._params)

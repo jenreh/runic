@@ -2,10 +2,11 @@ Quickstart
 ==========
 
 This page takes you from a fresh install to a working migration in about
-five minutes.
+five minutes.  The example uses FalkorDB; swap the adapter name and
+connection kwargs for any other supported backend (see :doc:`../installation`).
 
-Prerequisites: runic installed (:doc:`../installation`) and a FalkorDB instance
-reachable at ``falkor://localhost:6379``.
+Prerequisites: runic installed (:doc:`../installation`) and a graph database
+reachable — e.g. FalkorDB at ``falkor://localhost:6379``.
 
 Step 1 — Initialise the migration directory
 --------------------------------------------
@@ -97,8 +98,39 @@ you may want to enable:
        # track_installed_by=True,          # set False to skip OS-user attribution
    )
 
-Set ``FALKORDB_URL`` and ``FALKORDB_GRAPH`` in your environment (or a
-``.env`` file loaded by your shell).
+Set connection environment variables (here ``FALKORDB_URL`` and ``FALKORDB_GRAPH``)
+in your environment or a ``.env`` file loaded by your shell.
+
+**Using a different backend** — swap ``create_adapter`` name and kwargs:
+
+.. code-block:: python
+
+   # ArcadeDB (Bolt protocol)
+   adapter = create_adapter(
+       "arcadedb",
+       host=os.getenv("ARCADEDB_HOST", "localhost"),
+       database=os.getenv("ARCADEDB_DATABASE", "my_db"),
+   )
+
+   # Neo4j
+   adapter = create_adapter(
+       "neo4j",
+       host=os.getenv("NEO4J_HOST", "localhost"),
+       database=os.getenv("NEO4J_DATABASE", "neo4j"),
+       password=os.getenv("NEO4J_PASSWORD", ""),
+   )
+
+   # Apache AGE (PostgreSQL)
+   adapter = create_adapter(
+       "age",
+       host=os.getenv("AGE_HOST", "localhost"),
+       graph=os.getenv("AGE_GRAPH", "my_graph"),
+       password=os.getenv("POSTGRES_PASSWORD", ""),
+   )
+
+All backends support the same ``upgrade``/``downgrade``/``stamp``/``current``
+workflow.  Schema-drift autogenerate (``runic revision --autogenerate``) is
+FalkorDB-only — see :doc:`autogenerate` and :doc:`../migration/limitations`.
 
 Step 3 — Create your first revision
 --------------------------------------

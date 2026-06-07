@@ -1,9 +1,11 @@
-"""ConnectionManager: thin wrapper for sync and async FalkorDB graph handles."""
+"""ConnectionManager: thin wrapper for sync and async FalkorDB connections."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
+
+from runic.orm.driver.falkordb import AsyncFalkorDBDriver, FalkorDBDriver
 
 log = logging.getLogger(__name__)
 
@@ -11,22 +13,21 @@ log = logging.getLogger(__name__)
 class ConnectionManager:
     """Manages a FalkorDB connection for use with Session.
 
-    Holds the db client and graph name; ``acquire()`` returns a graph handle.
-    Full connection pooling can be added in a later phase without changing the API.
+    Holds the db client and graph name; ``acquire()`` returns a ``FalkorDBDriver``.
     """
 
     def __init__(self, db: Any, graph_name: str) -> None:
         self._db = db
         self._graph_name = graph_name
 
-    def acquire(self) -> Any:
-        """Return a graph handle for the configured graph name."""
+    def acquire(self) -> FalkorDBDriver:
+        """Return a :class:`~runic.orm.driver.falkordb.FalkorDBDriver` for the configured graph."""
         graph = self._db.select_graph(self._graph_name)
         log.debug("Acquired graph handle: %s", self._graph_name)
-        return graph
+        return FalkorDBDriver(graph)
 
-    def release(self, graph: Any) -> None:  # noqa: ARG002
-        """Release a graph handle back to the pool (no-op in current impl)."""
+    def release(self, driver: FalkorDBDriver) -> None:  # noqa: ARG002
+        """Release a driver back to the pool (no-op in current impl)."""
 
     @property
     def graph_name(self) -> str:
@@ -41,14 +42,14 @@ class AsyncConnectionManager:
         self._db = db
         self._graph_name = graph_name
 
-    def acquire(self) -> Any:
-        """Return an async graph handle for the configured graph name."""
+    def acquire(self) -> AsyncFalkorDBDriver:
+        """Return an :class:`~runic.orm.driver.falkordb.AsyncFalkorDBDriver` for the configured graph."""
         graph = self._db.select_graph(self._graph_name)
         log.debug("Acquired async graph handle: %s", self._graph_name)
-        return graph
+        return AsyncFalkorDBDriver(graph)
 
-    async def release(self, graph: Any) -> None:  # noqa: ARG002
-        """Release an async graph handle (no-op in current impl)."""
+    async def release(self, driver: AsyncFalkorDBDriver) -> None:  # noqa: ARG002
+        """Release an async driver (no-op in current impl)."""
 
     @property
     def graph_name(self) -> str:

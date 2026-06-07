@@ -1,11 +1,8 @@
-"""Schema management for FalkorDB graph indexes and constraints."""
+"""ORM schema utilities: IndexSpec and entity-declaration extraction."""
 
-from runic.orm.schema.index_manager import IndexManager, IndexSpec
-from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
+from runic.orm.schema.index_manager import IndexSpec, extract_declared_specs
 
 __all__ = [
-    "IndexManager",
     "IndexSpec",
-    "SchemaManager",
-    "ValidationResult",
+    "extract_declared_specs",
 ]

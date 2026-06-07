@@ -1,11 +1,11 @@
-"""AsyncSession: async parity of Session for FalkorDB async graph clients."""
+"""AsyncSession: async unit-of-work manager for graph writes."""
 
 from __future__ import annotations
 
 import logging
 import weakref
 from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
@@ -14,7 +14,13 @@ from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.mapper.relationship_writer import RelationshipWriter
 
+if TYPE_CHECKING:
+    from runic.orm.driver import AsyncGraphDriver, GraphResult
+    from runic.orm.query.builder import QueryBuilder
+
 log = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class AsyncSession:
@@ -33,15 +39,17 @@ class AsyncSession:
 
     def __init__(
         self,
-        graph: Any,
+        driver: AsyncGraphDriver,
         mapper: Mapper | None = None,
         *,
         log_cypher: bool = False,
     ) -> None:
-        self._graph = graph
+        self._driver = driver
         self._log_cypher = log_cypher
         self._mapper: Mapper = (
-            mapper if mapper is not None else Mapper(_global_metadata)
+            mapper
+            if mapper is not None
+            else Mapper(_global_metadata, dialect=driver.dialect)
         )
         self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
         self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
@@ -53,10 +61,10 @@ class AsyncSession:
     # Internal query runner
     # ------------------------------------------------------------------
 
-    async def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+    async def _run_query(self, cypher: str, params: dict[str, Any]) -> GraphResult:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
-        return await self._graph.query(cypher, params)
+        return await self._driver.execute(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -139,11 +147,11 @@ class AsyncSession:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = await self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        falkor_node = result.result_set[0][0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        raw_node = result.rows[0][0]
+        entity = self._mapper.decode_node(raw_node, cls)
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
         return entity
@@ -286,6 +294,127 @@ class AsyncSession:
         return await self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
+    # Statement-based execution (select() pattern)
+    # ------------------------------------------------------------------
+
+    async def scalars(self, stmt: QueryBuilder[_T]) -> list[_T]:
+        """Execute a :func:`~runic.orm.query.select` statement; return decoded entities.
+
+        Type-safe: ``await session.scalars(select(User).where(...))`` infers ``list[User]``.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
+            via :func:`~runic.orm.query.select`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalars() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = await self._run_query(cypher, params)
+            return bound._decode_node_result(result)  # type: ignore[return-value]  # noqa: SLF001
+
+    async def scalar(self, stmt: QueryBuilder[_T]) -> _T | None:
+        """Execute a :func:`~runic.orm.query.select` statement; return first entity or ``None``.
+
+        Adds ``LIMIT 1`` internally without permanently modifying the statement.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalar() expects a QueryBuilder created by select()")
+        old_limit = stmt._limit_val  # noqa: SLF001
+        stmt._limit_val = 1  # noqa: SLF001
+        try:
+            with stmt._bound_to(self) as bound:  # noqa: SLF001
+                cypher, params = bound.build()
+                result = await self._run_query(cypher, params)
+                entities = bound._decode_node_result(result)  # noqa: SLF001
+                return entities[0] if entities else None  # type: ignore[return-value]
+        finally:
+            stmt._limit_val = old_limit  # noqa: SLF001
+
+    async def all_rows(self, stmt: QueryBuilder[Any]) -> list[dict[str, Any]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return column-keyed dicts.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("all_rows() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = await self._run_query(cypher, params)
+            return bound._decode_rows_as_dicts(result)  # noqa: SLF001
+
+    async def all_with_edges(self, stmt: QueryBuilder[Any]) -> list[tuple[Any, ...]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return ``(NodeA, Edge, NodeB)`` tuples.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` with
+            ``return_nodes()`` and ``return_edge()`` configured.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError(
+                "all_with_edges() expects a QueryBuilder created by select()"
+            )
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = await self._run_query(cypher, params)
+            return bound._decode_edge_result(result)  # noqa: SLF001
+
+    async def count(self, stmt: QueryBuilder[Any]) -> int:
+        """Execute a :func:`~runic.orm.query.select` statement; return the row count.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+        from runic.orm.query.expressions import count as _count_fn
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("count() expects a QueryBuilder created by select()")
+        # Can't call sync stmt.count() (uses sync _session.execute); replicate its logic async.
+        old_limit = stmt._limit_val  # noqa: SLF001
+        old_agg = stmt._agg_exprs  # noqa: SLF001
+        old_group = stmt._group_by_alias  # noqa: SLF001
+        old_return = stmt._return_aliases  # noqa: SLF001
+        old_project = stmt._project_fields  # noqa: SLF001
+        stmt._agg_exprs = [_count_fn("*").as_("_count")]  # noqa: SLF001
+        stmt._group_by_alias = None  # noqa: SLF001
+        stmt._return_aliases = None  # noqa: SLF001
+        stmt._project_fields = []  # noqa: SLF001
+        try:
+            with stmt._bound_to(self) as bound:  # noqa: SLF001
+                cypher, params = bound.build()
+                result = await self._run_query(cypher, params)
+                return int(result.rows[0][0]) if result.rows else 0
+        finally:
+            stmt._limit_val = old_limit  # noqa: SLF001
+            stmt._agg_exprs = old_agg  # noqa: SLF001
+            stmt._group_by_alias = old_group  # noqa: SLF001
+            stmt._return_aliases = old_return  # noqa: SLF001
+            stmt._project_fields = old_project  # noqa: SLF001
+
+    # ------------------------------------------------------------------
     # Query builder entry points
     # ------------------------------------------------------------------
 
@@ -300,7 +429,7 @@ class AsyncSession:
                     session.query(User).where(User.active == True).limit(20).all()
                 )
         """
-        from runic.orm.query.builder import AsyncQueryBuilder
+        from runic.orm.query.specialised import AsyncQueryBuilder
 
         return AsyncQueryBuilder(self, cls)
 
@@ -312,7 +441,7 @@ class AsyncSession:
         fields: list[str] | None = None,
     ) -> Any:
         """Async fulltext search; mirrors :meth:`~runic.orm.session.session.Session.fulltext_search`."""
-        from runic.orm.query.builder import FulltextQueryBuilder
+        from runic.orm.query.specialised import FulltextQueryBuilder
 
         return FulltextQueryBuilder(self, cls, query=query, fields=fields)
 
@@ -325,7 +454,7 @@ class AsyncSession:
         k: int = 10,
     ) -> Any:
         """Async vector KNN search; mirrors :meth:`~runic.orm.session.session.Session.vector_search`."""
-        from runic.orm.query.builder import VectorQueryBuilder
+        from runic.orm.query.specialised import VectorQueryBuilder
 
         return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 
@@ -363,12 +492,12 @@ class AsyncSession:
         )
         result = await self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        row = result.result_set[0]
-        falkor_node = row[0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        row = result.rows[0]
+        raw_node = row[0]
+        entity = self._mapper.decode_node(raw_node, cls)
         related = self._rel_loader.decode_eager_columns(row, entity, fetch_meta)
 
         actual_pk = self._mapper.get_pk_value(entity)
@@ -396,9 +525,9 @@ class AsyncSession:
             cypher, params = self._mapper.build_create_query(entity)
             result = await self._run_query(cypher, params)
 
-            falkor_node = result.result_set[0][0] if result.result_set else None
-            if falkor_node is not None:
-                self._mapper.update_entity_from_node(entity, falkor_node)
+            raw_node = result.rows[0][0] if result.rows else None
+            if raw_node is not None:
+                self._mapper.update_entity_from_node(entity, raw_node)
 
             entity.__dict__["_new"] = False
             entity.__dict__["_dirty"] = False
@@ -422,8 +551,8 @@ class AsyncSession:
                 continue
 
             result = await self._run_query(cypher, params)
-            if result.result_set:
-                self._mapper.update_entity_from_node(entity, result.result_set[0][0])
+            if result.rows:
+                self._mapper.update_entity_from_node(entity, result.rows[0][0])
             else:
                 entity.__dict__["_dirty"] = False
 
@@ -464,10 +593,9 @@ class AsyncSession:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = await self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             raise EntityNotFoundError(
                 f"{cls.__name__} pk={pk!r} no longer exists in the graph"
             )
 
-        falkor_node = result.result_set[0][0]
-        self._mapper.update_entity_from_node(entity, falkor_node)
+        self._mapper.update_entity_from_node(entity, result.rows[0][0])

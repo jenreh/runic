@@ -155,4 +155,7 @@ class GeoLocationConverter(TypeConverter):
                 latitude=value["latitude"],
                 longitude=value["longitude"],
             )
+        # neo4j.spatial.WGS84Point and similar have .latitude/.longitude attrs
+        if hasattr(value, "latitude") and hasattr(value, "longitude"):
+            return GeoLocation(latitude=value.latitude, longitude=value.longitude)
         return value

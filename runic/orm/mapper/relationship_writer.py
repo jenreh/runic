@@ -9,6 +9,7 @@ from runic.orm.core.descriptors import FieldInfo
 from runic.orm.core.metadata import MetaData, NodeMeta
 
 if TYPE_CHECKING:
+    from runic.orm.driver import GraphDialect
     from runic.orm.mapper.mapper import Mapper
 
 log = logging.getLogger(__name__)
@@ -48,9 +49,10 @@ class RelationshipWriter:
         rel_type = fi.field.relationship
         direction = fi.field.direction or "OUTGOING"
 
-        match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen)
-        match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen)
-        merge_rel = _rel_clause("MERGE", "a", "b", rel_type, direction, "r")
+        dialect = self._mapper.dialect
+        match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen, dialect)
+        match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen, dialect)
+        merge_rel = _rel_clause("MERGE", "a", "b", rel_type, direction, "r", dialect)
 
         params: dict[str, Any] = {"__src_pk": src_pk, "__tgt_pk": tgt_pk}
         clauses = [match_a, match_b, merge_rel]
@@ -82,8 +84,9 @@ class RelationshipWriter:
         rel_type = fi.field.relationship
         direction = fi.field.direction or "OUTGOING"
 
-        match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen)
-        match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen)
+        dialect = self._mapper.dialect
+        match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen, dialect)
+        match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen, dialect)
         match_rel = _rel_clause("MATCH", "a", "b", rel_type, direction, "r")
 
         params: dict[str, Any] = {"__src_pk": src_pk, "__tgt_pk": tgt_pk}
@@ -117,14 +120,19 @@ class RelationshipWriter:
 
 
 def _node_match_clause(
-    alias: str, node_meta: NodeMeta, pk_param: str, generated: bool
+    alias: str,
+    node_meta: NodeMeta,
+    pk_param: str,
+    generated: bool,
+    dialect: GraphDialect | None = None,
 ) -> str:
     """Return a single ``MATCH`` clause for one node."""
     if generated:
-        return (
-            f"MATCH ({alias}:{node_meta.primary_label}) "
-            f"WHERE id({alias}) = toInteger(${pk_param})"
-        )
+        if dialect is not None:
+            id_where = dialect.generated_id_where(alias, pk_param)
+        else:
+            id_where = f"WHERE id({alias}) = toInteger(${pk_param})"
+        return f"MATCH ({alias}:{node_meta.primary_label}) {id_where}"
     pk_name = node_meta.pk_field_name or "id"
     return f"MATCH ({alias}:{node_meta.primary_label} {{{pk_name}: ${pk_param}}})"
 
@@ -136,10 +144,18 @@ def _rel_clause(
     rel_type: str | None,
     direction: str,
     alias: str,
+    dialect: Any = None,
 ) -> str:
-    """Return a ``MERGE`` or ``MATCH`` clause for a directed relationship."""
-    if direction == "OUTGOING":
+    """Return a ``MERGE`` or ``MATCH`` clause for a directed or undirected relationship."""
+    effective = direction
+    if (
+        direction == "BOTH"
+        and verb == "MERGE"
+        and not getattr(dialect, "supports_undirected_merge", True)
+    ):
+        effective = "OUTGOING"
+    if effective == "OUTGOING":
         return f"{verb} ({src})-[{alias}:{rel_type}]->({tgt})"
-    if direction == "INCOMING":
+    if effective == "INCOMING":
         return f"{verb} ({src})<-[{alias}:{rel_type}]-({tgt})"
     return f"{verb} ({src})-[{alias}:{rel_type}]-({tgt})"

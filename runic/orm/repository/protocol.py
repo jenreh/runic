@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from runic.orm.repository.pagination import Page, Pageable
-
 
 class RepositoryProtocol[T](Protocol):  # pragma: no cover
     """Structural contract for the synchronous Repository."""
 
-    def find_all(self, fetch: list[str] | None = None) -> list[T]: ...
+    def find_all(
+        self,
+        fetch: list[str] | None = None,
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[T]: ...
 
     def find_all_by_ids(
         self, pks: list[Any], fetch: list[str] | None = None
@@ -19,8 +22,6 @@ class RepositoryProtocol[T](Protocol):  # pragma: no cover
     def count(self) -> int: ...
 
     def exists(self, pk: Any) -> bool: ...
-
-    def find_all_paginated(self, pageable: Pageable) -> Page[T]: ...
 
     def cypher(
         self,
@@ -52,7 +53,12 @@ class RepositoryProtocol[T](Protocol):  # pragma: no cover
 class AsyncRepositoryProtocol[T](Protocol):  # pragma: no cover
     """Structural contract for the asynchronous AsyncRepository."""
 
-    async def find_all(self, fetch: list[str] | None = None) -> list[T]: ...
+    async def find_all(
+        self,
+        fetch: list[str] | None = None,
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[T]: ...
 
     async def find_all_by_ids(
         self, pks: list[Any], fetch: list[str] | None = None
@@ -61,8 +67,6 @@ class AsyncRepositoryProtocol[T](Protocol):  # pragma: no cover
     async def count(self) -> int: ...
 
     async def exists(self, pk: Any) -> bool: ...
-
-    async def find_all_paginated(self, pageable: Pageable) -> Page[T]: ...
 
     async def cypher(
         self,

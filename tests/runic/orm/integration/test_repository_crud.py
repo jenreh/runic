@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
-import secrets
 from typing import Any
 
 import pytest
@@ -12,13 +10,6 @@ from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
-
-try:
-    from redislite import FalkorDB as _FalkorDB
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
 
 pytestmark = pytest.mark.integration
 
@@ -57,23 +48,12 @@ class CrudCountry(
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("falkordblite (redislite) not installed")
-    db = _FalkorDB(protocol=2)
-    g = db.select_graph(f"test_repo_{secrets.token_hex(6)}")
-    yield g
-    with contextlib.suppress(Exception):
-        g.delete()
-
-
-@pytest.fixture
-def populated_graph(graph: Any) -> Any:
+def populated_graph(graph_driver: Any) -> Any:
     """Graph pre-loaded with 5 CrudPerson nodes."""
-    with Session(graph) as s:
+    with Session(graph_driver) as s:
         for i in range(1, 6):
             s.add(CrudPerson(id=f"p{i}", name=f"Person {i}", age=20 + i))
-    return graph
+    return graph_driver
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +68,8 @@ def test_find_all_returns_all_entities(populated_graph: Any) -> None:
     assert len(all_people) == 5
 
 
-def test_find_all_empty_graph(graph: Any) -> None:
-    with Session(graph) as s:
+def test_find_all_empty_graph(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         repo = Repository(s, CrudPerson)
         assert repo.find_all() == []
 
@@ -138,8 +118,8 @@ def test_count_returns_correct_number(populated_graph: Any) -> None:
         assert repo.count() == 5
 
 
-def test_count_returns_zero_for_empty_graph(graph: Any) -> None:
-    with Session(graph) as s:
+def test_count_returns_zero_for_empty_graph(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         repo = Repository(s, CrudPerson)
         assert repo.count() == 0
 
@@ -194,12 +174,13 @@ def test_find_all_by_ids_returns_same_instance_as_get(
 # ---------------------------------------------------------------------------
 
 
-def test_find_all_polymorphic_base_returns_subtypes(graph: Any) -> None:
-    with Session(graph) as s:
+@pytest.mark.requires_multi_label
+def test_find_all_polymorphic_base_returns_subtypes(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         s.add(CrudLocation(id="LOC1", title="Base Location"))
         s.add(CrudCountry(id="FR", title="France", iso_code="FR"))
 
-    with Session(graph) as s:
+    with Session(graph_driver) as s:
         repo = Repository(s, CrudLocation)
         all_locs = repo.find_all()
 
@@ -209,12 +190,13 @@ def test_find_all_polymorphic_base_returns_subtypes(graph: Any) -> None:
     assert "CrudCountry" in classes
 
 
-def test_find_all_subtype_returns_only_subtype(graph: Any) -> None:
-    with Session(graph) as s:
+@pytest.mark.requires_multi_label
+def test_find_all_subtype_returns_only_subtype(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         s.add(CrudLocation(id="LOC1", title="Base Location"))
         s.add(CrudCountry(id="FR", title="France", iso_code="FR"))
 
-    with Session(graph) as s:
+    with Session(graph_driver) as s:
         repo = Repository(s, CrudCountry)
         countries = repo.find_all()
 
@@ -228,14 +210,14 @@ def test_find_all_subtype_returns_only_subtype(graph: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_find_all_by_ids_generated_pk(graph: Any) -> None:
-    with Session(graph) as s:
+def test_find_all_by_ids_generated_pk(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         tag = CrudTag(label="python")
         s.add(tag)
         s.commit()
         tag_id = tag.id
 
-    with Session(graph) as s:
+    with Session(graph_driver) as s:
         repo = Repository(s, CrudTag)
         result = repo.find_all_by_ids([tag_id])
 

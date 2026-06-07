@@ -1,8 +1,15 @@
-Mappings
-========
+Core Concepts
+=============
 
-This page explains the building blocks of ``runic.orm`` — Node, Edge, Field,
-object states, dirty tracking, and the identity map.
+This page explains the building blocks of ``runic.orm``: how models map to
+graph nodes and edges, how the session manages object lifecycle, and how the
+identity map eliminates redundant queries.
+
+All state — query generation, dirty tracking, identity tracking — lives in the
+:class:`~runic.orm.session.session.Session`.  The session is your unit of work.
+Models are plain Python classes; they carry no database logic themselves.
+
+----
 
 Node and Edge
 -------------
@@ -24,11 +31,12 @@ or :class:`~runic.orm.core.models.Edge`.
        status: str
        invited_at: str
 
-**labels** controls which FalkorDB labels are applied.  Multi-label
-nodes implement polymorphic hierarchies — see :doc:`relationships`.
+``Node`` maps to a graph vertex.  ``Edge`` maps to a relationship type.
+Both register themselves in the global metadata registry when the class body
+executes — forward references in ``target=`` strings are resolved at that point.
 
-**primary_label** (optional) is the label used in ``MATCH`` predicates
-when the node has more than one label:
+**labels** controls which graph labels are applied.  Multi-label nodes
+implement polymorphic hierarchies:
 
 .. code-block:: python
 
@@ -39,25 +47,40 @@ when the node has more than one label:
    class Country(Location, labels=["Location", "Country"], primary_label="Location"):
        iso_code: str = Field(unique=True)
 
+**primary_label** (optional) is the label used in ``MATCH`` predicates when
+the node has more than one label.  When it is omitted, the first entry in
+``labels`` is used.  Set it on both the parent and the subclass so that
+``MATCH (n:Location)`` matches all subtypes:
+
+.. code-block:: python
+
+   # MATCH (n:Location {id: $id}) — both Country and City are matched
+   location: Location | None = session.get(Location, "FR")
+
 .. seealso::
 
    `examples/orm/01_simple_crud.py <https://github.com/jenreh/runic/blob/main/examples/orm/01_simple_crud.py>`_
-      Defines a ``Node`` with ``Field`` descriptors and walks through all object states in one file.
+      Defines a ``Node`` with ``Field`` descriptors and walks through all object states.
+
+   `examples/orm/02_polymorphic_locations.py <https://github.com/jenreh/runic/blob/main/examples/orm/02_polymorphic_locations.py>`_
+      Multi-label hierarchy (``Location → Country, City``), ``primary_label``, and polymorphic repository queries.
+
+----
 
 Field and Relation descriptors
 ------------------------------
 
-Properties and relationships are declared with separate functions for a
-clean separation of concerns:
+Properties and relationships are declared with separate functions to keep
+scalar data and graph topology clearly separated:
 
-* :func:`~runic.orm.core.descriptors.Field` — scalar properties, index
-  hints, and constraints.
-* :func:`~runic.orm.core.descriptors.Relation` — graph relationships
-  (edges).
+* :func:`~runic.orm.core.descriptors.Field` — scalar properties, index hints,
+  and constraints.
+* :func:`~runic.orm.core.descriptors.Relation` — graph relationships (edges).
 
 Both return :class:`~runic.orm.core.descriptors.FieldDescriptor` typed as
 ``Any``, so ``name: str = Field()`` is accepted by type checkers without
-error.
+error.  At runtime the descriptor intercepts ``__set__`` to set ``_dirty``
+and ``__get__`` to trigger lazy loading.
 
 **Field parameters**
 
@@ -90,11 +113,11 @@ error.
        and ``GeoLocation`` — converters are assigned automatically
    * - ``generated``
      - ``bool``
-     - FalkorDB assigns the node ID on ``CREATE``
+     - The database assigns the node ID on ``CREATE``
    * - ``interned``
      - ``bool``
-     - Store via FalkorDB's ``intern()`` for deduplication of repeated strings
-       (country names, tags, status codes, etc.)
+     - Store via ``intern()`` for deduplication of repeated strings
+       (country names, tags, status codes, etc.) — FalkorDB only
 
 **Relation parameters**
 
@@ -116,7 +139,8 @@ error.
      - Entity class (or forward-reference string) for the other end (required)
    * - ``edge_model``
      - ``str | type``
-     - Optional :class:`~runic.orm.core.models.Edge` subclass holding edge properties
+     - Optional :class:`~runic.orm.core.models.Edge` subclass holding edge
+       properties
    * - ``lazy``
      - ``bool``
      - Delay relationship loading (default ``True``)
@@ -127,10 +151,14 @@ error.
      - ``Any``
      - Default value (defaults to ``None``)
 
+----
+
 Object states
 -------------
 
-Each entity lives in exactly one state at any time, mirroring SQLAlchemy:
+Each entity lives in exactly one state at any time, mirroring SQLAlchemy's
+unit-of-work pattern.  The session is the source of truth for state
+transitions:
 
 .. list-table::
    :header-rows: 1
@@ -149,39 +177,61 @@ Each entity lives in exactly one state at any time, mirroring SQLAlchemy:
    * - **Detached**
      - After ``session.expunge(entity)`` or ``session.close()``
 
+A transient entity that is never added to a session is never persisted.  If you
+construct an entity with ``Entity(id="x", ...)`` and discard it, no query runs.
+
+----
+
 Dirty tracking
 --------------
 
-Two private flags drive query selection:
+Two private flags drive which Cypher statement the mapper emits:
 
 * ``_new`` — ``True`` until the first successful flush.
-  Mapper emits ``CREATE`` when this is true.
+  The mapper emits ``CREATE`` when this is true.
 * ``_dirty`` — ``True`` when any field is written on a persistent entity.
-  Mapper emits ``MERGE … SET`` when this is true.
+  The mapper emits ``MERGE … SET`` when this is true.
 
-The descriptor ``__set__`` sets ``_dirty = True`` automatically.  The Session clears
-``_dirty`` after a successful ``flush()``.
+The descriptor ``__set__`` sets ``_dirty = True`` automatically.  The session
+clears both flags after a successful ``flush()``.
+
+Only the fields that were actually set are included in the ``SET`` clause.
+The ORM does not write fields that haven't changed:
+
+.. code-block:: python
+
+   with Session(driver) as session:
+       person = session.get(Person, "alice")
+       assert person is not None
+       person.name = "Alice Smith"
+       # _dirty = True, only 'name' will be in SET
+       session.commit()
+       # emits: MERGE (n:Person {id: $id}) SET n.name = $name
+
+----
 
 Identity map
 ------------
 
-The Session keeps one Python instance per ``(EntityClass, primary_key)`` pair.
-Calling ``session.get(Person, "alice")`` twice within the same session returns
-the *same* object.
+The session keeps one Python instance per ``(EntityClass, primary_key)`` pair.
+Two reads for the same primary key within the same session return the *same*
+object — no second Cypher query:
 
 .. code-block:: python
 
-   with Session(graph) as session:
-       a = session.get(Person, "alice")
-       b = session.get(Person, "alice")
-       assert a is b   # True
+   with Session(driver) as session:
+       a: Person | None = session.get(Person, "alice")
+       b: Person | None = session.get(Person, "alice")
+       assert a is b   # True — single object, no second query
 
-Repository reads also register entities in the identity map.
+Repository reads also register entities in the identity map.  If you call
+``repo.find_all()`` and then ``session.get(Person, "alice")`` in the same
+session, the result is the same object that was returned by ``find_all()``.
 
-.. seealso::
+The identity map is cleared when the session is closed.  Objects become
+*detached* and no longer track dirty state.
 
-   `examples/orm/02_polymorphic_locations.py <https://github.com/jenreh/runic/blob/main/examples/orm/02_polymorphic_locations.py>`_
-      Multi-label nodes (``Location → Country, City``), ``primary_label``, and polymorphic repository queries.
+----
 
 Type converters
 ---------------
@@ -223,7 +273,7 @@ no ``converter=`` argument needed:
 
 An explicit ``converter=`` always takes precedence over auto-assignment.
 
-**Interned strings**
+**Interned strings** *(FalkorDB only)*
 
 Use ``interned=True`` to store a string property via FalkorDB's ``intern()``
 function, which deduplicates the value across the database.  Useful for
@@ -239,14 +289,14 @@ high-cardinality-but-low-variety fields like country names or status codes:
 
 Implement :class:`~runic.orm.core.types.TypeConverter` (``to_graph`` /
 ``from_graph``) for any type not covered above.  Set ``cypher_fn`` on the
-converter class to wrap the Cypher parameter with a FalkorDB function:
+converter class to wrap the Cypher parameter with a backend function:
 
 .. code-block:: python
 
    from runic.orm import TypeConverter
 
    class MyConverter(TypeConverter):
-       cypher_fn = "myFunc"   # emits myFunc($field) in Cypher
+       cypher_fn = "myFunc"   # wraps Cypher parameter: myFunc($value)
 
        def to_graph(self, value): ...
        def from_graph(self, value): ...
@@ -256,13 +306,17 @@ converter class to wrap the Cypher parameter with a FalkorDB function:
    `examples/orm/06_native_types.py <https://github.com/jenreh/runic/blob/main/examples/orm/06_native_types.py>`_
       ``Vector``, ``GeoLocation``, interned strings, ``datetime`` and ``Enum`` auto-converters in action.
 
+----
+
 Metadata registry
 -----------------
 
 All ``Node`` and ``Edge`` subclasses are registered automatically in the
 global :data:`~runic.orm.core.metadata.metadata` singleton when the class is
-defined.  Forward references in ``target=`` strings are resolved at import
-time.
+defined.  The registry is used by :class:`~runic.migrate.schema.IndexManager`
+to discover index hints and by the mapper for polymorphic label resolution.
+
+Forward references in ``target=`` strings are resolved at import time.
 
 .. code-block:: python
 

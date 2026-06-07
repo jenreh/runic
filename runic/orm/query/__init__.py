@@ -2,7 +2,11 @@
 
 Public API
 ----------
-The recommended entry points are the session/repository methods:
+The preferred entry point for composable, session-independent statements:
+
+- :func:`select` → :class:`QueryBuilder` (session-free, executed via session)
+
+Session/repository bound entry points (backward compatible):
 
 - :meth:`~runic.orm.session.session.Session.query` → :class:`QueryBuilder`
 - :meth:`~runic.orm.session.session.Session.fulltext_search` → :class:`FulltextQueryBuilder`
@@ -16,12 +20,9 @@ Expression helpers imported here for convenience::
 Refer to :mod:`runic.orm.query.builder` for the full API reference.
 """
 
-from runic.orm.query.builder import (
-    AsyncQueryBuilder,
-    FulltextQueryBuilder,
-    QueryBuilder,
-    VectorQueryBuilder,
-)
+from typing import TypeVar
+
+from runic.orm.query.builder import QueryBuilder
 from runic.orm.query.expressions import (
     AggExpr,
     CompoundExpr,
@@ -36,9 +37,47 @@ from runic.orm.query.expressions import (
     min_,
     sum_,
 )
+from runic.orm.query.specialised import (
+    AsyncQueryBuilder,
+    FulltextQueryBuilder,
+    VectorQueryBuilder,
+)
 from runic.orm.query.traversal import TraversalStep
 
+_T = TypeVar("_T")
+
+
+def select(cls: type[_T]) -> QueryBuilder[_T]:  # noqa: UP047
+    """Create a session-independent query statement for *cls*.
+
+    Mirrors the SQLAlchemy 2.0 ``select()`` pattern — compose the statement
+    freely (including conditional filters), then execute via the session::
+
+        from runic.orm import select
+
+        stmt = select(User).where(User.active == True)
+        if min_age > 0:
+            stmt = stmt.where(User.age >= min_age)
+
+        users: list[User] = session.scalars(stmt)
+        user: User | None = session.scalar(stmt)
+        n: int = session.count(stmt)
+
+    The returned :class:`QueryBuilder` is **unbound** — calling terminal
+    methods like ``.all()`` directly will raise :exc:`RuntimeError`.  Use the
+    session execution methods instead.
+
+    Parameters
+    ----------
+    cls:
+        A registered :class:`~runic.orm.core.models.Node` subclass.
+    """
+    return QueryBuilder(session=None, root_cls=cls)
+
+
 __all__ = [  # noqa: RUF022
+    # Statement factory
+    "select",
     # Builders
     "AsyncQueryBuilder",
     "FulltextQueryBuilder",

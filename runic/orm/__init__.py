@@ -1,5 +1,24 @@
-"""runic.orm — lightweight graph ORM for FalkorDB."""
+"""runic.orm — lightweight graph ORM for Cypher-based graph databases."""
 
+from runic.orm.driver import (
+    AsyncGraphDriver,
+    GraphDialect,
+    GraphDriver,
+    GraphResult,
+    TransactionalGraphDriver,
+)
+from runic.orm.driver.age import AGEDialect, AGEDriver, create_age_driver
+from runic.orm.driver.arcadedb import ArcadeDBDialect, create_arcadedb_driver
+from runic.orm.driver.bolt import BoltDriver
+from runic.orm.driver.factory import create_driver
+from runic.orm.driver.falkordb import (
+    AsyncFalkorDBDriver,
+    FalkorDBDialect,
+    FalkorDBDriver,
+    create_falkordb_driver,
+)
+from runic.orm.driver.memgraph import MemgraphDialect, create_memgraph_driver
+from runic.orm.driver.neo4j import Neo4jDialect, create_neo4j_driver
 from runic.orm.core.descriptors import (
     MISSING,
     Field,
@@ -30,7 +49,6 @@ from runic.orm.exceptions import (
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.repository.async_repository import AsyncRepository
-from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.query import (
     AsyncQueryBuilder,
@@ -42,6 +60,7 @@ from runic.orm.query import (
     count,
     max_,
     min_,
+    select,
     sum_,
 )
 from runic.orm.query.expressions import (
@@ -52,13 +71,33 @@ from runic.orm.query.expressions import (
     NegatedExpr,
     OrderExpr,
 )
-from runic.orm.schema.index_manager import IndexManager, IndexSpec
-from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
+from runic.orm.schema.index_manager import IndexSpec
 from runic.orm.session.async_session import AsyncSession
 from runic.orm.session.connection_pool import AsyncConnectionManager, ConnectionManager
 from runic.orm.session.session import Session
 
 __all__ = [  # noqa: RUF022
+    # Driver / dialect
+    "AGEDialect",
+    "AGEDriver",
+    "AsyncFalkorDBDriver",
+    "AsyncGraphDriver",
+    "ArcadeDBDialect",
+    "BoltDriver",
+    "FalkorDBDialect",
+    "FalkorDBDriver",
+    "GraphDialect",
+    "GraphDriver",
+    "GraphResult",
+    "TransactionalGraphDriver",
+    "MemgraphDialect",
+    "Neo4jDialect",
+    "create_age_driver",
+    "create_arcadedb_driver",
+    "create_driver",
+    "create_falkordb_driver",
+    "create_memgraph_driver",
+    "create_neo4j_driver",
     # Core
     "MISSING",
     "_NOT_LOADED",
@@ -86,19 +125,14 @@ __all__ = [  # noqa: RUF022
     "AsyncSession",
     "ConnectionManager",
     "Session",
-    # Repository / pagination
+    # Repository
     "AsyncRepository",
-    "Page",
-    "Pageable",
     "Repository",
     # Mapper
     "Mapper",
     "RelationshipLoader",
     # Schema
-    "IndexManager",
     "IndexSpec",
-    "SchemaManager",
-    "ValidationResult",
     # Exceptions
     "DetachedEntityError",
     "EntityNotFoundError",
@@ -107,6 +141,7 @@ __all__ = [  # noqa: RUF022
     "MetadataError",
     "OrmError",
     # Query builder
+    "select",
     "AsyncQueryBuilder",
     "FulltextQueryBuilder",
     "QueryBuilder",

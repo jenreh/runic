@@ -22,8 +22,40 @@
       "Bash(ls *)",
       "Skill(create-readme:*)",
       "Skill(writing-python-code:*)",
-      "Skill(frontend-design:*)"
+      "Skill(frontend-design:*)",
+      "Bash(sed -i '' 's/mock_graph\\\\.ro_query\\\\.return_value\\\\.result_set/mock_graph.query.return_value.result_set/g' tests/runic/migrate/test_falkordb_adapter.py tests/runic/migrate/test_context.py tests/runic/migrate/test_context_stamp.py tests/runic/migrate/test_cli_baseline.py)",
+      "Bash(sed -i '' 's/graph\\\\.ro_query\\\\.return_value\\\\.result_set/graph.query.return_value.result_set/g' tests/runic/migrate/test_snapshot.py)",
+      "mcp__duckduckgo__search",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs"
     ],
     "defaultMode": "acceptEdits"
+  },
+  "mcpServers": {
+    "duckduckgo": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "duckduckgo-mcp-server"
+      ],
+      "env": {}
+    },
+    "code-reasoning": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mettamatt/code-reasoning"
+      ]
+    },
+    "pencil": {
+      "command": "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64",
+      "args": [
+        "--app",
+        "desktop"
+      ],
+      "env": {},
+      "type": "stdio"
+    }
   }
 }
