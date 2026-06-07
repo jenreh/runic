@@ -1,0 +1,9 @@
+{
+  "repo": "runic",
+  "verifyCommand": "task lint && task typecheck && task test",
+  "acceptanceCriteria": [
+    "Verification command passes (lint + typecheck + tests)",
+    "All tasks completed"
+  ],
+  "features": []
+}
