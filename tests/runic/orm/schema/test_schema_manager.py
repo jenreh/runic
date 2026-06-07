@@ -50,10 +50,8 @@ class SMPlain(Node, labels=["SMPlain"]):
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("falkordblite (redislite) not installed")
-    db = _FalkorDB(protocol=2)
+def graph(falkordb_server: Any) -> Any:
+    db = falkordb_server
     g = db.select_graph(f"test_sm_{secrets.token_hex(6)}")
     yield g
     with contextlib.suppress(Exception):

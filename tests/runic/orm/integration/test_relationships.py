@@ -59,10 +59,8 @@ class Employee(Node, labels=["Employee"]):
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("falkordblite (redislite) not installed")
-    db = _FalkorDB(protocol=2)
+def graph(falkordb_server: Any) -> Any:
+    db = falkordb_server
     graph_name = f"test_rel_{secrets.token_hex(6)}"
     g = db.select_graph(graph_name)
     yield FalkorDBDriver(g)

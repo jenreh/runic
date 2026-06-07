@@ -40,10 +40,8 @@ class CypherPerson(Node, labels=["CypherPerson"]):
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("falkordblite (redislite) not installed")
-    db = _FalkorDB(protocol=2)
+def graph(falkordb_server: Any) -> Any:
+    db = falkordb_server
     g = db.select_graph(f"test_cypher_{secrets.token_hex(6)}")
     yield FalkorDBDriver(g)
     with contextlib.suppress(Exception):

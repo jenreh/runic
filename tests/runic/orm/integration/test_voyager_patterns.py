@@ -100,10 +100,8 @@ class VInvitationEdge(Edge, type="V_INVITED_TO"):
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("redislite not available")
-    db = _FalkorDB(protocol=2)
+def graph(falkordb_server: Any) -> Any:
+    db = falkordb_server
     name = f"voyager_{secrets.token_hex(4)}"
     return FalkorDBDriver(db.select_graph(name))
 

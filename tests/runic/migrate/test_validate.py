@@ -46,18 +46,12 @@ def _write_rev(versions: Path, rev_id: str, parent: str | None, body: str = "") 
     return p
 
 
-def _make_runic(tmp_path: Path, *, track_checksums: bool = True):
+def _make_runic(tmp_path: Path, falkordb_server: Any, *, track_checksums: bool = True):
     """Create a Runic context. Call AFTER writing any revision files so ScriptDirectory loads them."""
     from runic.migrate.adapters.falkordb import FalkorDBAdapter
     from runic.migrate.context import Runic
 
-    try:
-        from redislite import FalkorDB
-
-        db = FalkorDB(protocol=2)
-    except ImportError:
-        pytest.skip("falkordblite (redislite) not installed")
-
+    db = falkordb_server
     import secrets
 
     graph = db.select_graph(f"test_{secrets.token_hex(4)}")
@@ -66,23 +60,27 @@ def _make_runic(tmp_path: Path, *, track_checksums: bool = True):
     return Runic(adapter, tmp_path / "runic", track_checksums=track_checksums), adapter
 
 
-def test_validate_returns_empty_when_no_migrations_applied(tmp_path: Path) -> None:
-    ctx, _ = _make_runic(tmp_path)
+def test_validate_returns_empty_when_no_migrations_applied(
+    tmp_path: Path, falkordb_server: Any
+) -> None:
+    ctx, _ = _make_runic(tmp_path, falkordb_server)
     assert ctx.validate() == []
 
 
-def test_validate_returns_empty_when_checksums_match(tmp_path: Path) -> None:
+def test_validate_returns_empty_when_checksums_match(
+    tmp_path: Path, falkordb_server: Any
+) -> None:
     versions = _versions_dir(tmp_path)
     _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path)
+    ctx, _ = _make_runic(tmp_path, falkordb_server)
     ctx.upgrade("aabbcc112233")
     assert ctx.validate() == []
 
 
-def test_validate_detects_modified_script(tmp_path: Path) -> None:
+def test_validate_detects_modified_script(tmp_path: Path, falkordb_server: Any) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path)
+    ctx, _ = _make_runic(tmp_path, falkordb_server)
     ctx.upgrade("aabbcc112233")
 
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
@@ -93,30 +91,36 @@ def test_validate_detects_modified_script(tmp_path: Path) -> None:
     assert "mismatch" in errors[0]
 
 
-def test_validate_skips_revisions_without_stored_checksum(tmp_path: Path) -> None:
+def test_validate_skips_revisions_without_stored_checksum(
+    tmp_path: Path, falkordb_server: Any
+) -> None:
     """Pre-checksum deployments: stamp without recording checksum — must not error."""
     versions = _versions_dir(tmp_path)
     _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path)
+    ctx, _ = _make_runic(tmp_path, falkordb_server)
 
     ctx.stamp("aabbcc112233")
     assert ctx.validate() == []
 
 
-def test_validate_disabled_when_track_checksums_false(tmp_path: Path) -> None:
+def test_validate_disabled_when_track_checksums_false(
+    tmp_path: Path, falkordb_server: Any
+) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path, track_checksums=False)
+    ctx, _ = _make_runic(tmp_path, falkordb_server, track_checksums=False)
     ctx.upgrade("aabbcc112233")
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
     assert ctx.validate() == []
 
 
-def test_validate_on_migrate_aborts_when_mismatch(tmp_path: Path) -> None:
+def test_validate_on_migrate_aborts_when_mismatch(
+    tmp_path: Path, falkordb_server: Any
+) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
     _write_rev(versions, "bbbbbbbbbbbb", "aabbcc112233")
-    ctx, _ = _make_runic(tmp_path)
+    ctx, _ = _make_runic(tmp_path, falkordb_server)
     ctx.upgrade("aabbcc112233")
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
 
