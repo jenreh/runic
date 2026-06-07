@@ -33,6 +33,14 @@ def preview_ops(adapter: FalkorDBAdapter) -> GraphOperations:
     return GraphOperations(adapter, preview=True)
 
 
+# Helpers
+def _rows_result(*rows: list) -> MagicMock:
+    """Return a mock GraphResult with .rows."""
+    result = MagicMock()
+    result.rows = list(rows)
+    return result
+
+
 def test_preview_run_cypher_no_calls(
     preview_ops: GraphOperations, mock_graph: MagicMock
 ) -> None:
@@ -85,7 +93,7 @@ def test_preview_drop_constraint_no_calls(
 
 def test_run_cypher_no_params(ops: GraphOperations, mock_graph: MagicMock) -> None:
     ops.run_cypher("MATCH (n) RETURN n")
-    mock_graph.query.assert_called_once_with("MATCH (n) RETURN n")
+    mock_graph.query.assert_called_once_with("MATCH (n) RETURN n", {})
 
 
 def test_preview_create_range_index_rel(
@@ -225,14 +233,14 @@ def test_drop_vector_index_preview(
 
 
 # ---------------------------------------------------------------------------
-# rename_property
+# rename_property — now uses result.rows via FalkorDBDriver
 # ---------------------------------------------------------------------------
 
 
 def test_rename_property_terminates_on_zero(
     ops: GraphOperations, mock_graph: MagicMock
 ) -> None:
-    mock_graph.query.return_value.result_set = [[0]]
+    mock_graph.query.return_value = MagicMock(result_set=[[0]])
     ops.rename_property("Person", "fname", "first_name")
     assert mock_graph.query.call_count == 1
     query = mock_graph.query.call_args[0][0]
@@ -255,7 +263,7 @@ def test_rename_property_loops_until_done(
 def test_rename_property_passes_batch_param(
     ops: GraphOperations, mock_graph: MagicMock
 ) -> None:
-    mock_graph.query.return_value.result_set = [[0]]
+    mock_graph.query.return_value = MagicMock(result_set=[[0]])
     ops.rename_property("Person", "fname", "first_name", batch=999)
     params = mock_graph.query.call_args[0][1]
     assert params["batch"] == 999
@@ -277,7 +285,7 @@ def test_rename_property_preview(
 def test_relabel_nodes_terminates_on_zero(
     ops: GraphOperations, mock_graph: MagicMock
 ) -> None:
-    mock_graph.query.return_value.result_set = [[0]]
+    mock_graph.query.return_value = MagicMock(result_set=[[0]])
     ops.relabel_nodes("OldLabel", "NewLabel")
     assert mock_graph.query.call_count == 1
     query = mock_graph.query.call_args[0][0]

@@ -32,7 +32,7 @@ def _make_env(tmp_path: Path) -> Path:
             mock_db = MagicMock()
             mock_graph = MagicMock()
             mock_graph.name = "test_graph"
-            mock_graph.ro_query.return_value.result_set = []
+            mock_graph.query.return_value.result_set = []
 
             configure(
                 FalkorDBAdapter(mock_db, mock_graph),
