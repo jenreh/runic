@@ -61,5 +61,7 @@ jobs:
         run: uv sync
 
       - name: Run tests
+        env:
+          RUNIC_TEST_BACKENDS: falkordb
         run: uv run pytest
 
