@@ -6,11 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.migrate.adapters.memgraph import (
-    MemgraphAdapter,
-    _encode_kv_list,
-    _parse_kv_list,
-)
+from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
+from runic.migrate.adapters.memgraph import MemgraphAdapter
 from runic.orm.driver.bolt import BoltDriver
 
 

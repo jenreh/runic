@@ -305,7 +305,7 @@ class AsyncSession:
                     session.query(User).where(User.active == True).limit(20).all()
                 )
         """
-        from runic.orm.query.builder import AsyncQueryBuilder
+        from runic.orm.query.specialised import AsyncQueryBuilder
 
         return AsyncQueryBuilder(self, cls)
 
@@ -317,7 +317,7 @@ class AsyncSession:
         fields: list[str] | None = None,
     ) -> Any:
         """Async fulltext search; mirrors :meth:`~runic.orm.session.session.Session.fulltext_search`."""
-        from runic.orm.query.builder import FulltextQueryBuilder
+        from runic.orm.query.specialised import FulltextQueryBuilder
 
         return FulltextQueryBuilder(self, cls, query=query, fields=fields)
 
@@ -330,7 +330,7 @@ class AsyncSession:
         k: int = 10,
     ) -> Any:
         """Async vector KNN search; mirrors :meth:`~runic.orm.session.session.Session.vector_search`."""
-        from runic.orm.query.builder import VectorQueryBuilder
+        from runic.orm.query.specialised import VectorQueryBuilder
 
         return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 

@@ -17,11 +17,8 @@ from runic.orm.core.types import (
     Vector,
 )
 from runic.orm.mapper.mapper import Mapper
-from runic.orm.query.builder import (
-    FulltextQueryBuilder,
-    QueryBuilder,
-    VectorQueryBuilder,
-)
+from runic.orm.query.builder import QueryBuilder
+from runic.orm.query.specialised import FulltextQueryBuilder, VectorQueryBuilder
 from runic.orm.query.expressions import count
 
 # ---------------------------------------------------------------------------

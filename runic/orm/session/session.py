@@ -425,7 +425,7 @@ class Session:
                 .all()
             )
         """
-        from runic.orm.query.builder import FulltextQueryBuilder
+        from runic.orm.query.specialised import FulltextQueryBuilder
 
         return FulltextQueryBuilder(self, cls, query=query, fields=fields)
 
@@ -465,7 +465,7 @@ class Session:
                 .all()
             )
         """
-        from runic.orm.query.builder import VectorQueryBuilder
+        from runic.orm.query.specialised import VectorQueryBuilder
 
         return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 

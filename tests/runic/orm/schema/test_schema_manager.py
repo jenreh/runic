@@ -232,14 +232,14 @@ def test_get_schema_diff_shows_extra(graph: Any) -> None:
 def test_get_schema_info_structure(graph: Any) -> None:
     schema = SchemaManager(graph)
     info = schema.get_schema_info([SMPerson])
-    assert "is_valid" in info
-    assert "declared_count" in info
-    assert "existing_count" in info
-    assert "missing_count" in info
-    assert "extra_count" in info
-    assert "missing" in info
-    assert "extra" in info
-    assert "errors" in info
+    assert hasattr(info, "is_valid")
+    assert hasattr(info, "declared_count")
+    assert hasattr(info, "existing_count")
+    assert hasattr(info, "missing_count")
+    assert hasattr(info, "extra_count")
+    assert hasattr(info, "missing")
+    assert hasattr(info, "extra")
+    assert hasattr(info, "errors")
 
 
 @pytest.mark.integration
@@ -247,17 +247,17 @@ def test_get_schema_info_after_sync(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
     info = schema.get_schema_info([SMPerson])
-    assert info["is_valid"] is True
-    assert info["missing_count"] == 0
-    assert info["extra_count"] == 0
+    assert info.is_valid is True
+    assert info.missing_count == 0
+    assert info.extra_count == 0
 
 
 @pytest.mark.integration
 def test_get_schema_info_missing_count(graph: Any) -> None:
     schema = SchemaManager(graph)
     info = schema.get_schema_info([SMPerson])
-    assert info["missing_count"] > 0
-    assert info["declared_count"] > 0
+    assert info.missing_count > 0
+    assert info.declared_count > 0
 
 
 # ---------------------------------------------------------------------------
