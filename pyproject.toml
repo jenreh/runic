@@ -18,8 +18,17 @@ classifiers = [
 dependencies = [
     "typer>=0.26.0,<1.0.0",
     "rich>=15.0.0,<16.0.0",
-    "falkordb>=1.6.0,<2.0.0",
     "mako>=1.3.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+falkordb = ["falkordb>=1.6.0,<2.0.0"]
+neo4j = ["neo4j>=6.2.0"]
+memgraph = ["neo4j>=6.2.0"]
+arcadedb = ["neo4j>=6.2.0"]
+age = ["psycopg[binary]>=3.3.4"]
+all = [
+    "falkordb>=1.6.0,<2.0.0",
     "neo4j>=6.2.0",
     "psycopg[binary]>=3.3.4",
 ]
@@ -255,6 +264,9 @@ exclude = [
 [tool.ty.rules]
 unresolved-import = "warn"
 missing-argument = "error"
+
+[tool.mypy]
+cache_dir = ".cache/mypy"
 
 [tool.coverage.run]
 branch = true

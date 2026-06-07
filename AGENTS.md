@@ -14,7 +14,6 @@
 8. No `--autogenerate` for Alembic migrations; write manually.
 9. No `cat` to create files; use tools.
 10. Log default: `logger.debug`. Important events: `logger.info`. Issues only: `logger.warning/error`. **No `print`.**
-11. **Caveman skill** applies to all writes here.
 
 > Prefer *local* changes over cross-module refactors.
 
@@ -94,11 +93,6 @@ Prefer official docs; widen via web search for cross-version issues.
 
 - `task lint`, `task format`, `task typecheck`.
 - `task test` — coverage ≥ **80%** non-Reflex classes & Reflex states.
-
-### Commit & PR
-
-- Conventional Commits (`feat:`, `fix:`, `refactor:`…).
-- PR: description, `Closes #123`, UI screenshots, migration rationale.
 
 ### Learn → write to **Memory**
 
