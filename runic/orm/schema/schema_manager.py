@@ -34,6 +34,31 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass
+class SchemaInfo:
+    """Diagnostic snapshot of the current schema state.
+
+    Attributes:
+        is_valid: ``True`` when declared and existing indexes match exactly.
+        declared_count: Number of indexes declared across all entity classes.
+        existing_count: Number of indexes found in the live graph.
+        missing_count: Number of declared indexes not yet created.
+        extra_count: Number of live indexes not declared on any entity.
+        missing: Serialisable list of missing index specs.
+        extra: Serialisable list of extra index specs.
+        errors: Non-fatal messages collected during introspection.
+    """
+
+    is_valid: bool
+    declared_count: int
+    existing_count: int
+    missing_count: int
+    extra_count: int
+    missing: list[dict[str, str]]
+    extra: list[dict[str, str]]
+    errors: list[str]
+
+
 class SchemaManager:
     """Validates and synchronizes graph indexes against entity Field declarations.
 
@@ -158,40 +183,49 @@ class SchemaManager:
         )
         return "\n".join(lines)
 
-    def get_schema_info(self, entity_classes: list[type]) -> dict[str, Any]:
-        """Return diagnostic information about the current schema state.
+    def get_schema_info(self, entity_classes: list[type]) -> SchemaInfo:
+        """Return a :class:`SchemaInfo` snapshot of the current schema state.
 
-        The returned dict contains counts of declared/existing indexes plus the
-        full missing and extra lists for programmatic inspection.
+        Computes declared and existing specs once, avoiding redundant adapter
+        calls compared to chaining :meth:`validate_schema`.
         """
         declared: set[IndexSpec] = set()
+        errors: list[str] = []
+
         for cls in entity_classes:
             try:
                 declared |= extract_declared_specs(cls)
             except Exception as exc:
-                log.debug("extract_declared_specs failed for %r: %s", cls, exc)
+                errors.append(f"Failed to extract specs for {cls.__name__!r}: {exc}")
 
         try:
             existing = self._adapter.get_existing_specs()
         except Exception as exc:
-            log.debug("get_existing_specs failed: %s", exc)
+            errors.append(f"Failed to read live indexes: {exc}")
             existing = set()
 
-        result = self.validate_schema(entity_classes)
+        missing = sorted(
+            declared - existing,
+            key=lambda s: (s.label, s.property, s.index_type),
+        )
+        extra = sorted(
+            existing - declared,
+            key=lambda s: (s.label, s.property, s.index_type),
+        )
 
-        return {
-            "is_valid": result.is_valid,
-            "declared_count": len(declared),
-            "existing_count": len(existing),
-            "missing_count": len(result.missing_indexes),
-            "extra_count": len(result.extra_indexes),
-            "missing": [
+        return SchemaInfo(
+            is_valid=not missing and not extra and not errors,
+            declared_count=len(declared),
+            existing_count=len(existing),
+            missing_count=len(missing),
+            extra_count=len(extra),
+            missing=[
                 {"label": s.label, "property": s.property, "type": s.index_type}
-                for s in result.missing_indexes
+                for s in missing
             ],
-            "extra": [
+            extra=[
                 {"label": s.label, "property": s.property, "type": s.index_type}
-                for s in result.extra_indexes
+                for s in extra
             ],
-            "errors": result.errors,
-        }
+            errors=errors,
+        )

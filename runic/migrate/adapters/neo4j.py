@@ -6,42 +6,15 @@ import logging
 from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
-from runic.migrate.introspect import LiveSchema
+from runic.migrate.adapters._base import GraphAdapterBase
 from runic.orm.driver.bolt import BoltDriver
 from runic.orm.driver.neo4j import _NEO4J_DIALECT, Neo4jDialect
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
-_VERSION_LABEL = "_RunicMigrateVersion"
-_GET_VERSION_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.revisions"
-_SET_VERSION_QUERY = (
-    f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
-    " SET v.revisions = $revisions, v.applied_at = timestamp()"
-)
-_GET_TRACKING_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.checksums, v.installed_by"
-_SET_TRACKING_QUERY = (
-    f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
-    " SET v.checksums = $checksums, v.installed_by = $installed_by"
-)
 
-
-def _parse_kv_list(items: list | None) -> dict[str, str]:
-    if not items:
-        return {}
-    result: dict[str, str] = {}
-    for item in items:
-        if item:
-            k, _, v = str(item).partition(":")
-            result[k] = v
-    return result
-
-
-def _encode_kv_list(d: dict[str, str]) -> list[str]:
-    return [f"{k}:{v}" for k, v in d.items()]
-
-
-class Neo4jAdapter(GraphAdapter):
+class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
     """Migration adapter for Neo4j 5.x accessed via Bolt protocol.
 
     Named index convention (must match :class:`~runic.orm.driver.neo4j.Neo4jDialect`):
@@ -53,6 +26,8 @@ class Neo4jAdapter(GraphAdapter):
 
     All DDL uses ``IF NOT EXISTS`` / ``IF EXISTS`` for idempotency.
     """
+
+    _backend_name = "Neo4j"
 
     def __init__(self, driver: BoltDriver, database: str) -> None:
         self._driver = driver
@@ -103,42 +78,6 @@ class Neo4jAdapter(GraphAdapter):
         return Neo4jAdapter(new_driver, graph_name)
 
     # ------------------------------------------------------------------
-    # Version tracking
-    # ------------------------------------------------------------------
-
-    def get_version(self) -> list[str]:
-        result = self.run_ro_query(_GET_VERSION_QUERY)
-        if result.rows:
-            revisions = result.rows[0][0]
-            if isinstance(revisions, list):
-                return [str(r) for r in revisions]
-            if revisions is not None:
-                return str(revisions).split(",")
-        return []
-
-    def set_version(self, revisions: list[str]) -> None:
-        self.run_query(_SET_VERSION_QUERY, {"revisions": revisions})
-
-    # ------------------------------------------------------------------
-    # Schema introspection
-    # ------------------------------------------------------------------
-
-    def read_live_schema(self) -> LiveSchema:
-        log.debug(
-            "Neo4j read_live_schema: returning empty schema (introspect via SHOW INDEXES)"
-        )
-        return LiveSchema(
-            range_indexes=[],
-            fulltext_indexes=[],
-            vector_indexes=[],
-            constraints=[],
-        )
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        """Return empty set — Neo4j DDL uses IF NOT EXISTS for idempotency."""
-        return set()
-
-    # ------------------------------------------------------------------
     # DDL — entity types (no-op: Neo4j is schemaless)
     # ------------------------------------------------------------------
 
@@ -179,7 +118,10 @@ class Neo4jAdapter(GraphAdapter):
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
         prop_list = ", ".join(f"n.{p}" for p in props)
-        cypher = f"CREATE FULLTEXT INDEX {label} IF NOT EXISTS FOR (n:{label}) ON EACH [{prop_list}]"
+        cypher = (
+            f"CREATE FULLTEXT INDEX {label} IF NOT EXISTS "
+            f"FOR (n:{label}) ON EACH [{prop_list}]"
+        )
         log.info("Neo4j DDL: %s", cypher)
         try:
             self.run_query(cypher)
@@ -248,7 +190,10 @@ class Neo4jAdapter(GraphAdapter):
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
             name = f"{label}_{prop}_unique"
-            cypher = f"CREATE CONSTRAINT {name} IF NOT EXISTS FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
+            cypher = (
+                f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+                f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
+            )
             log.info("Neo4j DDL: %s", cypher)
             try:
                 self.run_query(cypher)
@@ -288,58 +233,5 @@ class Neo4jAdapter(GraphAdapter):
                 props,
             )
 
-    # ------------------------------------------------------------------
-    # Graph lifecycle
-    # ------------------------------------------------------------------
-
-    def delete_graph(self) -> None:
-        log.warning(
-            "Neo4j delete_graph: dropping all nodes and relationships in %r",
-            self._database,
-        )
-        self.run_query("MATCH (n) DETACH DELETE n")
-
-    def snapshot(self, snap_name: str) -> None:
-        raise NotImplementedError(
-            "Neo4j snapshots are not supported via runic migrate."
-        )
-
-    def restore_snapshot(self, snap_name: str) -> None:
-        raise NotImplementedError(
-            "Neo4j snapshot restore is not supported via runic migrate."
-        )
-
-    def snapshot_exists(self, snap_name: str) -> bool:  # noqa: ARG002
-        return False
-
-    # ------------------------------------------------------------------
-    # Checksum tracking
-    # ------------------------------------------------------------------
-
-    def get_checksums(self) -> dict[str, str]:
-        result = self.run_ro_query(_GET_TRACKING_QUERY)
-        if result.rows:
-            return _parse_kv_list(result.rows[0][0])
-        return {}
-
-    def set_checksum(
-        self, rev_id: str, checksum: str, installed_by: str | None = None
-    ) -> None:
-        current = self.get_checksums()
-        current[rev_id] = checksum
-        current_by = self.get_installed_by()
-        if installed_by:
-            current_by[rev_id] = installed_by
-        self.run_query(
-            _SET_TRACKING_QUERY,
-            {
-                "checksums": _encode_kv_list(current),
-                "installed_by": _encode_kv_list(current_by),
-            },
-        )
-
-    def get_installed_by(self) -> dict[str, str]:
-        result = self.run_ro_query(_GET_TRACKING_QUERY)
-        if result.rows and len(result.rows[0]) > 1:
-            return _parse_kv_list(result.rows[0][1])
-        return {}
+    def get_existing_specs(self) -> set[IndexSpec]:
+        return set()

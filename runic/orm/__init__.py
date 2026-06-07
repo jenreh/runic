@@ -72,7 +72,7 @@ from runic.orm.query.expressions import (
     OrderExpr,
 )
 from runic.orm.schema.index_manager import IndexManager, IndexSpec
-from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
+from runic.orm.schema.schema_manager import SchemaInfo, SchemaManager, ValidationResult
 from runic.orm.session.async_session import AsyncSession
 from runic.orm.session.connection_pool import AsyncConnectionManager, ConnectionManager
 from runic.orm.session.session import Session
@@ -137,6 +137,7 @@ __all__ = [  # noqa: RUF022
     # Schema
     "IndexManager",
     "IndexSpec",
+    "SchemaInfo",
     "SchemaManager",
     "ValidationResult",
     # Exceptions

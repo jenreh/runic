@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.migrate.adapters.neo4j import Neo4jAdapter, _encode_kv_list, _parse_kv_list
+from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
+from runic.migrate.adapters.neo4j import Neo4jAdapter
 from runic.orm.driver.bolt import BoltDriver
 
 

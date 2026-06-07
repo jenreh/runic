@@ -6,42 +6,15 @@ import logging
 from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
-from runic.migrate.introspect import LiveSchema
+from runic.migrate.adapters._base import GraphAdapterBase
 from runic.orm.driver.bolt import BoltDriver
 from runic.orm.driver.memgraph import _MEMGRAPH_DIALECT, MemgraphDialect
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
-_VERSION_LABEL = "_RunicMigrateVersion"
-_GET_VERSION_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.revisions"
-_SET_VERSION_QUERY = (
-    f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
-    " SET v.revisions = $revisions, v.applied_at = timestamp()"
-)
-_GET_TRACKING_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.checksums, v.installed_by"
-_SET_TRACKING_QUERY = (
-    f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
-    " SET v.checksums = $checksums, v.installed_by = $installed_by"
-)
 
-
-def _parse_kv_list(items: list | None) -> dict[str, str]:
-    if not items:
-        return {}
-    result: dict[str, str] = {}
-    for item in items:
-        if item:
-            k, _, v = str(item).partition(":")
-            result[k] = v
-    return result
-
-
-def _encode_kv_list(d: dict[str, str]) -> list[str]:
-    return [f"{k}:{v}" for k, v in d.items()]
-
-
-class MemgraphAdapter(GraphAdapter):
+class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
     """Migration adapter for Memgraph accessed via Bolt protocol.
 
     Named index convention (must match :class:`~runic.orm.driver.memgraph.MemgraphDialect`):
@@ -53,6 +26,8 @@ class MemgraphAdapter(GraphAdapter):
     Requires the MAGE ``text_search`` and ``vector_search`` modules for
     fulltext and vector search respectively.
     """
+
+    _backend_name = "Memgraph"
 
     def __init__(self, driver: BoltDriver, database: str) -> None:
         self._driver = driver
@@ -103,40 +78,6 @@ class MemgraphAdapter(GraphAdapter):
         return MemgraphAdapter(new_driver, graph_name)
 
     # ------------------------------------------------------------------
-    # Version tracking
-    # ------------------------------------------------------------------
-
-    def get_version(self) -> list[str]:
-        result = self.run_ro_query(_GET_VERSION_QUERY)
-        if result.rows:
-            revisions = result.rows[0][0]
-            if isinstance(revisions, list):
-                return [str(r) for r in revisions]
-            if revisions is not None:
-                return str(revisions).split(",")
-        return []
-
-    def set_version(self, revisions: list[str]) -> None:
-        self.run_query(_SET_VERSION_QUERY, {"revisions": revisions})
-
-    # ------------------------------------------------------------------
-    # Schema introspection
-    # ------------------------------------------------------------------
-
-    def read_live_schema(self) -> LiveSchema:
-        log.debug("Memgraph read_live_schema: returning empty schema")
-        return LiveSchema(
-            range_indexes=[],
-            fulltext_indexes=[],
-            vector_indexes=[],
-            constraints=[],
-        )
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        """Return empty set — Memgraph DDL is idempotent for range; others use try/except."""
-        return set()
-
-    # ------------------------------------------------------------------
     # DDL — entity types (no-op: Memgraph is schemaless)
     # ------------------------------------------------------------------
 
@@ -150,11 +91,8 @@ class MemgraphAdapter(GraphAdapter):
     # DDL — indexes
     # ------------------------------------------------------------------
 
-    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
-        if rel:
-            cypher = f"CREATE INDEX ON :{label}({prop})"
-        else:
-            cypher = f"CREATE INDEX ON :{label}({prop})"
+    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
+        cypher = f"CREATE INDEX ON :{label}({prop})"
         log.info("Memgraph DDL: %s", cypher)
         try:
             self.run_query(cypher)
@@ -293,58 +231,5 @@ class MemgraphAdapter(GraphAdapter):
                 props,
             )
 
-    # ------------------------------------------------------------------
-    # Graph lifecycle
-    # ------------------------------------------------------------------
-
-    def delete_graph(self) -> None:
-        log.warning(
-            "Memgraph delete_graph: dropping all nodes and relationships in %r",
-            self._database,
-        )
-        self.run_query("MATCH (n) DETACH DELETE n")
-
-    def snapshot(self, snap_name: str) -> None:
-        raise NotImplementedError(
-            "Memgraph snapshots are not supported via runic migrate."
-        )
-
-    def restore_snapshot(self, snap_name: str) -> None:
-        raise NotImplementedError(
-            "Memgraph snapshot restore is not supported via runic migrate."
-        )
-
-    def snapshot_exists(self, snap_name: str) -> bool:  # noqa: ARG002
-        return False
-
-    # ------------------------------------------------------------------
-    # Checksum tracking
-    # ------------------------------------------------------------------
-
-    def get_checksums(self) -> dict[str, str]:
-        result = self.run_ro_query(_GET_TRACKING_QUERY)
-        if result.rows:
-            return _parse_kv_list(result.rows[0][0])
-        return {}
-
-    def set_checksum(
-        self, rev_id: str, checksum: str, installed_by: str | None = None
-    ) -> None:
-        current = self.get_checksums()
-        current[rev_id] = checksum
-        current_by = self.get_installed_by()
-        if installed_by:
-            current_by[rev_id] = installed_by
-        self.run_query(
-            _SET_TRACKING_QUERY,
-            {
-                "checksums": _encode_kv_list(current),
-                "installed_by": _encode_kv_list(current_by),
-            },
-        )
-
-    def get_installed_by(self) -> dict[str, str]:
-        result = self.run_ro_query(_GET_TRACKING_QUERY)
-        if result.rows and len(result.rows[0]) > 1:
-            return _parse_kv_list(result.rows[0][1])
-        return {}
+    def get_existing_specs(self) -> set[IndexSpec]:
+        return set()

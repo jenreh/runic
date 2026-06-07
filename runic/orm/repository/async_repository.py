@@ -114,7 +114,7 @@ class AsyncRepository[T](AsyncRepositoryProtocol[T]):
             repo = AsyncRepository(session, User)
             users = await repo.query().where(User.active == True).all()
         """
-        from runic.orm.query.builder import AsyncQueryBuilder
+        from runic.orm.query.specialised import AsyncQueryBuilder
 
         return AsyncQueryBuilder(self._session, self._cls)
 

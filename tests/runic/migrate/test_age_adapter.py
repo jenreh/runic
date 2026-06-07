@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.migrate.adapters.age import AGEAdapter, _encode_kv_list, _parse_kv_list
+from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
+from runic.migrate.adapters.age import AGEAdapter
 from runic.orm.driver.age import AGEDriver, AGEResult
 
 

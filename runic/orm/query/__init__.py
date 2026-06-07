@@ -16,10 +16,10 @@ Expression helpers imported here for convenience::
 Refer to :mod:`runic.orm.query.builder` for the full API reference.
 """
 
-from runic.orm.query.builder import (
+from runic.orm.query.builder import QueryBuilder
+from runic.orm.query.specialised import (
     AsyncQueryBuilder,
     FulltextQueryBuilder,
-    QueryBuilder,
     VectorQueryBuilder,
 )
 from runic.orm.query.expressions import (
