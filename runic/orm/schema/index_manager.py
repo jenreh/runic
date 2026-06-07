@@ -174,6 +174,10 @@ class IndexAdapter(Protocol):
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None: ...
 
+    def create_vertex_type(self, label: str) -> None: ...
+
+    def create_edge_type(self, type_name: str) -> None: ...
+
     def get_existing_specs(self) -> set[IndexSpec]: ...
 
 
@@ -255,6 +259,12 @@ class FalkorDBIndexAdapter:
                 props,
             )
 
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass
+
     def get_existing_specs(self) -> set[IndexSpec]:
         return parse_existing_specs(self._graph)
 
@@ -312,6 +322,17 @@ class IndexManager:
         are skipped.  FULLTEXT creation is always attempted — adapters must
         handle idempotency (FalkorDB and Neo4j/Memgraph ``IF NOT EXISTS`` do).
         """
+        from runic.orm.core.models import Edge, Node  # local to avoid circular import
+
+        if issubclass(entity_class, Node):
+            label: str = getattr(entity_class, "_primary_label", entity_class.__name__)
+            log.debug("Ensuring vertex type for %s", label)
+            self._adapter.create_vertex_type(label)
+        elif issubclass(entity_class, Edge):
+            edge_type: str = getattr(entity_class, "_edge_type", entity_class.__name__)
+            log.debug("Ensuring edge type for %s", edge_type)
+            self._adapter.create_edge_type(edge_type)
+
         declared = extract_declared_specs(entity_class)
         existing = self._adapter.get_existing_specs() if if_not_exists else set()
 

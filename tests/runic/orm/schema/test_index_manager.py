@@ -276,6 +276,8 @@ class _MockAdapter:
     def __init__(self) -> None:
         from unittest.mock import MagicMock
 
+        self.create_vertex_type = MagicMock()
+        self.create_edge_type = MagicMock()
         self.create_range_index = MagicMock()
         self.drop_range_index = MagicMock()
         self.create_fulltext_index = MagicMock()
@@ -414,3 +416,39 @@ class TestIndexManagerWithGenericAdapter:
         manager, adapter = self._make_manager()
         manager.ensure_indexes(EnsureEnt)
         adapter.create_range_index.assert_called_once_with("EnsureEnt", "tag")
+
+    def test_create_indexes_calls_create_vertex_type_for_node(self) -> None:
+        class VertexNode(Node, labels=["VertexNode"]):
+            id: str = Field()
+            score: int = Field(index=True)
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(VertexNode)
+        adapter.create_vertex_type.assert_called_once_with("VertexNode")
+
+    def test_create_indexes_calls_create_edge_type_for_edge(self) -> None:
+        class KnowsEdge(Edge, type="KNOWS"):
+            weight: float = Field()
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(KnowsEdge)
+        adapter.create_edge_type.assert_called_once_with("KNOWS")
+
+    def test_vertex_type_called_before_index_ddl(self) -> None:
+        """create_vertex_type must be called before any index DDL on the same adapter."""
+        from unittest.mock import MagicMock
+
+        class OrderedNode(Node, labels=["OrderedNode"]):
+            id: str = Field()
+            val: int = Field(index=True)
+
+        parent = MagicMock()
+        adapter = _MockAdapter()
+        parent.attach_mock(adapter.create_vertex_type, "create_vertex_type")
+        parent.attach_mock(adapter.create_range_index, "create_range_index")
+
+        manager = IndexManager(adapter)
+        manager.create_indexes(OrderedNode)
+
+        calls = [c[0] for c in parent.mock_calls]
+        assert calls.index("create_vertex_type") < calls.index("create_range_index")

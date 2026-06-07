@@ -1,4 +1,4 @@
-"""SchemaManager: validate and sync FalkorDB indexes against entity declarations."""
+"""SchemaManager: validate and sync graph indexes against entity declarations."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from typing import Any
 
 from runic.orm.core.metadata import MetaData, get_metadata
 from runic.orm.schema.index_manager import (
+    FalkorDBIndexAdapter,
     IndexManager,
     IndexSpec,
     extract_declared_specs,
-    parse_existing_specs,
 )
 
 log = logging.getLogger(__name__)
@@ -35,24 +35,48 @@ class ValidationResult:
 
 
 class SchemaManager:
-    """Validates and synchronizes FalkorDB indexes against entity Field declarations.
+    """Validates and synchronizes graph indexes against entity Field declarations.
 
-    Binds to a FalkorDB graph handle, not a Session.
+    Accepts either a raw FalkorDB graph handle (auto-wrapped in
+    :class:`~runic.orm.schema.index_manager.FalkorDBIndexAdapter`) or any object
+    satisfying the :class:`~runic.orm.schema.index_manager.IndexAdapter` protocol
+    (e.g. a migrate adapter for Neo4j, Memgraph, ArcadeDB, or AGE).
 
     Example::
 
+        # FalkorDB (backward compat — raw graph handle)
         schema = SchemaManager(graph)
         result = schema.validate_schema([Person, Trip, Stop])
 
-        if not result.is_valid:
-            print(schema.get_schema_diff([Person, Trip, Stop]))
-            schema.sync_schema([Person, Trip, Stop], drop_extra=False)
+        # Neo4j / any other adapter
+        adapter = create_adapter("neo4j", ...)
+        schema = SchemaManager(adapter)
+        schema.sync_schema([Person, KnowsEdge])
     """
 
-    def __init__(self, graph: Any, meta: MetaData | None = None) -> None:
-        self._graph = graph
+    def __init__(self, adapter_or_graph: Any, meta: MetaData | None = None) -> None:
+        if hasattr(adapter_or_graph, "create_node_range_index"):
+            self._adapter: Any = FalkorDBIndexAdapter(adapter_or_graph)
+        else:
+            self._adapter = adapter_or_graph
         self._meta: MetaData = meta if meta is not None else get_metadata()
-        self._index_manager = IndexManager(graph, self._meta)
+        self._index_manager = IndexManager(self._adapter, self._meta)
+
+    def ensure_entity_types(self, entity_classes: list[type]) -> None:
+        """Create vertex/edge types for *entity_classes* on adapters that require them.
+
+        No-op for schemaless backends (FalkorDB, Neo4j, Memgraph, AGE).
+        Issues ``CREATE VERTEX TYPE`` / ``CREATE EDGE TYPE`` DDL for ArcadeDB.
+        """
+        from runic.orm.core.models import Edge, Node
+
+        for cls in entity_classes:
+            if issubclass(cls, Node):
+                label: str = getattr(cls, "_primary_label", cls.__name__)
+                self._adapter.create_vertex_type(label)
+            elif issubclass(cls, Edge):
+                edge_type: str = getattr(cls, "_edge_type", cls.__name__)
+                self._adapter.create_edge_type(edge_type)
 
     def validate_schema(self, entity_classes: list[type]) -> ValidationResult:
         """Compare declared indexes against the live graph state.
@@ -70,7 +94,7 @@ class SchemaManager:
                 errors.append(f"Failed to extract specs for {cls.__name__!r}: {exc}")
 
         try:
-            existing = parse_existing_specs(self._graph)
+            existing = self._adapter.get_existing_specs()
         except Exception as exc:
             errors.append(f"Failed to read live indexes: {exc}")
             existing = set()
@@ -97,18 +121,18 @@ class SchemaManager:
         *,
         drop_extra: bool = False,
     ) -> None:
-        """Create missing indexes and, when *drop_extra* is ``True``, remove extra ones.
+        """Create entity types and missing indexes; drop extras when *drop_extra* is ``True``.
 
-        Runs ``validate_schema`` internally; no duplicate graph introspection.
-        Extra indexes are only dropped when explicitly requested to prevent data loss.
+        Calls ``ensure_entity_types`` first (required for ArcadeDB empty collections),
+        then delegates to :meth:`~runic.orm.schema.index_manager.IndexManager.create_indexes`
+        per class for fulltext batching and idempotent creation.
         """
-        result = self.validate_schema(entity_classes)
-
-        for spec in result.missing_indexes:
-            log.info("Creating missing index: %r", spec)
-            self._index_manager.create_spec(spec)
+        self.ensure_entity_types(entity_classes)
+        for cls in entity_classes:
+            self._index_manager.create_indexes(cls)
 
         if drop_extra:
+            result = self.validate_schema(entity_classes)
             for spec in result.extra_indexes:
                 log.info("Dropping extra index: %r", spec)
                 self._index_manager.drop_spec(spec)
@@ -148,9 +172,9 @@ class SchemaManager:
                 log.debug("extract_declared_specs failed for %r: %s", cls, exc)
 
         try:
-            existing = parse_existing_specs(self._graph)
+            existing = self._adapter.get_existing_specs()
         except Exception as exc:
-            log.debug("parse_existing_specs failed: %s", exc)
+            log.debug("get_existing_specs failed: %s", exc)
             existing = set()
 
         result = self.validate_schema(entity_classes)

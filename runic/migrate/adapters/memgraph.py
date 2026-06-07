@@ -137,6 +137,16 @@ class MemgraphAdapter(GraphAdapter):
         return set()
 
     # ------------------------------------------------------------------
+    # DDL — entity types (no-op: Memgraph is schemaless)
+    # ------------------------------------------------------------------
+
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass
+
+    # ------------------------------------------------------------------
     # DDL — indexes
     # ------------------------------------------------------------------
 
