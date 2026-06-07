@@ -8,19 +8,29 @@ from runic.migrate.manifest import (
     UniqueConstraint,
     VectorIndex,
 )
+from runic.migrate.schema import (
+    IndexManager,
+    SchemaInfo,
+    SchemaManager,
+    ValidationResult,
+)
 from runic.migrate.script import AmbiguousRevision, RevisionNotFound
 from runic.migrate.service import init
 
 __all__ = [
     "AmbiguousRevision",
     "FulltextIndex",
+    "IndexManager",
     "IrreversibleMigrationError",
     "MandatoryConstraint",
     "RangeIndex",
     "RevisionNotFound",
     "Runic",
+    "SchemaInfo",
+    "SchemaManager",
     "SchemaManifest",
     "UniqueConstraint",
+    "ValidationResult",
     "VectorIndex",
     "context",
     "init",

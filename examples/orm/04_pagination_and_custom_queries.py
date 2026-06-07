@@ -1,8 +1,7 @@
 """Example 4 — Pagination and custom Cypher queries.
 
 Demonstrates:
-  - Pageable / Page[T] — offset-based pagination with sort
-  - find_all_paginated() → page traversal
+  - find_all(skip=..., limit=...) — offset-based pagination
   - cypher() / cypher_one() / cypher_raw() helpers in a custom Repository
   - Raw session.execute() for write queries that don't map to a single entity
   - QueryBuilder: .skip()/.limit() pagination, .where() with OR, aggregations via .all_rows()
@@ -27,7 +26,16 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, Node, Pageable, Repository, Session  # noqa: E402
+from runic.orm import (  # noqa: E402
+    Field,
+    Node,
+    Repository,
+    Session,
+    avg,
+    count,
+    select,
+    sum_,
+)
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -148,30 +156,22 @@ def run() -> None:
         session.commit()
         log.info("Created %d articles", len(articles))
 
-    # --- Pagination: walk all pages ---
+    # --- Pagination: walk all items using skip/limit ---
+    page_size = 10
     with Session(driver) as session:
         repo = ArticleRepository(session, Article)
-        pageable = Pageable(page=0, size=10, sort_by="id", direction="ASC")
-        page = repo.find_all_paginated(pageable)
-        log.info(
-            "Page 0: %d items | total=%d pages=%d",
-            len(list(page)),
-            page.total_elements,
-            page.total_pages,
-        )
-        log.info("has_next=%s has_prev=%s", page.has_next(), page.has_previous())
+        items = repo.find_all(limit=page_size)
+        log.info("First page: %d items", len(items))
 
-        # Walk all pages
-        pageable = Pageable(page=0, size=10, sort_by="id")
-        page = repo.find_all_paginated(pageable)
+        # Walk all pages by incrementing skip until fewer items than page_size
+        skip = 0
         total_seen = 0
         while True:
-            items = list(page)
-            total_seen += len(items)
-            if not page.has_next():
+            batch = repo.find_all(skip=skip, limit=page_size)
+            total_seen += len(batch)
+            if len(batch) < page_size:
                 break
-            pageable = pageable.next()
-            page = repo.find_all_paginated(pageable)
+            skip += page_size
         log.info("Walked all pages — total items seen: %d", total_seen)
 
     # --- Custom Cypher helpers ---
@@ -212,21 +212,19 @@ def run() -> None:
     # --- Query builder: manual skip/limit pagination ---
     with Session(driver) as session:
         page_size = 10
-        page_0: list[Article] = (
-            session.query(Article)
+        page_0: list[Article] = session.scalars(
+            select(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
             .skip(0)
             .limit(page_size)
-            .all()
         )
-        page_1: list[Article] = (
-            session.query(Article)
+        page_1: list[Article] = session.scalars(
+            select(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
             .skip(page_size)
             .limit(page_size)
-            .all()
         )
         log.info(
             "QueryBuilder page 0: %d items, page 1: %d items",
@@ -236,12 +234,11 @@ def run() -> None:
 
     # --- Query builder: OR predicate — articles by alice or bob ---
     with Session(driver) as session:
-        results: list[Article] = (
-            session.query(Article)
+        results: list[Article] = session.scalars(
+            select(Article)
             .where((Article.author == "alice") | (Article.author == "bob"))
             .order_by(Article.views, desc=True)
             .limit(5)
-            .all()
         )
         log.info(
             "QueryBuilder OR top 5 by views: %s",
@@ -250,25 +247,25 @@ def run() -> None:
 
     # --- Query builder: in_() membership filter ---
     with Session(driver) as session:
-        selected: list[Article] = (
-            session.query(Article)
-            .where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
-            .all()
+        selected: list[Article] = session.scalars(
+            select(Article).where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
         )
         log.info("QueryBuilder in_(): %s", [a.id for a in selected])
 
     # --- Query builder: count() per status ---
     with Session(driver) as session:
-        pub_count: int = session.query(Article).where(Article.status == "published").count()
-        arc_count: int = session.query(Article).where(Article.status == "archived").count()
+        pub_count: int = session.count(
+            select(Article).where(Article.status == "published")
+        )
+        arc_count: int = session.count(
+            select(Article).where(Article.status == "archived")
+        )
         log.info("QueryBuilder count: published=%d archived=%d", pub_count, arc_count)
 
-    # --- Query builder: project() → author names only ---
+    # --- Query builder: aggregate per article ---
     with Session(driver) as session:
-        from runic.orm import avg, count, sum_
-
-        rows: list[dict[str, Any]] = (
-            session.query(Article)
+        rows: list[dict[str, Any]] = session.all_rows(
+            select(Article)
             .alias("a")
             .aggregate(
                 count("*").as_("total"),
@@ -276,7 +273,6 @@ def run() -> None:
                 sum_(Article.views).as_("total_views"),
                 group_by="a",
             )
-            .all_rows()
         )
         log.info("QueryBuilder aggregate all_rows: %d rows returned", len(rows))
 

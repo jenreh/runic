@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from runic.orm.repository.cypher import _SCALAR_TYPES, map_cypher_result
-from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.protocol import RepositoryProtocol
 
 if TYPE_CHECKING:
@@ -27,7 +26,7 @@ class Repository[T](RepositoryProtocol[T]):
         with Session(graph) as session:
             repo = Repository(session, Person)
             all_people = repo.find_all()
-            page = repo.find_all_paginated(Pageable(page=0, size=25))
+            page = repo.find_all(skip=0, limit=25)
     """
 
     def __init__(self, session: Session, entity_class: type[T]) -> None:
@@ -38,8 +37,22 @@ class Repository[T](RepositoryProtocol[T]):
     # Standard reads
     # ------------------------------------------------------------------
 
-    def find_all(self, fetch: list[str] | None = None) -> list[T]:
-        """Return all entities of this type, with optional eager relationship loading."""
+    def find_all(
+        self,
+        fetch: list[str] | None = None,
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[T]:
+        """Return all entities of this type, with optional eager relationship loading.
+
+        Use *skip* and *limit* for offset-based pagination (aligns with
+        ``select(...).skip(n).limit(n)`` syntax).  Combining *fetch* with
+        *skip*/*limit* is not supported — use the QueryBuilder for that.
+        """
+        if fetch and (skip > 0 or limit is not None):
+            raise ValueError(
+                "fetch= cannot be combined with skip=/limit=; use QueryBuilder instead."
+            )
         if fetch:
             cypher, params, fetch_meta = (
                 self._session.rel_loader.build_find_all_with_fetch_query(
@@ -49,7 +62,9 @@ class Repository[T](RepositoryProtocol[T]):
             result = self._session.execute(cypher, params)
             return self._decode_rows_with_fetch(result, fetch_meta)
 
-        cypher, params = self._session.mapper.build_find_all_query(self._cls)
+        cypher, params = self._session.mapper.build_find_all_query(
+            self._cls, skip=skip, limit=limit
+        )
         result = self._session.execute(cypher, params)
         return self._decode_rows(result)
 
@@ -91,23 +106,6 @@ class Repository[T](RepositoryProtocol[T]):
             return int(result.rows[0][0]) > 0
         return False
 
-    def find_all_paginated(self, pageable: Pageable) -> Page[T]:
-        """Return a single :class:`Page` of results for *pageable*."""
-        cypher, params = self._session.mapper.build_paginated_query(self._cls, pageable)
-        result = self._session.execute(cypher, params)
-        items = self._decode_rows(result)
-
-        count_cypher, count_params = self._session.mapper.build_count_query(self._cls)
-        count_result = self._session.execute(count_cypher, count_params)
-        total = int(count_result.rows[0][0]) if count_result.rows else 0
-
-        return Page(
-            items=items,
-            page_number=pageable.page,
-            size=pageable.size,
-            total_elements=total,
-        )
-
     # ------------------------------------------------------------------
     # Custom Cypher helpers
     # ------------------------------------------------------------------
@@ -115,13 +113,16 @@ class Repository[T](RepositoryProtocol[T]):
     def query(self) -> Any:
         """Return a :class:`~runic.orm.query.builder.QueryBuilder` for this repository's entity type.
 
-        Shorthand for ``session.query(self._cls)``::
+        Shorthand for ``select(self._cls)`` bound to the current session.  Prefer
+        the ``select()`` + session execution pattern for new code::
 
             repo = Repository(session, User)
 
-            # These are equivalent:
+            # Preferred (select + session execution):
+            users = session.scalars(select(User).where(User.active == True))
+
+            # Also available via repo (bound builder):
             users = repo.query().where(User.active == True).all()
-            users = session.query(User).where(User.active == True).all()
 
         Returns
         -------

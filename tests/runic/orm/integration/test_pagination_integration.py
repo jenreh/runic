@@ -1,4 +1,4 @@
-"""Integration tests for Repository.find_all_paginated."""
+"""Integration tests for Repository.find_all with skip/limit."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
-from runic.orm.repository.pagination import Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
 
@@ -40,130 +39,55 @@ def item_graph(graph_driver: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Basic pagination
+# find_all with skip/limit
 # ---------------------------------------------------------------------------
 
 
-def test_paginated_returns_page_instance(item_graph: Any) -> None:
-    from runic.orm.repository.pagination import Page
-
+def test_find_all_no_args_returns_all(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert isinstance(page, Page)
+        items = repo.find_all()
+    assert len(items) == 10
 
 
-def test_paginated_total_elements(item_graph: Any) -> None:
+def test_find_all_with_limit_returns_correct_count(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert page.total_elements == 10
+        items = repo.find_all(limit=5)
+    assert len(items) == 5
 
 
-def test_paginated_total_pages(item_graph: Any) -> None:
+def test_find_all_with_skip_and_limit(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert page.total_pages == 2
+        items = repo.find_all(skip=5, limit=5)
+    assert len(items) == 5
 
 
-def test_paginated_first_page_size(item_graph: Any) -> None:
+def test_find_all_skip_beyond_total_returns_empty(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert len(page) == 5
+        items = repo.find_all(skip=99, limit=10)
+    assert items == []
 
 
-def test_paginated_second_page_size(item_graph: Any) -> None:
+def test_find_all_limit_larger_than_total_returns_all(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=1, size=5))
-    assert len(page) == 5
+        items = repo.find_all(limit=100)
+    assert len(items) == 10
 
 
-def test_paginated_has_next_on_first_page(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert page.has_next() is True
-
-
-def test_paginated_no_next_on_last_page(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=1, size=5))
-    assert page.has_next() is False
-
-
-def test_paginated_has_previous_on_second_page(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=1, size=5))
-    assert page.has_previous() is True
-
-
-def test_paginated_no_previous_on_first_page(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=5))
-    assert page.has_previous() is False
-
-
-# ---------------------------------------------------------------------------
-# Ordering
-# ---------------------------------------------------------------------------
-
-
-def test_paginated_order_by_rank_asc(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(
-            Pageable(page=0, size=3, sort_by="rank", direction="ASC")
-        )
-    ranks = [item.rank for item in page]
-    assert ranks == sorted(ranks)
-
-
-def test_paginated_order_by_rank_desc(item_graph: Any) -> None:
-    with Session(item_graph) as s:
-        repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(
-            Pageable(page=0, size=3, sort_by="rank", direction="DESC")
-        )
-    ranks = [item.rank for item in page]
-    assert ranks == sorted(ranks, reverse=True)
-
-
-# ---------------------------------------------------------------------------
-# Empty graph
-# ---------------------------------------------------------------------------
-
-
-def test_paginated_empty_graph(graph_driver: Any) -> None:
+def test_find_all_empty_graph(graph_driver: Any) -> None:
     with Session(graph_driver) as s:
         repo = Repository(s, PageItem)
-        page = repo.find_all_paginated(Pageable(page=0, size=10))
-    assert len(page) == 0
-    assert page.total_elements == 0
-    assert page.total_pages == 0
-    assert page.has_next() is False
-    assert page.has_previous() is False
+        items = repo.find_all(skip=0, limit=10)
+    assert items == []
 
 
-# ---------------------------------------------------------------------------
-# Navigation helpers
-# ---------------------------------------------------------------------------
-
-
-def test_pageable_next_navigates_correctly(item_graph: Any) -> None:
-    pageable = Pageable(page=0, size=4)
+def test_find_all_returns_list_type(item_graph: Any) -> None:
     with Session(item_graph) as s:
         repo = Repository(s, PageItem)
-        page1 = repo.find_all_paginated(pageable)
-        page2 = repo.find_all_paginated(pageable.next())
-
-    ids_p1 = {item.id for item in page1}
-    ids_p2 = {item.id for item in page2}
-    assert len(ids_p1) == 4
-    assert len(ids_p2) == 4
-    assert ids_p1.isdisjoint(ids_p2)
+        items = repo.find_all(limit=3)
+    assert isinstance(items, list)
+    assert all(isinstance(i, PageItem) for i in items)

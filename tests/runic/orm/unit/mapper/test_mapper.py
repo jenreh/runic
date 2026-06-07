@@ -20,7 +20,6 @@ from runic.orm.core.types import (
 )
 from runic.orm.exceptions import MetadataError
 from runic.orm.mapper.mapper import Mapper
-from runic.orm.repository.pagination import Pageable
 
 # ---------------------------------------------------------------------------
 # Test models — unique labels to avoid collisions with other test modules
@@ -247,6 +246,32 @@ class TestQueryBuilders:
         assert "MATCH" in cypher
         assert "MapperPerson" in cypher
         assert params == {}
+        assert "SKIP" not in cypher
+        assert "LIMIT" not in cypher
+
+    def test_find_all_with_skip_emits_skip_clause(self, mapper: Mapper) -> None:
+        cypher, params = mapper.build_find_all_query(MapperPerson, skip=10)
+        assert "SKIP $__skip" in cypher
+        assert params["__skip"] == 10
+        assert "LIMIT" not in cypher
+
+    def test_find_all_with_limit_emits_limit_clause(self, mapper: Mapper) -> None:
+        cypher, params = mapper.build_find_all_query(MapperPerson, limit=20)
+        assert "LIMIT $__limit" in cypher
+        assert params["__limit"] == 20
+        assert "SKIP" not in cypher
+
+    def test_find_all_with_skip_and_limit(self, mapper: Mapper) -> None:
+        cypher, params = mapper.build_find_all_query(MapperPerson, skip=5, limit=10)
+        assert "SKIP $__skip" in cypher
+        assert "LIMIT $__limit" in cypher
+        assert params["__skip"] == 5
+        assert params["__limit"] == 10
+
+    def test_find_all_skip_zero_not_emitted(self, mapper: Mapper) -> None:
+        cypher, params = mapper.build_find_all_query(MapperPerson, skip=0, limit=None)
+        assert "SKIP" not in cypher
+        assert params == {}
 
     def test_find_all_by_ids_client(self, mapper: Mapper) -> None:
         cypher, params = mapper.build_find_all_by_ids_query(MapperPerson, ["a", "b"])
@@ -271,32 +296,6 @@ class TestQueryBuilders:
         cypher, params = mapper.build_exists_query(MapperGenerated, 5)
         assert "id(n)" in cypher.lower() or "WHERE id" in cypher
         assert params["__pk"] == 5
-
-
-# ---------------------------------------------------------------------------
-# build_paginated_query
-# ---------------------------------------------------------------------------
-
-
-class TestBuildPaginatedQuery:
-    def test_no_sort(self, mapper: Mapper) -> None:
-        pageable = Pageable(page=0, size=10)
-        cypher, params = mapper.build_paginated_query(MapperPerson, pageable)
-        assert "SKIP" in cypher
-        assert "LIMIT" in cypher
-        assert params["__skip"] == 0
-        assert params["__limit"] == 10
-
-    def test_with_sort_asc(self, mapper: Mapper) -> None:
-        pageable = Pageable(page=1, size=5, sort_by="name", direction="ASC")
-        cypher, params = mapper.build_paginated_query(MapperPerson, pageable)
-        assert "ORDER BY n.name ASC" in cypher
-        assert params["__skip"] == 5
-
-    def test_with_sort_desc(self, mapper: Mapper) -> None:
-        pageable = Pageable(page=0, size=20, sort_by="age", direction="DESC")
-        cypher, params = mapper.build_paginated_query(MapperPerson, pageable)
-        assert "ORDER BY n.age DESC" in cypher
 
 
 # ---------------------------------------------------------------------------
@@ -634,13 +633,16 @@ class TestDialectHelpers:
         assert "MapperParent" in cypher
         assert '"MapperChild" IN n._labels' in cypher
 
-    def test_build_paginated_includes_subtype_filter(self, meta: MetaData) -> None:
-        from runic.orm.repository.pagination import Pageable
-
+    def test_build_find_all_with_skip_limit_includes_subtype_filter(
+        self, meta: MetaData
+    ) -> None:
         mapper = Mapper(meta, dialect=_SingleLabelDialect())
-        pageable = Pageable(page=0, size=10)
-        cypher, _ = mapper.build_paginated_query(MapperChild, pageable)
+        cypher, params = mapper.build_find_all_query(MapperChild, skip=10, limit=5)
         assert '"MapperChild" IN n._labels' in cypher
+        assert "SKIP $__skip" in cypher
+        assert "LIMIT $__limit" in cypher
+        assert params["__skip"] == 10
+        assert params["__limit"] == 5
 
     def test_build_count_includes_subtype_filter(self, meta: MetaData) -> None:
         mapper = Mapper(meta, dialect=_SingleLabelDialect())

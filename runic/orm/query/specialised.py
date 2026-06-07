@@ -228,7 +228,7 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
     Appends a KNN distance expression to the ORDER BY and RETURN clauses.
 
     The field must have ``index_type="VECTOR"`` and an HNSW vector index
-    must be created via :meth:`~runic.orm.schema.schema_manager.SchemaManager`::
+    must be created via :meth:`~runic.migrate.schema.SchemaManager`::
 
         class Document(Node, labels=["Document"]):
             embedding: Vector = Field(index_type="VECTOR")

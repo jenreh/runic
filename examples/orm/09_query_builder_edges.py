@@ -28,7 +28,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Edge, Field, Node, Relation, Session  # noqa: E402
+from runic.orm import Edge, Field, Node, Relation, Session, select  # noqa: E402
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -191,15 +191,14 @@ def run() -> None:
 
     # --- Basic all_with_edges(): (User, Rated, Movie) tuples ---
     with Session(driver) as session:
-        rows: list[tuple[User, Rated, Movie]] = (
-            session.query(User)
+        rows: list[tuple[User, Rated, Movie]] = session.all_with_edges(
+            select(User)
             .alias("u")
             .where(User.id == "alice")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
             .return_nodes("u", "m")
             .return_edge("r")
-            .all_with_edges()
         )
         log.info("Alice's ratings:")
         for user, edge, movie in rows:
@@ -216,15 +215,14 @@ def run() -> None:
 
     # --- Filter on edge property: only high scores ---
     with Session(driver) as session:
-        high_rated: list[tuple[User, Rated, Movie]] = (
-            session.query(User)
+        high_rated: list[tuple[User, Rated, Movie]] = session.all_with_edges(
+            select(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
             .where(Rated.score >= 9.0, on="r")
             .return_nodes("u", "m")
             .return_edge("r")
-            .all_with_edges()
         )
         log.info("All ratings >= 9.0:")
         for user, edge, movie in high_rated:
@@ -232,22 +230,21 @@ def run() -> None:
 
     # --- Filter on edge property: recommended only ---
     with Session(driver) as session:
-        recommended: list[Movie] = (
-            session.query(User)
+        recommended: list[Movie] = session.scalars(
+            select(User)
             .alias("u")
             .where(User.id == "alice")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
             .where(Rated.recommended == True, on="r")  # noqa: E712
             .return_target("m")
-            .all()
         )
         log.info("Alice's recommended movies: %s", [m.title for m in recommended])
 
     # --- Combine node + edge filters ---
     with Session(driver) as session:
-        sci_fi_recommended: list[tuple[User, Rated, Movie]] = (
-            session.query(User)
+        sci_fi_recommended: list[tuple[User, Rated, Movie]] = session.all_with_edges(
+            select(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
@@ -255,7 +252,6 @@ def run() -> None:
             .where(Movie.genre == "sci-fi", on="m")
             .return_nodes("u", "m")
             .return_edge("r")
-            .all_with_edges()
         )
         log.info("Recommended sci-fi ratings:")
         for user, edge, movie in sci_fi_recommended:
@@ -269,14 +265,13 @@ def run() -> None:
 
     # --- return_target("m"): only movies (discard user/edge from result) ---
     with Session(driver) as session:
-        bobs_movies: list[Movie] = (
-            session.query(User)
+        bobs_movies: list[Movie] = session.scalars(
+            select(User)
             .alias("u")
             .where(User.id == "bob")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
             .return_target("m")
-            .all()
         )
         log.info("Bob's rated movies: %s", [m.title for m in bobs_movies])
 
@@ -285,15 +280,14 @@ def run() -> None:
         # Use optional=False (required MATCH) when filtering on traversal edge
         # properties — OPTIONAL MATCH + WHERE nullifies non-matching rows rather
         # than removing them, which would yield None movies for non-matching users.
-        completed: list[tuple[User, Watched, Movie]] = (
-            session.query(User)
+        completed: list[tuple[User, Watched, Movie]] = session.all_with_edges(
+            select(User)
             .alias("u")
             .traverse(User.watched_movies, edge_alias="w", optional=False)
             .alias("m")
             .where(Watched.completed == True, on="w")  # noqa: E712
             .return_nodes("u", "m")
             .return_edge("w")
-            .all_with_edges()
         )
         log.info("Completed watches:")
         for user, edge, movie in completed:
@@ -306,8 +300,8 @@ def run() -> None:
 
     # --- Filter on both edge AND node simultaneously ---
     with Session(driver) as session:
-        recent_high: list[Movie] = (
-            session.query(User)
+        recent_high: list[Movie] = session.scalars(
+            select(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
             .alias("m")
@@ -315,7 +309,6 @@ def run() -> None:
             .where(Movie.year >= 2010, on="m")
             .return_target("m")
             .order_by(Movie.year, desc=True)
-            .all()
         )
         log.info(
             "High-rated (>=8) recent (>=2010) movies: %s",
@@ -323,21 +316,20 @@ def run() -> None:
         )
 
     # --- build(): inspect Cypher for edge query ---
-    with Session(driver) as session:
-        cypher: str
-        params: dict[str, Any]
-        cypher, params = (
-            session.query(User)
-            .alias("u")
-            .where(User.id == "alice")
-            .traverse(User.rated_movies, edge_alias="r")
-            .alias("m")
-            .where(Rated.score >= 9.0, on="r")
-            .return_nodes("u", "m")
-            .return_edge("r")
-            .build()
-        )
-        log.info("Edge query Cypher:\n%s\nparams: %s", cypher, params)
+    cypher: str
+    params: dict[str, Any]
+    cypher, params = (
+        select(User)
+        .alias("u")
+        .where(User.id == "alice")
+        .traverse(User.rated_movies, edge_alias="r")
+        .alias("m")
+        .where(Rated.score >= 9.0, on="r")
+        .return_nodes("u", "m")
+        .return_edge("r")
+        .build()
+    )
+    log.info("Edge query Cypher:\n%s\nparams: %s", cypher, params)
 
     driver.close()
 

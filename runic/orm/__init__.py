@@ -49,7 +49,6 @@ from runic.orm.exceptions import (
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.repository.async_repository import AsyncRepository
-from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.query import (
     AsyncQueryBuilder,
@@ -61,6 +60,7 @@ from runic.orm.query import (
     count,
     max_,
     min_,
+    select,
     sum_,
 )
 from runic.orm.query.expressions import (
@@ -71,8 +71,7 @@ from runic.orm.query.expressions import (
     NegatedExpr,
     OrderExpr,
 )
-from runic.orm.schema.index_manager import IndexManager, IndexSpec
-from runic.orm.schema.schema_manager import SchemaInfo, SchemaManager, ValidationResult
+from runic.orm.schema.index_manager import IndexSpec
 from runic.orm.session.async_session import AsyncSession
 from runic.orm.session.connection_pool import AsyncConnectionManager, ConnectionManager
 from runic.orm.session.session import Session
@@ -126,20 +125,14 @@ __all__ = [  # noqa: RUF022
     "AsyncSession",
     "ConnectionManager",
     "Session",
-    # Repository / pagination
+    # Repository
     "AsyncRepository",
-    "Page",
-    "Pageable",
     "Repository",
     # Mapper
     "Mapper",
     "RelationshipLoader",
     # Schema
-    "IndexManager",
     "IndexSpec",
-    "SchemaInfo",
-    "SchemaManager",
-    "ValidationResult",
     # Exceptions
     "DetachedEntityError",
     "EntityNotFoundError",
@@ -148,6 +141,7 @@ __all__ = [  # noqa: RUF022
     "MetadataError",
     "OrmError",
     # Query builder
+    "select",
     "AsyncQueryBuilder",
     "FulltextQueryBuilder",
     "QueryBuilder",

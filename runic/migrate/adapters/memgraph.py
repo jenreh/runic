@@ -235,4 +235,31 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
             )
 
     def get_existing_specs(self) -> set[IndexSpec]:
-        return set()
+        specs: set[IndexSpec] = set()
+        try:
+            result = self.run_ro_query("SHOW INDEX INFO")
+            for row in result.rows:
+                idx_type, label, prop = row[0], row[1], row[2]
+                if idx_type == "label+property" and prop:
+                    specs.add(IndexSpec(label=label, property=prop, index_type="RANGE"))
+        except Exception as exc:
+            log.warning("Memgraph SHOW INDEX INFO failed: %s", exc)
+        try:
+            result = self.run_ro_query("SHOW CONSTRAINT INFO")
+            for row in result.rows:
+                con_type, label, props = row[0], row[1], row[2]
+                kind = (
+                    "UNIQUE"
+                    if con_type == "unique"
+                    else "MANDATORY"
+                    if con_type == "exists"
+                    else None
+                )
+                if not kind:
+                    continue
+                prop_list = props if isinstance(props, list) else [props]
+                for prop in prop_list:
+                    specs.add(IndexSpec(label=label, property=prop, index_type=kind))
+        except Exception as exc:
+            log.warning("Memgraph SHOW CONSTRAINT INFO failed: %s", exc)
+        return specs

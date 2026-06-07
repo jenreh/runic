@@ -195,7 +195,9 @@ def run() -> None:
 
     # --- Fulltext search: basic ---
     with Session(driver) as session:
-        results: list[Article] = session.fulltext_search(Article, query="graph databases").all()
+        results: list[Article] = session.fulltext_search(
+            Article, query="graph databases"
+        ).all()
         log.info("Fulltext 'graph databases': %s", [a.title for a in results])
 
     # --- Fulltext search + WHERE filter ---

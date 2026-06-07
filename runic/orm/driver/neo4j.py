@@ -5,7 +5,7 @@ The dialect targets Neo4j 5.x where ``db.index.fulltext.queryNodes`` and
 ``db.index.vector.queryNodes`` are the canonical fulltext/vector procedures.
 
 Both fulltext and vector indexes must be **pre-created** with Cypher DDL before
-use — the runic ``IndexManager`` is FalkorDB-specific and will not create them.
+use — pass a ``Neo4jAdapter`` to ``runic.migrate.IndexManager`` to create them.
 
 Naming contract used by this dialect:
 

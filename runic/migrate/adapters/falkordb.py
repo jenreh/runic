@@ -9,7 +9,9 @@ from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
+from runic.migrate.manifest import UniqueConstraint
 from runic.orm.driver.falkordb import FalkorDBDriver, FalkorDBResult
+from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -141,8 +143,51 @@ class FalkorDBAdapter(GraphAdapter):
     # Schema introspection
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # DDL — entity types (no-op: FalkorDB is schemaless)
+    # ------------------------------------------------------------------
+
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass
+
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
     def read_live_schema(self) -> LiveSchema:
         return introspect.read_live_schema(self._graph)
+
+    def get_existing_specs(self) -> set[IndexSpec]:
+        try:
+            schema = self.read_live_schema()
+        except Exception as exc:
+            if "empty key" in str(exc).lower():
+                log.debug("graph does not exist yet — returning empty spec set")
+                return set()
+            raise
+        unique_pairs: set[tuple[str, str]] = set()
+        specs: set[IndexSpec] = set()
+        for con in schema.constraints:
+            kind = "UNIQUE" if isinstance(con, UniqueConstraint) else "MANDATORY"
+            for prop in con.props:
+                specs.add(IndexSpec(label=con.label, property=prop, index_type=kind))
+                if kind == "UNIQUE":
+                    unique_pairs.add((con.label, prop))
+        for ri in schema.range_indexes:
+            if (ri.label, ri.prop) in unique_pairs:
+                continue
+            specs.add(IndexSpec(label=ri.label, property=ri.prop, index_type="RANGE"))
+        for fi in schema.fulltext_indexes:
+            for prop in fi.props:
+                specs.add(
+                    IndexSpec(label=fi.label, property=prop, index_type="FULLTEXT")
+                )
+        for vi in schema.vector_indexes:
+            specs.add(IndexSpec(label=vi.label, property=vi.prop, index_type="VECTOR"))
+        return specs
 
     # ------------------------------------------------------------------
     # Schema DDL — range indexes
@@ -349,3 +394,141 @@ class FalkorDBAdapter(GraphAdapter):
     def delete_graph(self) -> None:
         """Delete the underlying graph (used for ephemeral test cleanup)."""
         self._graph.delete()
+
+
+# ---------------------------------------------------------------------------
+# FalkorDBIndexAdapter — wraps raw FalkorDB graph handles
+# ---------------------------------------------------------------------------
+
+_INDEX_TYPES = frozenset({"RANGE", "FULLTEXT", "VECTOR", "UNIQUE"})
+
+
+def _parse_existing_specs(graph: Any) -> set[IndexSpec]:
+    """Parse live FalkorDB graph state and return all existing NODE index/constraint specs.
+
+    Used by FalkorDBIndexAdapter for the raw-graph-handle backward-compat path.
+    """
+    specs: set[IndexSpec] = set()
+    unique_pairs: set[tuple[str, str]] = set()
+
+    try:
+        for constraint in graph.list_constraints():
+            if constraint.get("type") != "UNIQUE":
+                continue
+            if constraint.get("entitytype") != "NODE":
+                continue
+            lbl: str = constraint["label"]
+            for prop in constraint.get("properties", []):
+                specs.add(IndexSpec(label=lbl, property=prop, index_type="UNIQUE"))
+                unique_pairs.add((lbl, prop))
+    except Exception:
+        log.debug("list_constraints() unavailable or failed")
+
+    try:
+        result = graph.list_indices()
+        col_map: dict[str, int] = {col[1]: idx for idx, col in enumerate(result.header)}
+        label_col = col_map.get("label", 0)
+        types_col = col_map.get("types", 2)
+        entitytype_col = col_map.get("entitytype", 6)
+
+        for row in result.result_set:
+            if row[entitytype_col] != "NODE":
+                continue
+            lbl = row[label_col]
+            types_dict = row[types_col]
+            for prop, type_list in types_dict.items():
+                for idx_type in type_list:
+                    if idx_type == "RANGE" and (lbl, prop) in unique_pairs:
+                        continue
+                    if idx_type in _INDEX_TYPES:
+                        specs.add(
+                            IndexSpec(label=lbl, property=prop, index_type=idx_type)
+                        )
+    except Exception:
+        log.debug("list_indices() unavailable or failed")
+
+    return specs
+
+
+class FalkorDBIndexAdapter:
+    """Adapts a raw FalkorDB graph handle to the IndexAdapter protocol.
+
+    Auto-created by IndexManager when a raw graph handle (identified by the
+    presence of ``create_node_range_index``) is passed — preserving backward
+    compat for existing ``IndexManager(graph)`` call sites.  Prefer passing a
+    :class:`FalkorDBAdapter` (from ``runic.migrate.adapters``) instead.
+    """
+
+    def __init__(self, graph: Any) -> None:
+        self._graph = graph
+
+    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
+        self._graph.create_node_range_index(label, prop)
+
+    def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
+        self._graph.drop_node_range_index(label, prop)
+
+    def create_fulltext_index(
+        self,
+        label: str,
+        *props: str,
+        language: str | None = None,  # noqa: ARG002
+        stopwords: list[str] | None = None,  # noqa: ARG002
+    ) -> None:
+        self._graph.create_node_fulltext_index(label, *props)
+
+    def drop_fulltext_index(self, label: str, *props: str) -> None:
+        self._graph.drop_node_fulltext_index(label, *props)
+
+    def create_vector_index(
+        self,
+        label: str,
+        prop: str,
+        dimension: int,  # noqa: ARG002
+        similarity: str,  # noqa: ARG002
+        *,
+        m: int = 16,  # noqa: ARG002
+        ef_construction: int = 200,  # noqa: ARG002
+        ef_runtime: int = 10,  # noqa: ARG002
+    ) -> None:
+        self._graph.create_node_vector_index(label, prop)
+
+    def drop_vector_index(self, label: str, prop: str) -> None:
+        self._graph.drop_node_vector_index(label, prop)
+
+    def create_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
+    ) -> None:
+        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
+            self._graph.create_node_unique_constraint(label, props[0])
+        else:
+            log.warning(
+                "FalkorDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                kind,
+                entity,
+                label,
+                props,
+            )
+
+    def drop_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
+    ) -> None:
+        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
+            self._graph.drop_node_unique_constraint(label, props[0])
+        else:
+            log.warning(
+                "FalkorDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                kind,
+                entity,
+                label,
+                props,
+            )
+
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass
+
+    def get_existing_specs(self) -> set[IndexSpec]:
+        return _parse_existing_specs(self._graph)

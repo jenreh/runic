@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 # Model definitions
 # ---------------------------------------------------------------------------
 
-from runic.orm import Field, Node, Repository, Session  # noqa: E402
+from runic.orm import Field, Node, Repository, Session, select  # noqa: E402
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -151,57 +151,52 @@ def run() -> None:
     # --- Pagination (Repository) ---
     with Session(driver) as session:
         repo = Repository(session, Language)
-        from runic.orm import Pageable
-
-        page = repo.find_all_paginated(Pageable(page=0, size=10, sort_by="code"))
-        log.info("Page 0: %d items, %d total", len(list(page)), page.total_elements)
+        first_page = repo.find_all(skip=0, limit=10)
+        log.info("First 10 languages: %d items", len(first_page))
 
     # --- Query builder: filter by field ---
     with Session(driver) as session:
-        results: list[Language] = (
-            session.query(Language).where(Language.code == "en").all()
+        results: list[Language] = session.scalars(
+            select(Language).where(Language.code == "en")
         )
         log.info("QueryBuilder filter by code='en': %s", [r.title for r in results])
 
     # --- Query builder: count ---
     with Session(driver) as session:
-        total: int = session.query(Language).count()
+        total: int = session.count(select(Language))
         log.info("QueryBuilder count: %d", total)
 
     # --- Query builder: one() ---
     with Session(driver) as session:
-        lang: Language | None = (
-            session.query(Language).where(Language.code == "de").one()
+        lang: Language | None = session.scalar(
+            select(Language).where(Language.code == "de")
         )
         log.info("QueryBuilder one() German: %s", lang and lang.title)
 
     # --- Query builder: order_by + limit ---
     with Session(driver) as session:
-        ordered: list[Language] = (
-            session.query(Language).order_by(Language.code).limit(2).all()
+        ordered: list[Language] = session.scalars(
+            select(Language).order_by(Language.code).limit(2)
         )
         log.info("QueryBuilder ordered codes: %s", [r.code for r in ordered])
 
     # --- Query builder: project() — scalar projection ---
     with Session(driver) as session:
-        codes: list[str] = (
-            session.query(Language)
-            .order_by(Language.code)
-            .project(Language.code)
-            .scalars()
+        rows = session.all_rows(
+            select(Language).order_by(Language.code).project(Language.code)
         )
+        codes: list[str] = [r["n.code"] for r in rows]
         log.info("QueryBuilder scalar codes: %s", codes)
 
     # --- Query builder: build() — inspect generated Cypher ---
-    with Session(driver) as session:
-        cypher: str
-        params: dict[str, Any]
-        cypher, params = (
-            session.query(Language)
-            .where(Language.title.contains("German"))  # type: ignore[attr-defined]
-            .build()
-        )
-        log.info("Generated Cypher: %s | params: %s", cypher, params)
+    cypher: str
+    params: dict[str, Any]
+    cypher, params = (
+        select(Language)
+        .where(Language.title.contains("German"))  # type: ignore[attr-defined]
+        .build()
+    )
+    log.info("Generated Cypher: %s | params: %s", cypher, params)
 
     driver.close()
 

@@ -1,9 +1,14 @@
 Quickstart
 ==========
 
-Install runic, connect to a graph database, define a model, and persist it — all
-on this page.  The example uses FalkorDB; swap ``create_driver`` arguments for
-any other supported backend — see :doc:`drivers` and :doc:`installation`.
+``runic.orm`` maps Python classes to graph nodes and edges.  You define
+a model, open a :class:`~runic.orm.session.session.Session`, and call methods —
+the ORM generates Cypher, executes it, and hands back typed Python objects.
+
+The example below uses FalkorDB.  Swap the ``create_driver`` arguments for any
+other supported backend — see :doc:`drivers` and :doc:`installation`.
+
+----
 
 Installation
 ------------
@@ -18,66 +23,170 @@ Start a local FalkorDB instance for this example:
 
    docker run -p 6379:6379 falkordb/falkordb
 
-Hello, Node
------------
+----
+
+Define a model
+--------------
+
+Every graph entity inherits from :class:`~runic.orm.core.models.Node`.
+Declare properties with :func:`~runic.orm.core.descriptors.Field`.
+The ``labels`` keyword controls which graph labels are applied:
 
 .. code-block:: python
 
    from runic.orm import Field, Node, Repository, Session, create_driver
 
-   # 1. Define a model
    class Language(Node, labels=["Language"]):
-       id: str = Field()
+       id: str = Field(primary_key=True)
        title: str = Field()
        code: str = Field(unique=True)
 
-   # 2. Connect
+Every model must have exactly one primary-key field.  runic uses it to
+build ``MATCH (n:Language {id: $id})`` predicates and to key the session's
+identity map.
+
+.. seealso::
+
+   :doc:`concepts` — Node, Edge, Field, Relation, object states, and dirty tracking
+
+----
+
+Connect
+-------
+
+Pass a :class:`~runic.orm.driver.GraphDriver` to ``Session``.  The driver
+holds the connection; the session holds the unit of work.  Create the driver
+once per application process and share it across sessions:
+
+.. code-block:: python
+
    driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
 
-   # 3. Create
+See :doc:`drivers` for the full set of supported backends and their kwargs.
+
+----
+
+Create
+------
+
+Add entities to the session and call ``commit()``.  The ORM emits a
+``CREATE`` statement for each new entity on ``flush()``, which happens
+automatically when you call ``commit()``:
+
+.. code-block:: python
+
    with Session(driver) as session:
        lang = Language(id="en", title="English", code="en")
        session.add(lang)
        session.commit()
-       print(lang.id)   # "en"
+       # lang is now Persistent — id, title, code are readable
 
-   # 4. Read
+Entities created outside a session are *transient*.  They become *pending*
+after ``session.add()`` and *persistent* after the first successful flush.
+
+----
+
+Read
+----
+
+Use a :class:`~runic.orm.repository.repository.Repository` for collection
+reads, or ``session.get()`` for a single lookup by primary key:
+
+.. code-block:: python
+
    with Session(driver) as session:
        repo = Repository(session, Language)
-       all_langs = repo.find_all()
-       english = session.get(Language, "en")
+       all_langs: list[Language] = repo.find_all()
+       english: Language | None = session.get(Language, "en")
 
-   # 5. Update
+``session.get()`` returns ``None`` if the key does not exist.  Within the
+same session, calling ``session.get(Language, "en")`` a second time returns
+the *same Python object* (identity map — no extra Cypher).
+
+----
+
+Update
+------
+
+Mutate a field on a persistent entity.  The descriptor sets ``_dirty = True``;
+``commit()`` emits a ``MERGE … SET`` for all dirty fields:
+
+.. code-block:: python
+
    with Session(driver) as session:
-       en = session.get(Language, "en")
+       en: Language | None = session.get(Language, "en")
+       assert en is not None
        en.title = "English (UK)"      # marks _dirty = True
-       session.commit()               # MERGE … SET on flush
+       session.commit()               # emits MERGE (n:Language {id: $id}) SET n.title = $title
 
-   # 6. Delete
+Only the mutated fields are included in the ``SET`` clause — the ORM does
+not overwrite fields it did not touch.
+
+----
+
+Delete
+------
+
+Mark an entity for deletion with ``session.delete()``; the ``DETACH DELETE``
+runs on ``flush()``:
+
+.. code-block:: python
+
    with Session(driver) as session:
-       en = session.get(Language, "en")
+       en: Language | None = session.get(Language, "en")
+       assert en is not None
        session.delete(en)
        session.commit()
 
+----
+
+Query builder
+-------------
+
+For filtered, ordered, or paginated reads use :func:`~runic.orm.query.select`
+to build a composable statement and execute it via the session:
+
+.. code-block:: python
+
+   from runic.orm import select
+
+   stmt = (
+       select(Language)
+       .where(Language.code == "en")
+       .order_by(Language.title)
+   )
+   with Session(driver) as session:
+       results: list[Language] = session.scalars(stmt)
+
+The builder is lazy — nothing is sent to the database until you pass the
+statement to a session execution method such as ``session.scalars()``,
+``session.scalar()``, or ``session.count()``.
+
+.. note::
+
+   The legacy ``session.query(Language).where(...).all()`` pattern is still
+   fully supported; ``select()`` is preferred because it lets you build the
+   statement outside the session scope (e.g. across multiple ``if`` branches)
+   before executing it once.
+
+.. seealso::
+
+   :doc:`query_builder` — full query-builder reference with Cypher output
+
+----
+
+Next steps
+----------
 
 .. seealso::
 
    `examples/orm/01_simple_crud.py <https://github.com/jenreh/runic/blob/main/examples/orm/01_simple_crud.py>`_
-      End-to-end runnable example covering create, read, update, delete, and basic query-builder usage.
+      End-to-end runnable example: create, read, update, delete, and basic query-builder usage.
 
+   :doc:`concepts` — object states, dirty tracking, identity map, type converters
 
-Key takeaways
--------------
+   :doc:`relationships` — lazy loading, eager loading, ``relate()`` / ``unrelate()``, edge properties
 
-* Models inherit from :class:`~runic.orm.core.models.Node` and declare
-  fields with :func:`~runic.orm.core.descriptors.Field`.
-* The :class:`~runic.orm.session.session.Session` is the unit of work.
-  All mutations (``add``, ``delete``) go through it.
-* :class:`~runic.orm.repository.repository.Repository` handles reads.
-* ``session.commit()`` = ``flush()`` + clear pending/deleted sets.
-
-.. seealso::
-
-   :doc:`concepts` — object states, dirty tracking, identity map
+   :doc:`session` — unit-of-work lifecycle, flush, commit, rollback, raw execute
 
    :doc:`../api` — full API reference
