@@ -2,25 +2,15 @@
 
 from __future__ import annotations
 
-import contextlib
-import secrets
 from typing import Any
 
 import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
-from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.repository.pagination import Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
-
-try:
-    from redislite import FalkorDB as _FalkorDB  # noqa: F401
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
 
 pytestmark = pytest.mark.integration
 
@@ -41,21 +31,12 @@ class PageItem(Node, labels=["PageItem"]):
 
 
 @pytest.fixture
-def graph(falkordb_server: Any) -> Any:
-    db = falkordb_server
-    g = db.select_graph(f"test_page_{secrets.token_hex(6)}")
-    yield FalkorDBDriver(g)
-    with contextlib.suppress(Exception):
-        g.delete()
-
-
-@pytest.fixture
-def item_graph(graph: Any) -> Any:
+def item_graph(graph_driver: Any) -> Any:
     """Graph with 10 PageItem nodes ranked 1–10."""
-    with Session(graph) as s:
+    with Session(graph_driver) as s:
         for i in range(1, 11):
             s.add(PageItem(id=f"item{i:02d}", name=f"Item {i:02d}", rank=i))
-    return graph
+    return graph_driver
 
 
 # ---------------------------------------------------------------------------
@@ -158,8 +139,8 @@ def test_paginated_order_by_rank_desc(item_graph: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_paginated_empty_graph(graph: Any) -> None:
-    with Session(graph) as s:
+def test_paginated_empty_graph(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         repo = Repository(s, PageItem)
         page = repo.find_all_paginated(Pageable(page=0, size=10))
     assert len(page) == 0

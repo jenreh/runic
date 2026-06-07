@@ -1,0 +1,59 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    environment:
+      NEO4J_AUTH: none
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  memgraph:
+    image: memgraph/memgraph:latest
+    ports:
+      - "7688:7687"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7687"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  arcadedb:
+    image: arcadedb/arcadedb:latest
+    ports:
+      - "2480:2480"
+      - "2424:2424"
+    environment:
+      ARCADEDB_SERVER_ROOTPASSWORD: playwithdata
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2480/api/v1/ready"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  age:
+    image: apache/age:latest
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12

@@ -2,24 +2,14 @@
 
 from __future__ import annotations
 
-import contextlib
-import secrets
 from typing import Any
 
 import pytest
 
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
-from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
-
-try:
-    from redislite import FalkorDB as _FalkorDB  # noqa: F401
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
 
 pytestmark = pytest.mark.integration
 
@@ -40,20 +30,11 @@ class CypherPerson(Node, labels=["CypherPerson"]):
 
 
 @pytest.fixture
-def graph(falkordb_server: Any) -> Any:
-    db = falkordb_server
-    g = db.select_graph(f"test_cypher_{secrets.token_hex(6)}")
-    yield FalkorDBDriver(g)
-    with contextlib.suppress(Exception):
-        g.delete()
-
-
-@pytest.fixture
-def populated_graph(graph: Any) -> Any:
-    with Session(graph) as s:
+def populated_graph(graph_driver: Any) -> Any:
+    with Session(graph_driver) as s:
         for i in range(1, 6):
             s.add(CypherPerson(id=f"cp{i}", name=f"Cypher Person {i}", age=20 + i))
-    return graph
+    return graph_driver
 
 
 # ---------------------------------------------------------------------------
@@ -75,8 +56,8 @@ def test_cypher_one_count(populated_graph: Any) -> None:
     assert total == 5
 
 
-def test_cypher_one_returns_none_when_no_match(graph: Any) -> None:
-    with Session(graph) as s:
+def test_cypher_one_returns_none_when_no_match(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         repo = Repository(s, CypherPerson)
         result = repo.cypher_one(
             "MATCH (n:CypherPerson {id: $id}) RETURN n",

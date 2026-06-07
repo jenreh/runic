@@ -1,4 +1,4 @@
-"""Unit tests for MemgraphAdapter."""
+"""Unit tests for Neo4jAdapter."""
 
 from __future__ import annotations
 
@@ -6,56 +6,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
-from runic.migrate.adapters.memgraph import MemgraphAdapter
+from runic.migrate.adapters.neo4j import Neo4jAdapter
 from runic.orm.driver.bolt import BoltDriver
+from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
+from tests.runic.orm.unit.mock_helpers import row_result as _row_result
 
 
-def _empty_result() -> MagicMock:
-    r = MagicMock()
-    r.rows = []
-    r.columns = []
-    return r
-
-
-def _row_result(*rows: list) -> MagicMock:
-    r = MagicMock()
-    r.rows = list(rows)
-    return r
-
-
-def _make_adapter(database: str = "memgraph") -> tuple[MemgraphAdapter, MagicMock]:
+def _make_adapter(database: str = "neo4j") -> tuple[Neo4jAdapter, MagicMock]:
     mock_driver = MagicMock(spec=BoltDriver)
     mock_driver.execute.return_value = _empty_result()
-    adapter = MemgraphAdapter(mock_driver, database)
+    adapter = Neo4jAdapter(mock_driver, database)
     return adapter, mock_driver
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class TestParseKvList:
-    def test_basic(self) -> None:
-        assert _parse_kv_list(["a:1", "b:2"]) == {"a": "1", "b": "2"}
-
-    def test_empty_list(self) -> None:
-        assert _parse_kv_list([]) == {}
-
-    def test_none(self) -> None:
-        assert _parse_kv_list(None) == {}
-
-    def test_empty_item_skipped(self) -> None:
-        assert _parse_kv_list(["", "x:9"]) == {"x": "9"}
-
-
-class TestEncodeKvList:
-    def test_basic(self) -> None:
-        assert set(_encode_kv_list({"a": "1"})) == {"a:1"}
-
-    def test_empty(self) -> None:
-        assert _encode_kv_list({}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +24,7 @@ class TestEncodeKvList:
 # ---------------------------------------------------------------------------
 
 
-class TestMemgraphAdapterProtocol:
+class TestNeo4jAdapterProtocol:
     def test_satisfies_graph_adapter_protocol(self) -> None:
         from runic.migrate.adapters import GraphAdapter
 
@@ -129,45 +90,57 @@ class TestRangeIndex:
         adapter, mock_driver = _make_adapter()
         adapter.create_range_index("User", "email")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "CREATE INDEX ON :User(email)" == cypher
+        assert "CREATE INDEX" in cypher
+        assert "User_email" in cypher
+        assert "IF NOT EXISTS" in cypher
+        assert "(n:User)" in cypher
+        assert "n.email" in cypher
+
+    def test_create_range_index_rel(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        adapter.create_range_index("KNOWS", "weight", rel=True)
+        cypher = mock_driver.execute.call_args[0][0]
+        assert "()-[n:KNOWS]->()" in cypher
 
     def test_drop_range_index_sends_correct_cypher(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.drop_range_index("User", "email")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "DROP INDEX ON :User(email)" == cypher
+        assert "DROP INDEX User_email IF EXISTS" in cypher
 
     def test_create_range_index_swallows_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
-        mock_driver.execute.side_effect = RuntimeError("fail")
+        mock_driver.execute.side_effect = RuntimeError("already exists")
         adapter.create_range_index("User", "email")  # must not raise
 
 
 # ---------------------------------------------------------------------------
-# DDL — fulltext / text index
+# DDL — fulltext index
 # ---------------------------------------------------------------------------
 
 
 class TestFulltextIndex:
-    def test_create_fulltext_index_whole_label(self) -> None:
+    def test_create_fulltext_index_single_prop(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.create_fulltext_index("Post", "body")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "CREATE TEXT INDEX Post ON :Post" == cypher
+        assert "CREATE FULLTEXT INDEX Post IF NOT EXISTS" in cypher
+        assert "(n:Post)" in cypher
+        assert "n.body" in cypher
 
-    def test_create_fulltext_index_multi_prop_still_creates_one_index(self) -> None:
+    def test_create_fulltext_index_multi_prop(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.create_fulltext_index("Post", "title", "body")
-        # Memgraph: one whole-label text index regardless of how many props
-        assert mock_driver.execute.call_count == 1
         cypher = mock_driver.execute.call_args[0][0]
-        assert "CREATE TEXT INDEX Post ON :Post" == cypher
+        assert "n.title" in cypher
+        assert "n.body" in cypher
+        assert "ON EACH [" in cypher
 
     def test_drop_fulltext_index(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.drop_fulltext_index("Post")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "DROP TEXT INDEX Post" == cypher
+        assert "DROP INDEX Post IF EXISTS" in cypher
 
     def test_create_fulltext_swallows_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
@@ -188,21 +161,19 @@ class TestVectorIndex:
 
     def test_create_vector_index_sends_correct_cypher(self) -> None:
         adapter, mock_driver = _make_adapter()
-        adapter.create_vector_index(
-            "Article", "embedding", 128, "cosine", m=8, ef_construction=100
-        )
+        adapter.create_vector_index("Article", "embedding", 128, "cosine")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "CREATE VECTOR INDEX Article_embedding ON :Article(embedding)" in cypher
-        assert '"dimension": 128' in cypher
-        assert '"metric": "cosine"' in cypher
-        assert '"m": 8' in cypher
-        assert '"ef_construction": 100' in cypher
+        assert "CREATE VECTOR INDEX Article_embedding" in cypher
+        assert "IF NOT EXISTS" in cypher
+        assert "(n:Article)" in cypher
+        assert "128" in cypher
+        assert "cosine" in cypher
 
     def test_drop_vector_index(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.drop_vector_index("Article", "embedding")
         cypher = mock_driver.execute.call_args[0][0]
-        assert "DROP VECTOR INDEX Article_embedding" == cypher
+        assert "DROP INDEX Article_embedding IF EXISTS" in cypher
 
 
 # ---------------------------------------------------------------------------
@@ -215,13 +186,17 @@ class TestConstraints:
         adapter, mock_driver = _make_adapter()
         adapter.create_constraint("UNIQUE", "NODE", "User", ["id"])
         cypher = mock_driver.execute.call_args[0][0]
-        assert "CREATE CONSTRAINT ON (n:User) ASSERT n.id IS UNIQUE" == cypher
+        assert "CREATE CONSTRAINT" in cypher
+        assert "User_id_unique" in cypher
+        assert "IF NOT EXISTS" in cypher
+        assert "(n:User)" in cypher
+        assert "n.id IS UNIQUE" in cypher
 
     def test_drop_unique_constraint(self) -> None:
         adapter, mock_driver = _make_adapter()
         adapter.drop_constraint("UNIQUE", "NODE", "User", ["id"])
         cypher = mock_driver.execute.call_args[0][0]
-        assert "DROP CONSTRAINT ON (n:User) ASSERT n.id IS UNIQUE" == cypher
+        assert "DROP CONSTRAINT User_id_unique IF EXISTS" in cypher
 
     def test_unsupported_constraint_does_not_execute(self) -> None:
         adapter, mock_driver = _make_adapter()
@@ -263,9 +238,9 @@ class TestLifecycle:
     def test_fork_returns_new_adapter(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.uri = "bolt://localhost:7687"
-        mock_driver.auth = ("", "")
+        mock_driver.auth = ("neo4j", "pass")
         forked = adapter.fork("other_db")
-        assert isinstance(forked, MemgraphAdapter)
+        assert isinstance(forked, Neo4jAdapter)
         assert forked.name == "other_db"
 
 
@@ -299,15 +274,15 @@ class TestChecksumTracking:
 
 
 class TestCreateAdapterFactory:
-    def test_create_adapter_memgraph_keyword(self) -> None:
+    def test_create_adapter_neo4j_keyword(self) -> None:
         from unittest.mock import patch
 
         from runic.migrate.adapters import create_adapter
 
-        with patch("runic.migrate.adapters.memgraph.BoltDriver.from_params") as mock_bp:
+        with patch("runic.migrate.adapters.neo4j.BoltDriver.from_params") as mock_bp:
             mock_bp.return_value = MagicMock(spec=BoltDriver)
             adapter = create_adapter(
-                "memgraph", database="mydb", password="secret", encrypted=False
+                "neo4j", database="testdb", password="secret", encrypted=False
             )
-        assert isinstance(adapter, MemgraphAdapter)
-        assert adapter.name == "mydb"
+        assert isinstance(adapter, Neo4jAdapter)
+        assert adapter.name == "testdb"

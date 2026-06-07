@@ -1,4 +1,4 @@
-"""Unit tests for native transaction support in BoltDriver and AGEDriver."""
+"""Unit tests for BoltDriver transaction lifecycle and protocol conformance."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from runic.orm.core.models import Node
 from runic.orm.driver import TransactionalGraphDriver
 from runic.orm.driver.age import AGEDriver
 from runic.orm.driver.bolt import BoltDriver
-from runic.orm.driver.falkordb import FalkorDBDriver
 from runic.orm.driver.neo4j import _NEO4J_DIALECT
 from runic.orm.session.session import Session
 
@@ -35,10 +34,6 @@ class TestTransactionalGraphDriverProtocol:
     def test_age_driver_satisfies_protocol(self) -> None:
         driver = AGEDriver(MagicMock(), "g")
         assert isinstance(driver, TransactionalGraphDriver)
-
-    def test_falkordb_driver_does_not_satisfy_protocol(self) -> None:
-        driver = FalkorDBDriver(MagicMock())
-        assert not isinstance(driver, TransactionalGraphDriver)
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +192,7 @@ class TestBoltDriverCommit:
 
         driver.begin()
         driver.commit()
-        driver.begin()  # must not raise; should open a second transaction
+        driver.begin()
 
         assert mock_bolt_session.begin_transaction.call_count == 2
 
@@ -246,78 +241,23 @@ class TestBoltDriverRollback:
 
 
 # ---------------------------------------------------------------------------
-# AGEDriver transaction lifecycle
+# Session integration with transactional (Bolt) driver
 # ---------------------------------------------------------------------------
 
 
-class TestAGEDriverTransactions:
-    def test_begin_is_noop(self) -> None:
-        mock_conn = MagicMock()
-        driver = AGEDriver(mock_conn, "g")
-        driver.begin()  # psycopg3 auto-begins; this is a no-op
-        mock_conn.execute.assert_not_called()
-
-    def test_commit_delegates_to_conn_commit(self) -> None:
-        mock_conn = MagicMock()
-        driver = AGEDriver(mock_conn, "g")
-        driver.commit()
-        mock_conn.commit.assert_called_once()
-
-    def test_rollback_delegates_to_conn_rollback(self) -> None:
-        mock_conn = MagicMock()
-        driver = AGEDriver(mock_conn, "g")
-        driver.rollback()
-        mock_conn.rollback.assert_called_once()
-
-    def test_execute_does_not_auto_commit(self) -> None:
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = []
-        mock_cursor.fetchall.return_value = []
-        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-
-        driver = AGEDriver(mock_conn, "test_graph")
-        driver.execute("MATCH (n) RETURN n", {})
-
-        mock_conn.commit.assert_not_called()
-
-    def test_multiple_executes_without_commit_share_transaction(self) -> None:
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = []
-        mock_cursor.fetchall.return_value = []
-        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-
-        driver = AGEDriver(mock_conn, "test_graph")
-        driver.execute("MATCH (n) RETURN n", {})
-        driver.execute("MATCH (m) RETURN m", {})
-
-        # psycopg3 manages the transaction implicitly; no commit between queries
-        mock_conn.commit.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Session integration with transactional drivers
-# ---------------------------------------------------------------------------
-
-
-# Minimal Node model for Session tests
-class Widget(Node, labels=["Widget"]):
+class BoltWidget(Node, labels=["BoltWidget"]):
     id: str = Field()
     name: str = Field()
 
 
 class _TransactionalStubDriver:
-    """Proper-class stub satisfying TransactionalGraphDriver for Python 3.14 isinstance checks.
+    """Proper-class stub satisfying TransactionalGraphDriver.
 
-    Python 3.14 runtime_checkable Protocol isinstance() only checks class-level attributes.
-    Class-level stubs below satisfy that check; __init__ overrides them with MagicMock
-    instances so mock assertion APIs work.
+    Python 3.14 runtime_checkable Protocol isinstance() only checks class-level
+    attributes; class-level stubs satisfy that; __init__ overrides them with
+    MagicMock instances so assertion APIs work.
     """
 
-    # Class-level stubs — required by Python 3.14 runtime_checkable isinstance check
     def begin(self) -> None: ...  # noqa: D102
     def commit(self) -> None: ...  # noqa: D102
     def rollback(self) -> None: ...  # noqa: D102
@@ -336,7 +276,6 @@ class _TransactionalStubDriver:
 
 
 def _make_transactional_mock_driver() -> Any:
-    """Return Any so ty doesn't check protocol conformance on the mock stub."""
     return _TransactionalStubDriver()
 
 
@@ -371,24 +310,17 @@ class TestSessionLazyBegin:
         session.execute("MATCH (m) RETURN m", {})
         driver.begin.assert_called_once()
 
-    def test_begin_not_called_for_falkordb_driver(self) -> None:
-        mock_graph = MagicMock()
-        mock_graph.query.return_value = MagicMock(result_set=[])
-        falkor_driver = FalkorDBDriver(mock_graph)
-        session = Session(falkor_driver)
-        session.execute("MATCH (n) RETURN n", {})
-        # FalkorDBDriver has no begin() method — must not be called
-        assert not hasattr(falkor_driver, "begin")
-
 
 class TestSessionCommitWithTransactionalDriver:
     def test_commit_calls_driver_commit_after_flush(self) -> None:
         driver = _make_transactional_mock_driver()
-        node_result = _node_result_mock(0, ["Widget"], {"id": "w1", "name": "Sprocket"})
+        node_result = _node_result_mock(
+            0, ["BoltWidget"], {"id": "w1", "name": "Sprocket"}
+        )
         driver.execute.return_value = node_result
 
         session = Session(driver)
-        w = Widget(id="w1", name="Sprocket")
+        w = BoltWidget(id="w1", name="Sprocket")
         session.add(w)
         session.commit()
 
@@ -406,22 +338,23 @@ class TestSessionCommitWithTransactionalDriver:
 
     def test_second_commit_can_begin_new_transaction(self) -> None:
         driver = _make_transactional_mock_driver()
-        node_result = _node_result_mock(0, ["Widget"], {"id": "w1", "name": "Sprocket"})
+        node_result = _node_result_mock(
+            0, ["BoltWidget"], {"id": "w1", "name": "Sprocket"}
+        )
         driver.execute.return_value = node_result
 
         session = Session(driver)
 
-        w1 = Widget(id="w1", name="Sprocket")
+        w1 = BoltWidget(id="w1", name="Sprocket")
         session.add(w1)
         session.commit()
         assert driver.begin.call_count == 1
         assert driver.commit.call_count == 1
 
-        # second add + commit must open a new transaction
         driver.execute.return_value = _node_result_mock(
-            1, ["Widget"], {"id": "w2", "name": "Bolt"}
+            1, ["BoltWidget"], {"id": "w2", "name": "Bolt"}
         )
-        w2 = Widget(id="w2", name="Bolt")
+        w2 = BoltWidget(id="w2", name="Bolt")
         session.add(w2)
         session.commit()
         assert driver.begin.call_count == 2
@@ -471,7 +404,6 @@ class TestSessionCloseWithActiveTransaction:
         driver = _make_transactional_mock_driver()
         session = Session(driver)
         session.execute("MATCH (n) RETURN n", {})
-        # Close without commit
         session.close()
         driver.rollback.assert_called_once()
 

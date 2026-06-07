@@ -232,8 +232,7 @@ cache_dir = ".cache/pytest"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "sonos_live: requires real Sonos hardware on the network",
-    "integration: requires falkordblite (embedded FalkorDB, no external server)",
+    "integration: requires a live graph backend (embedded FalkorDB via redislite by default; other backends via RUNIC_TEST_BACKENDS env var + docker-compose.test.yml)",
 ]
 
 [tool.ty.environment]

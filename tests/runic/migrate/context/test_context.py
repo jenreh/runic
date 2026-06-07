@@ -7,6 +7,8 @@ import pytest
 import runic.migrate.context as ctx_module
 from runic.migrate.adapters.falkordb import FalkorDBAdapter
 from runic.migrate.context import IrreversibleMigrationError, Runic
+from runic.migrate.exceptions import MultipleHeadsError
+from runic.migrate.script import RevisionNotFound
 
 
 @pytest.fixture
@@ -71,13 +73,52 @@ def tmp_versions(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture
+def tmp_two_heads(tmp_path: Path) -> Path:
+    """A → B and A → C (two heads)."""
+    versions = tmp_path / "versions"
+    versions.mkdir()
+
+    for rev, down, msg, day in [
+        ("aaaaaaaaaaaa", None, "base", 1),
+        ("bbbbbbbbbbbb", "aaaaaaaaaaaa", "branch-b", 2),
+        ("cccccccccccc", "aaaaaaaaaaaa", "branch-c", 3),
+    ]:
+        (versions / f"{rev}_{msg}.py").write_text(
+            textwrap.dedent(f"""\
+                revision = {rev!r}
+                down_revision = {down!r}
+                branch_labels = []
+                depends_on = []
+                irreversible = False
+                snapshot = False
+                message = {msg!r}
+                from datetime import datetime
+                create_date = datetime(2026, 1, {day})
+
+                def upgrade(op):
+                    pass
+
+                def downgrade(op):
+                    pass
+            """)
+        )
+    return tmp_path
+
+
 def _make_ctx(
     mock_graph: MagicMock,
     mock_db: MagicMock,
-    tmp_versions: Path,
+    path: Path,
+    *,
     preview: bool = False,
 ) -> Runic:
-    return Runic(FalkorDBAdapter(mock_db, mock_graph), tmp_versions, preview=preview)
+    return Runic(FalkorDBAdapter(mock_db, mock_graph), path, preview=preview)
+
+
+# ---------------------------------------------------------------------------
+# Basic upgrade / downgrade / current
+# ---------------------------------------------------------------------------
 
 
 def test_current_returns_none_initially(
@@ -113,7 +154,7 @@ def test_upgrade_mid_failure_leaves_prior_stamped(
         if call_count == 2:
             raise RuntimeError("mid-migration failure")
 
-    sd = ctx._script_dir
+    sd = ctx._script_dir  # noqa: SLF001
     sd.get_revision("aaaaaaaaaaaa").module.upgrade = failing_upgrade
     sd.get_revision("bbbbbbbbbbbb").module.upgrade = failing_upgrade
 
@@ -141,7 +182,7 @@ def test_downgrade_irreversible_raises(
 ) -> None:
     mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True
+    ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True  # noqa: SLF001
     with pytest.raises(IrreversibleMigrationError):
         ctx.downgrade("aaaaaaaaaaaa")
 
@@ -151,7 +192,7 @@ def test_downgrade_irreversible_with_force(
 ) -> None:
     mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True
+    ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True  # noqa: SLF001
     ctx.downgrade("aaaaaaaaaaaa", force=True)
 
 
@@ -160,7 +201,7 @@ def test_downgrade_when_already_at_base(
 ) -> None:
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    ctx.downgrade("base")  # should be a no-op, no error
+    ctx.downgrade("base")
 
 
 def test_upgrade_already_at_target(
@@ -174,10 +215,15 @@ def test_upgrade_already_at_target(
     assert len(stamp_calls) == 0
 
 
+# ---------------------------------------------------------------------------
+# Module-level configure / get
+# ---------------------------------------------------------------------------
+
+
 def test_module_configure_and_get(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    ctx_module._context = None
+    ctx_module._context = None  # noqa: SLF001
     ctx_module.configure(
         FalkorDBAdapter(mock_db, mock_graph),
         script_location=tmp_versions,
@@ -187,20 +233,20 @@ def test_module_configure_and_get(
 
 
 def test_module_get_raises_when_not_configured() -> None:
-    ctx_module._context = None
+    ctx_module._context = None  # noqa: SLF001
     with pytest.raises(RuntimeError, match="not configured"):
         ctx_module.get()
 
 
 def test_module_is_preview_false_when_not_configured() -> None:
-    ctx_module._context = None
+    ctx_module._context = None  # noqa: SLF001
     assert ctx_module.is_preview() is False
 
 
 def test_module_configure_with_env_path(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_path: Path
 ) -> None:
-    ctx_module._context = None
+    ctx_module._context = None  # noqa: SLF001
     env_path = tmp_path / "runic" / "env.py"
     env_path.parent.mkdir()
     ctx_module.configure(
@@ -212,27 +258,24 @@ def test_module_configure_with_env_path(
 
 
 # ---------------------------------------------------------------------------
-# +N / -N relative target tests
+# Relative target notation (+N / -N)
 # ---------------------------------------------------------------------------
 
 
 def test_upgrade_relative_plus1(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """upgrade('+1') from base should stop at first revision."""
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
-    # Only one revision should be stamped (aaaaaaaaaaaa)
     assert len(stamp_calls) == 1
 
 
 def test_upgrade_relative_plus2_reaches_head(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """upgrade('+2') from base should stamp both revisions."""
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+2")
@@ -244,7 +287,6 @@ def test_upgrade_relative_plus2_reaches_head(
 def test_upgrade_relative_plus_exceeds_chain_stops_at_head(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """upgrade('+99') when only 2 revisions available should reach head."""
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+99")
@@ -256,32 +298,28 @@ def test_upgrade_relative_plus_exceeds_chain_stops_at_head(
 def test_downgrade_relative_minus1(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """downgrade('-1') from head should revert one step."""
     mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
-    # One stamp: set to aaaaaaaaaaaa
     assert len(stamp_calls) == 1
 
 
 def test_downgrade_relative_minus_exceeds_base(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """downgrade('-99') should reach base (clear version)."""
     mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-99")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
-    assert len(stamp_calls) == 2  # stamp for each revision downgraded
+    assert len(stamp_calls) == 2
 
 
 def test_upgrade_relative_zero_is_noop(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """+0 resolves to current revision — no new revisions applied."""
     mock_graph.query.return_value.result_set = [["aaaaaaaaaaaa"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+0")
@@ -293,11 +331,8 @@ def test_upgrade_relative_zero_is_noop(
 def test_upgrade_relative_invalid_suffix_treated_as_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """+xyz is not a valid relative target — should be passed through and raise."""
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    from runic.migrate.script import RevisionNotFound
-
     with pytest.raises((RevisionNotFound, Exception)):
         ctx.upgrade("+xyz")
 
@@ -305,22 +340,14 @@ def test_upgrade_relative_invalid_suffix_treated_as_id(
 def test_downgrade_relative_zero_resolves_to_current(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """-0 resolves to the current revision — downgrading to where we already are."""
     mock_graph.query.return_value.result_set = [["aaaaaaaaaaaa"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    # downgrade to itself is a no-op path (iterate_revisions returns empty)
-    ctx.downgrade("-0")  # should not raise
+    ctx.downgrade("-0")
 
 
 def test_upgrade_relative_multiple_heads_raises(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path, tmp_path: Path
 ) -> None:
-    """+N with multiple heads raises MultipleHeadsError."""
-    import textwrap
-
-    from runic.migrate.exceptions import MultipleHeadsError
-
-    # Add a second base-level revision (creates two heads)
     branched_dir = tmp_path / "branched"
     versions = branched_dir / "versions"
     versions.mkdir(parents=True)
@@ -350,7 +377,6 @@ def test_upgrade_relative_multiple_heads_raises(
 def test_upgrade_partial_revision_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """upgrade() resolves a partial revision id prefix to the full id."""
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbb")
@@ -362,10 +388,101 @@ def test_upgrade_partial_revision_id(
 def test_downgrade_partial_revision_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    """downgrade() resolves a partial revision id prefix to the full id."""
     mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("aaaa")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Stamp operations
+# ---------------------------------------------------------------------------
+
+
+def test_stamp_base_calls_clear_no_migration(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.stamp("base")
+
+    query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
+    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    assert len(stamp_calls) == 1
+
+    params = mock_graph.query.call_args_list[-1][0][1]
+    assert params["revisions"] == []
+
+
+def test_stamp_heads_calls_set_multiple(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
+    ctx.stamp("heads")
+
+    params = mock_graph.query.call_args[0][1]
+    stamped = set(params["revisions"])
+    assert stamped == {"bbbbbbbbbbbb", "cccccccccccc"}
+
+
+def test_stamp_specific_revision(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.stamp("aaaaaaaaaaaa")
+
+    params = mock_graph.query.call_args[0][1]
+    assert params["revisions"] == ["aaaaaaaaaaaa"]
+
+
+def test_stamp_unknown_revision_raises(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    with pytest.raises(RevisionNotFound):
+        ctx.stamp("zzzzzzzzzzzz")
+
+
+def test_stamp_purge_clears_before_stamp(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    ctx.stamp("aaaaaaaaaaaa", purge=True)
+
+    stamp_calls = [
+        c[0][0]
+        for c in mock_graph.query.call_args_list
+        if "_FalkorMigrateVersion" in c[0][0]
+    ]
+    assert len(stamp_calls) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Multiple-head guards
+# ---------------------------------------------------------------------------
+
+
+def test_upgrade_raises_multiple_heads(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
+    with pytest.raises(MultipleHeadsError):
+        ctx.upgrade("head")
+
+
+def test_upgrade_explicit_target_succeeds_with_multiple_heads(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
+    ctx.upgrade("bbbbbbbbbbbb")
+    query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
+    stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
+    assert stamp_calls
