@@ -15,7 +15,7 @@ from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
 
 try:
-    from redislite import FalkorDB as _FalkorDB
+    from redislite import FalkorDB as _FalkorDB  # noqa: F401
 
     _HAS_FALKORDBLITE = True
 except ImportError:
