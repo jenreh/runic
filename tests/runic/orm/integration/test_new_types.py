@@ -168,6 +168,7 @@ def test_geolocation_roundtrip(graph_driver: Any) -> None:
         assert abs(loc.longitude - 11.576124) < 1e-3
 
 
+@pytest.mark.requires_geo_update
 def test_geolocation_update(graph_driver: Any) -> None:
     with Session(graph_driver) as s:
         node = IntGeoNode(

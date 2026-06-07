@@ -21,9 +21,11 @@ Environment overrides
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import os
 import secrets
+import urllib.request
 from collections.abc import Callable
 from typing import Any
 
@@ -157,30 +159,66 @@ def _make_memgraph(graph_name: str) -> tuple[Any, Callable[[], None]]:
     return driver, cleanup
 
 
+def _arcadedb_http_command(
+    http_host: str, http_port: int, password: str, command: str
+) -> None:
+    """Send a server management command to the ArcadeDB HTTP API."""
+    url = f"http://{http_host}:{http_port}/api/v1/server"
+    credentials = base64.b64encode(f"root:{password}".encode()).decode()
+    body = f'{{"command": "{command}"}}'.encode()
+    req = urllib.request.Request(  # noqa: S310
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {credentials}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:  # noqa: S310
+        resp.read()
+
+
 def _make_arcadedb(graph_name: str) -> tuple[Any, Callable[[], None]]:
     import pytest
 
     host = os.environ.get("RUNIC_ARCADEDB_HOST", "localhost")
-    port = int(os.environ.get("RUNIC_ARCADEDB_PORT", "2424"))
+    bolt_port = int(os.environ.get("RUNIC_ARCADEDB_PORT", "2424"))
+    http_port = int(os.environ.get("RUNIC_ARCADEDB_HTTP_PORT", "2480"))
     password = os.environ.get("RUNIC_ARCADEDB_PASSWORD", "playwithdata")
+
+    try:
+        _arcadedb_http_command(
+            host, http_port, password, f"create database {graph_name}"
+        )
+    except Exception as exc:
+        pytest.skip(f"ArcadeDB not reachable at {host}:{http_port}: {exc}")
 
     try:
         from runic.orm.driver.arcadedb import create_arcadedb_driver
 
         driver = create_arcadedb_driver(
             host=host,
-            port=port,
+            port=bolt_port,
             database=graph_name,
             username="root",
             password=password,
         )
         driver.execute("RETURN 1", {})
     except Exception as exc:
-        pytest.skip(f"ArcadeDB not reachable at {host}:{port}: {exc}")
+        with contextlib.suppress(Exception):
+            _arcadedb_http_command(
+                host, http_port, password, f"drop database {graph_name}"
+            )
+        pytest.skip(f"ArcadeDB Bolt not reachable at {host}:{bolt_port}: {exc}")
 
     def cleanup() -> None:
         with contextlib.suppress(Exception):
-            driver.execute("MATCH (n) DETACH DELETE n", {})
+            driver.close()
+        with contextlib.suppress(Exception):
+            _arcadedb_http_command(
+                host, http_port, password, f"drop database {graph_name}"
+            )
 
     return driver, cleanup
 
