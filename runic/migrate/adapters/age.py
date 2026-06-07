@@ -23,6 +23,7 @@ class AGEAdapter(GraphAdapterBase, GraphAdapter):
     """Migration adapter for Apache AGE (PostgreSQL graph extension)."""
 
     _backend_name = "Apache AGE"
+    supports_multi_label: bool = False
 
     def __init__(self, driver: AGEDriver, graph_name: str) -> None:
         self._driver = driver
@@ -54,6 +55,11 @@ class AGEAdapter(GraphAdapterBase, GraphAdapter):
     @property
     def name(self) -> str:
         return self._graph_name
+
+    def execute(self, cypher: str, params: dict[str, Any]) -> Any:
+        result = self._driver.execute(cypher, params)
+        self._driver.commit()
+        return result
 
     def run_query(self, query: str, params: dict | None = None) -> Any:
         result = self._driver.execute(query, params or {})

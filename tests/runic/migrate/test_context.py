@@ -83,7 +83,7 @@ def _make_ctx(
 def test_current_returns_none_initially(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     assert ctx.current() is None
 
@@ -91,7 +91,7 @@ def test_current_returns_none_initially(
 def test_upgrade_stamps_each_revision(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbbbbbbbbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -102,7 +102,7 @@ def test_upgrade_stamps_each_revision(
 def test_upgrade_mid_failure_leaves_prior_stamped(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
 
     call_count = 0
@@ -128,7 +128,7 @@ def test_upgrade_mid_failure_leaves_prior_stamped(
 def test_downgrade_to_base_clears_version(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("base")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -139,7 +139,7 @@ def test_downgrade_to_base_clears_version(
 def test_downgrade_irreversible_raises(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True
     with pytest.raises(IrreversibleMigrationError):
@@ -149,7 +149,7 @@ def test_downgrade_irreversible_raises(
 def test_downgrade_irreversible_with_force(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx._script_dir.get_revision("bbbbbbbbbbbb").irreversible = True
     ctx.downgrade("aaaaaaaaaaaa", force=True)
@@ -158,7 +158,7 @@ def test_downgrade_irreversible_with_force(
 def test_downgrade_when_already_at_base(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("base")  # should be a no-op, no error
 
@@ -166,7 +166,7 @@ def test_downgrade_when_already_at_base(
 def test_upgrade_already_at_target(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbbbbbbbbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -220,7 +220,7 @@ def test_upgrade_relative_plus1(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """upgrade('+1') from base should stop at first revision."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -233,7 +233,7 @@ def test_upgrade_relative_plus2_reaches_head(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """upgrade('+2') from base should stamp both revisions."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+2")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -245,7 +245,7 @@ def test_upgrade_relative_plus_exceeds_chain_stops_at_head(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """upgrade('+99') when only 2 revisions available should reach head."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+99")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -257,7 +257,7 @@ def test_downgrade_relative_minus1(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """downgrade('-1') from head should revert one step."""
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-1")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -270,7 +270,7 @@ def test_downgrade_relative_minus_exceeds_base(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """downgrade('-99') should reach base (clear version)."""
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("-99")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -282,7 +282,7 @@ def test_upgrade_relative_zero_is_noop(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """+0 resolves to current revision — no new revisions applied."""
-    mock_graph.ro_query.return_value.result_set = [["aaaaaaaaaaaa"]]
+    mock_graph.query.return_value.result_set = [["aaaaaaaaaaaa"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("+0")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -294,7 +294,7 @@ def test_upgrade_relative_invalid_suffix_treated_as_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """+xyz is not a valid relative target — should be passed through and raise."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     from runic.migrate.script import RevisionNotFound
 
@@ -306,7 +306,7 @@ def test_downgrade_relative_zero_resolves_to_current(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """-0 resolves to the current revision — downgrading to where we already are."""
-    mock_graph.ro_query.return_value.result_set = [["aaaaaaaaaaaa"]]
+    mock_graph.query.return_value.result_set = [["aaaaaaaaaaaa"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     # downgrade to itself is a no-op path (iterate_revisions returns empty)
     ctx.downgrade("-0")  # should not raise
@@ -341,7 +341,7 @@ def test_upgrade_relative_multiple_heads_raises(
             """)
         )
 
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = Runic(FalkorDBAdapter(mock_db, mock_graph), branched_dir)
     with pytest.raises(MultipleHeadsError):
         ctx.upgrade("+1")
@@ -351,7 +351,7 @@ def test_upgrade_partial_revision_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """upgrade() resolves a partial revision id prefix to the full id."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.upgrade("bbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
@@ -363,7 +363,7 @@ def test_downgrade_partial_revision_id(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
     """downgrade() resolves a partial revision id prefix to the full id."""
-    mock_graph.ro_query.return_value.result_set = [["bbbbbbbbbbbb"]]
+    mock_graph.query.return_value.result_set = [["bbbbbbbbbbbb"]]
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.downgrade("aaaa")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]

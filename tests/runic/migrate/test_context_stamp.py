@@ -98,7 +98,7 @@ def _make_ctx(mock_graph: MagicMock, mock_db: MagicMock, path: Path) -> Runic:
 def test_stamp_base_calls_clear_no_migration(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.stamp("base")
 
@@ -115,7 +115,7 @@ def test_stamp_base_calls_clear_no_migration(
 def test_stamp_heads_calls_set_multiple(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
     ctx.stamp("heads")
 
@@ -127,7 +127,7 @@ def test_stamp_heads_calls_set_multiple(
 def test_stamp_specific_revision(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.stamp("aaaaaaaaaaaa")
 
@@ -138,7 +138,7 @@ def test_stamp_specific_revision(
 def test_stamp_unknown_revision_raises(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     with pytest.raises(RevisionNotFound):
         ctx.stamp("zzzzzzzzzzzz")
@@ -147,7 +147,7 @@ def test_stamp_unknown_revision_raises(
 def test_stamp_purge_clears_before_stamp(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
     ctx.stamp("aaaaaaaaaaaa", purge=True)
 
@@ -168,7 +168,7 @@ def test_stamp_purge_clears_before_stamp(
 def test_upgrade_raises_multiple_heads(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
     with pytest.raises(MultipleHeadsError):
         ctx.upgrade("head")
@@ -177,7 +177,7 @@ def test_upgrade_raises_multiple_heads(
 def test_upgrade_explicit_target_succeeds_with_multiple_heads(
     mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
     ctx.upgrade("bbbbbbbbbbbb")
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]

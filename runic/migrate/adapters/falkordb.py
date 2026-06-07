@@ -9,6 +9,7 @@ from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
+from runic.orm.driver.falkordb import FalkorDBDriver, FalkorDBResult
 
 log = logging.getLogger(__name__)
 
@@ -29,11 +30,18 @@ _SET_TRACKING_QUERY = (
 
 
 class FalkorDBAdapter(GraphAdapter):
-    """GraphAdapter implementation for FalkorDB (standalone or embedded via falkordblite)."""
+    """GraphAdapter implementation for FalkorDB (standalone or embedded via falkordblite).
+
+    Query execution is routed through :class:`~runic.orm.driver.falkordb.FalkorDBDriver`
+    so results are normalised to ``GraphResult.rows`` — consistent with Bolt adapters.
+    The raw ``db`` and ``graph`` references are kept only for FalkorDB-specific migration
+    operations (constraint DDL via Redis commands, snapshot copy/delete).
+    """
 
     def __init__(self, db: Any, graph: Any) -> None:
         self._db = db
         self._graph = graph
+        self._driver = FalkorDBDriver(graph)
 
     @classmethod
     def from_url(
@@ -86,11 +94,15 @@ class FalkorDBAdapter(GraphAdapter):
     def name(self) -> str:
         return self._graph.name  # type: ignore[no-any-return]
 
-    def run_query(self, query: str, params: dict | None = None) -> Any:
-        return self._graph.query(query, params) if params else self._graph.query(query)
+    def execute(self, cypher: str, params: dict[str, Any]) -> FalkorDBResult:
+        """Normalised query execution via ORM driver (result has .rows)."""
+        return self._driver.execute(cypher, params)
 
-    def run_ro_query(self, query: str) -> Any:
-        return self._graph.ro_query(query)
+    def run_query(self, query: str, params: dict | None = None) -> FalkorDBResult:
+        return self._driver.execute(query, params or {})
+
+    def run_ro_query(self, query: str) -> FalkorDBResult:
+        return self._driver.execute(query, {})
 
     def run_command(self, *args: Any) -> Any:
         return self._db.execute_command(*args)
@@ -101,12 +113,12 @@ class FalkorDBAdapter(GraphAdapter):
 
     def get_version(self) -> list[str]:
         try:
-            result = self._graph.ro_query(_GET_VERSION_QUERY)
+            result = self._driver.execute(_GET_VERSION_QUERY, {})
         except Exception as exc:
             if "empty key" in str(exc).lower():
                 return []
             raise
-        rows = result.result_set
+        rows = result.rows
         if not rows:
             return []
         row = rows[0]
@@ -123,7 +135,7 @@ class FalkorDBAdapter(GraphAdapter):
 
     def set_version(self, revisions: list[str]) -> None:
         log.info("stamping versions: %s", revisions)
-        self._graph.query(_SET_VERSION_QUERY, {"revisions": revisions})
+        self._driver.execute(_SET_VERSION_QUERY, {"revisions": revisions})
 
     # ------------------------------------------------------------------
     # Schema introspection
@@ -142,12 +154,12 @@ class FalkorDBAdapter(GraphAdapter):
         else:
             query = f"CREATE INDEX FOR (n:{label}) ON (n.{prop})"
         log.info("creating range index on %s.%s", label, prop)
-        self._graph.query(query)
+        self._driver.execute(query, {})
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
         query = f"DROP INDEX ON :{label}({prop})"
         log.info("dropping range index on %s.%s", label, prop)
-        self._graph.query(query)
+        self._driver.execute(query, {})
 
     # ------------------------------------------------------------------
     # Schema DDL — fulltext indexes
@@ -174,13 +186,13 @@ class FalkorDBAdapter(GraphAdapter):
             props_str = ", ".join(f"'{p}'" for p in props)
             query = f"CALL db.idx.fulltext.createNodeIndex('{label}', {props_str})"
         log.info("creating fulltext index on %s %s", label, list(props))
-        self._graph.query(query)
+        self._driver.execute(query, {})
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
         log.info("dropping fulltext index on %s %s", label, list(props))
         for prop in props:
             query = f"DROP FULLTEXT INDEX FOR (n:{label}) ON (n.{prop})"
-            self._graph.query(query)
+            self._driver.execute(query, {})
 
     # ------------------------------------------------------------------
     # Schema DDL — vector indexes
@@ -203,12 +215,12 @@ class FalkorDBAdapter(GraphAdapter):
         )
         query = f"CREATE VECTOR INDEX FOR (n:{label}) ON (n.{prop}) OPTIONS {options}"
         log.info("creating vector index on %s.%s", label, prop)
-        self._graph.query(query)
+        self._driver.execute(query, {})
 
     def drop_vector_index(self, label: str, prop: str) -> None:
         query = f"DROP VECTOR INDEX FOR (n:{label}) (n.{prop})"
         log.info("dropping vector index on %s.%s", label, prop)
-        self._graph.query(query)
+        self._driver.execute(query, {})
 
     # ------------------------------------------------------------------
     # Schema DDL — constraints
@@ -237,8 +249,8 @@ class FalkorDBAdapter(GraphAdapter):
 
     def _poll_constraint(self, label: str, props: list[str]) -> None:
         for _ in range(_POLL_RETRIES):
-            result = self._graph.ro_query("CALL db.constraints()")
-            for row in result.result_set:
+            result = self._driver.execute("CALL db.constraints()", {})
+            for row in result.rows:
                 entry = row[0]
                 status = entry[4] if isinstance(entry, (list, tuple)) else str(entry)
                 if status == "FAILED":
@@ -274,7 +286,7 @@ class FalkorDBAdapter(GraphAdapter):
     def snapshot(self, snap_name: str) -> None:
         # GRAPH.COPY fails on an empty key; initialize graph if it doesn't exist yet
         if self._graph.name not in self._db.list_graphs():
-            self._graph.query("RETURN 1")
+            self._driver.execute("RETURN 1", {})
         self._graph.copy(snap_name)
         log.debug("snapshot taken: %s → %s", self._graph.name, snap_name)
 
@@ -295,12 +307,12 @@ class FalkorDBAdapter(GraphAdapter):
     def _get_tracking(self) -> tuple[dict[str, str], dict[str, str]]:
         """Return (checksums, installed_by) dicts from the version node."""
         try:
-            result = self._graph.ro_query(_GET_TRACKING_QUERY)
+            result = self._driver.execute(_GET_TRACKING_QUERY, {})
         except Exception as exc:
             if "empty key" in str(exc).lower():
                 return {}, {}
             raise
-        rows = result.result_set
+        rows = result.rows
         if not rows:
             return {}, {}
         row = rows[0]
@@ -325,7 +337,7 @@ class FalkorDBAdapter(GraphAdapter):
         checksums[rev_id] = checksum
         if installed_by is not None:
             installed[rev_id] = installed_by
-        self._graph.query(
+        self._driver.execute(
             _SET_TRACKING_QUERY,
             {
                 "checksums": _encode_kv_list(checksums),

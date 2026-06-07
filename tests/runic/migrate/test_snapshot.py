@@ -49,7 +49,7 @@ def _make_ctx(
         for filename, content in versions.items():
             (versions_dir / filename).write_text(textwrap.dedent(content))
 
-    graph.ro_query.return_value.result_set = []
+    graph.query.return_value.result_set = []
     return Runic(FalkorDBAdapter(db, graph), tmp_path)
 
 
@@ -94,7 +94,7 @@ def test_upgrade_calls_snapshot_when_flag_set(tmp_path: Path) -> None:
     graph = _make_graph("social")
     db = _make_db()
     db.list_graphs.return_value = ["social"]
-    graph.ro_query.return_value.result_set = []
+    graph.query.return_value.result_set = []
 
     versions_dir = tmp_path / "versions"
     versions_dir.mkdir()
@@ -112,7 +112,7 @@ def test_upgrade_calls_snapshot_when_flag_set(tmp_path: Path) -> None:
 def test_upgrade_no_snapshot_when_flag_false(tmp_path: Path) -> None:
     graph = _make_graph("social")
     db = _make_db()
-    graph.ro_query.return_value.result_set = []
+    graph.query.return_value.result_set = []
 
     versions_dir = tmp_path / "versions"
     versions_dir.mkdir()
@@ -129,7 +129,7 @@ def test_upgrade_restores_snapshot_on_failure(tmp_path: Path) -> None:
     graph = _make_graph("social")
     db = _make_db()
     db.list_graphs.return_value = ["social"]
-    graph.ro_query.return_value.result_set = []
+    graph.query.return_value.result_set = []
 
     versions_dir = tmp_path / "versions"
     versions_dir.mkdir()
@@ -167,7 +167,7 @@ def test_downgrade_uses_snapshot_when_exists(tmp_path: Path) -> None:
     db = _make_db()
     snap_name = f"social__premig_{_REV_A}"
     db.list_graphs.return_value = [snap_name]
-    graph.ro_query.return_value.result_set = [[_REV_A]]
+    graph.query.return_value.result_set = [[_REV_A]]
 
     versions_dir = tmp_path / "versions"
     versions_dir.mkdir()
@@ -196,7 +196,7 @@ def test_downgrade_fallback_when_no_snapshot(tmp_path: Path) -> None:
     graph = _make_graph("social")
     db = _make_db()
     db.list_graphs.return_value = []  # no snapshot graphs
-    graph.ro_query.return_value.result_set = [[_REV_A]]
+    graph.query.return_value.result_set = [[_REV_A]]
 
     versions_dir = tmp_path / "versions"
     versions_dir.mkdir()

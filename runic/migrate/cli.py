@@ -485,19 +485,19 @@ def _entity_count(adapter: Any) -> int:
     result = adapter.run_query(
         "MATCH (n) WHERE NOT n:_FalkorMigrateVersion RETURN count(n) AS c"
     )
-    return int(result.result_set[0][0]) if result.result_set else 0
+    return int(result.rows[0][0]) if result.rows else 0
 
 
 def _index_count(adapter: Any) -> int:
     result = adapter.run_query("CALL db.indexes() YIELD label RETURN count(label) AS c")
-    return int(result.result_set[0][0]) if result.result_set else 0
+    return int(result.rows[0][0]) if result.rows else 0
 
 
 def _constraint_count(adapter: Any) -> int:
     result = adapter.run_query(
         "CALL db.constraints() YIELD type RETURN count(type) AS c"
     )
-    return int(result.result_set[0][0]) if result.result_set else 0
+    return int(result.rows[0][0]) if result.rows else 0
 
 
 # ---------------------------------------------------------------------------

@@ -30,13 +30,13 @@ def mock_db() -> MagicMock:
 
 def _unmanaged_graph(mock_graph: MagicMock) -> None:
     """Configure mock_graph so VersionNode.get() returns [] and introspection returns empty."""
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
 
 
 def _managed_graph(mock_graph: MagicMock) -> None:
     """Configure mock_graph so VersionNode.get() returns a non-empty revision list."""
 
-    def _ro_query_side(q: str) -> MagicMock:
+    def _query_side(q: str, params: dict | None = None) -> MagicMock:
         result = MagicMock()
         if "_FalkorMigrateVersion" in q:
             result.result_set = [["abc123abc123", None]]
@@ -44,7 +44,7 @@ def _managed_graph(mock_graph: MagicMock) -> None:
             result.result_set = []
         return result
 
-    mock_graph.ro_query.side_effect = _ro_query_side
+    mock_graph.query.side_effect = _query_side
 
 
 def _make_ctx(mock_graph: MagicMock, mock_db: MagicMock, tmp_path: Path) -> Runic:

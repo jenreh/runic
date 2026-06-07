@@ -370,6 +370,10 @@ class AGEDriver:
     the first query in a Session opens a transaction implicitly; ``commit()`` /
     ``rollback()`` finalise it.
 
+    AGE stores each vertex label as a separate PostgreSQL table; a vertex
+    belongs to exactly one label fixed at creation time.  Multi-label
+    operations (``SET n:New REMOVE n:Old``) are therefore not supported.
+
     Example
     -------
     ::
@@ -385,6 +389,8 @@ class AGEDriver:
         with Session(driver) as session:
             ...
     """
+
+    supports_multi_label: bool = False
 
     def __init__(self, conn: Any, graph_name: str) -> None:
         self._conn = conn

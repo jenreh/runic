@@ -18,8 +18,8 @@ from runic.orm.core.types import (
 )
 from runic.orm.mapper.mapper import Mapper
 from runic.orm.query.builder import QueryBuilder
-from runic.orm.query.specialised import FulltextQueryBuilder, VectorQueryBuilder
 from runic.orm.query.expressions import count
+from runic.orm.query.specialised import FulltextQueryBuilder, VectorQueryBuilder
 
 # ---------------------------------------------------------------------------
 # Test models (unique labels to avoid collisions)

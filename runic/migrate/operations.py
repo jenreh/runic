@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from runic.orm.operations import DataOperations
 
 if TYPE_CHECKING:
     from runic.migrate.adapters import GraphAdapter
@@ -9,21 +11,26 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class GraphOperations:
+class GraphOperations(DataOperations):
+    """Migration-script API: data manipulation + DDL, both with preview mode.
+
+    Extends :class:`~runic.orm.operations.DataOperations` with DDL operations
+    (indexes, constraints, snapshots) that delegate to the underlying adapter.
+
+    Migration scripts receive this object as their ``ops`` argument::
+
+        def upgrade(ops: GraphOperations) -> None:
+            ops.create_range_index("Person", "email")
+            ops.rename_property("Person", "fname", "first_name")
+    """
+
     def __init__(self, adapter: GraphAdapter, preview: bool = False) -> None:
+        super().__init__(adapter, preview=preview)
         self._adapter = adapter
-        self._preview = preview
-        self.preview_log: list[str] = []
 
-    def _log_preview(self, description: str) -> None:
-        self.preview_log.append(description)
-        log.info("[preview] %s", description)
-
-    def run_cypher(self, query: str, params: dict | None = None) -> Any:
-        if self._preview:
-            self._log_preview(f"CYPHER: {query} params={params}")
-            return None
-        return self._adapter.run_query(query, params)
+    # ------------------------------------------------------------------
+    # Schema DDL — range indexes
+    # ------------------------------------------------------------------
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
         if self._preview:
@@ -37,21 +44,9 @@ class GraphOperations:
             return
         self._adapter.drop_range_index(label, prop, rel=rel)
 
-    def create_constraint(
-        self, kind: str, entity: str, label: str, props: list[str]
-    ) -> None:
-        if self._preview:
-            self._log_preview(f"CREATE CONSTRAINT: {kind} {entity} {label} {props}")
-            return
-        self._adapter.create_constraint(kind, entity, label, props)
-
-    def drop_constraint(
-        self, kind: str, entity: str, label: str, props: list[str]
-    ) -> None:
-        if self._preview:
-            self._log_preview(f"DROP CONSTRAINT: {kind} {entity} {label} {props}")
-            return
-        self._adapter.drop_constraint(kind, entity, label, props)
+    # ------------------------------------------------------------------
+    # Schema DDL — fulltext indexes
+    # ------------------------------------------------------------------
 
     def create_fulltext_index(
         self,
@@ -75,6 +70,10 @@ class GraphOperations:
             self._log_preview(f"DROP FULLTEXT INDEX: {label} {list(props)}")
             return
         self._adapter.drop_fulltext_index(label, *props)
+
+    # ------------------------------------------------------------------
+    # Schema DDL — vector indexes
+    # ------------------------------------------------------------------
 
     def create_vector_index(
         self,
@@ -109,52 +108,24 @@ class GraphOperations:
         self._adapter.drop_vector_index(label, prop)
 
     # ------------------------------------------------------------------
-    # Data transformation ops
+    # Schema DDL — constraints
     # ------------------------------------------------------------------
 
-    def rename_property(
-        self, label: str, old: str, new: str, batch: int = 10_000
+    def create_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
         if self._preview:
-            self._log_preview(f"RENAME PROPERTY: {label}.{old} → {new} batch={batch}")
+            self._log_preview(f"CREATE CONSTRAINT: {kind} {entity} {label} {props}")
             return
-        query = (
-            f"MATCH (n:{label}) WHERE n.`{old}` IS NOT NULL AND n.`{new}` IS NULL "
-            f"WITH n LIMIT $batch "
-            f"SET n.`{new}` = n.`{old}` REMOVE n.`{old}` "
-            f"RETURN count(n) AS affected"
-        )
-        log.info("renaming property %s.%s to %s", label, old, new)
-        while True:
-            result = self._adapter.run_query(query, {"batch": batch})
-            affected = result.result_set[0][0] if result.result_set else 0
-            if affected == 0:
-                break
+        self._adapter.create_constraint(kind, entity, label, props)
 
-    def relabel_nodes(self, old: str, new: str, batch: int = 10_000) -> None:
+    def drop_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
+    ) -> None:
         if self._preview:
-            self._log_preview(f"RELABEL NODES: {old} → {new} batch={batch}")
+            self._log_preview(f"DROP CONSTRAINT: {kind} {entity} {label} {props}")
             return
-        query = (
-            f"MATCH (n:{old}) WHERE NOT n:{new} "
-            f"WITH n LIMIT $batch "
-            f"SET n:{new} REMOVE n:{old} "
-            f"RETURN count(n) AS affected"
-        )
-        log.info("relabelling nodes %s to %s", old, new)
-        while True:
-            result = self._adapter.run_query(query, {"batch": batch})
-            affected = result.result_set[0][0] if result.result_set else 0
-            if affected == 0:
-                break
-
-    def seed(self, merge_query: str, rows: list[dict]) -> None:
-        if self._preview:
-            self._log_preview(f"SEED: {len(rows)} rows via {merge_query}")
-            return
-        query = f"UNWIND $rows AS row {merge_query}"
-        log.info("seeding %d rows", len(rows))
-        self._adapter.run_query(query, {"rows": rows})
+        self._adapter.drop_constraint(kind, entity, label, props)
 
     # ------------------------------------------------------------------
     # Snapshot / restore

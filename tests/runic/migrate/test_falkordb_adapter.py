@@ -54,7 +54,7 @@ def test_polling_raises_on_failed_status(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
     failed_row = ["type", "entity", "label", "props", "FAILED"]
-    mock_graph.ro_query.return_value.result_set = [[failed_row]]
+    mock_graph.query.return_value.result_set = [[failed_row]]
     with pytest.raises(ConstraintFailedError):
         adapter._poll_constraint("Person", ["email"])
 
@@ -62,7 +62,7 @@ def test_polling_raises_on_failed_status(
 def test_polling_raises_on_timeout(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     with (
         patch("runic.migrate.adapters.falkordb._POLL_RETRIES", 1),
         patch("runic.migrate.adapters.falkordb._POLL_INTERVAL", 0),
@@ -88,14 +88,14 @@ def test_drop_constraint_issues_redis_command(
 def test_get_version_returns_empty_when_no_node(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = []
+    mock_graph.query.return_value.result_set = []
     assert adapter.get_version() == []
 
 
 def test_get_version_returns_list_property(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
-    mock_graph.ro_query.return_value.result_set = [[["aaa", "bbb"], None]]
+    mock_graph.query.return_value.result_set = [[["aaa", "bbb"], None]]
     assert adapter.get_version() == ["aaa", "bbb"]
 
 
@@ -103,7 +103,7 @@ def test_get_version_backward_compat_string_node(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
     """Phase-0 nodes have v.revisions=null and v.revision='oldrev'."""
-    mock_graph.ro_query.return_value.result_set = [[None, "oldrev"]]
+    mock_graph.query.return_value.result_set = [[None, "oldrev"]]
     assert adapter.get_version() == ["oldrev"]
 
 

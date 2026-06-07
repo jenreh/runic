@@ -28,6 +28,7 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
     """
 
     _backend_name = "ArcadeDB"
+    supports_multi_label: bool = False
 
     def __init__(self, driver: BoltDriver, database: str) -> None:
         self._driver = driver
@@ -57,6 +58,9 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
     @property
     def name(self) -> str:
         return self._database
+
+    def execute(self, cypher: str, params: dict[str, Any]) -> Any:
+        return self._driver.execute(cypher, params)
 
     def run_query(self, query: str, params: dict | None = None) -> Any:
         return self._driver.execute(query, params or {})

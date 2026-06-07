@@ -60,6 +60,9 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
     def name(self) -> str:
         return self._database
 
+    def execute(self, cypher: str, params: dict[str, Any]) -> Any:
+        return self._driver.execute(cypher, params)
+
     def run_query(self, query: str, params: dict | None = None) -> Any:
         return self._driver.execute(query, params or {})
 
