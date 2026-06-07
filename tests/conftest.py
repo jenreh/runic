@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 # Expose falkordblite-backed fixtures for all tests that need a live graph.
-from runic.migrate.testing import falkordb_graph, runic_context  # noqa: F401
+from runic.migrate.testing import (  # noqa: F401
+    falkordb_graph,
+    falkordb_server,
+    runic_context,
+)
 
 
 @pytest.fixture(autouse=True)
