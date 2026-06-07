@@ -27,10 +27,23 @@ class Session:
     identity map, and flush/commit lifecycle.  Repositories hold a session
     reference and delegate writes and PK lookups to it.
 
-    FalkorDB transaction model: single ``GRAPH.QUERY`` is fully atomic.
-    Multi-query uses sequential individual queries (no native pipeline in
-    the Python client).  ``rollback()`` discards un-flushed pending/deleted
-    sets only; cannot undo writes already sent to the graph.
+    **Transaction model** — determined by the injected driver:
+
+    - **FalkorDB** (no native multi-query transactions): each ``GRAPH.QUERY``
+      is individually atomic.  ``commit()`` flushes pending writes;
+      ``rollback()`` discards un-flushed state only — it cannot undo writes
+      already sent to the graph.
+    - **Bolt-based drivers** (Neo4j, Memgraph, ArcadeDB): full ACID
+      transactions via the Bolt protocol.  The first query lazily opens a Bolt
+      transaction; ``commit()`` / ``rollback()`` commit or discard all changes
+      as a single atomic unit.
+    - **Apache AGE** (psycopg3): full PostgreSQL ACID transactions.  psycopg3
+      starts an implicit ``BEGIN`` on the first SQL statement; ``commit()`` /
+      ``rollback()`` map to ``conn.commit()`` / ``conn.rollback()``.
+
+    Drivers that support explicit transactions implement the
+    :class:`~runic.orm.driver.TransactionalGraphDriver` protocol.  The Session
+    detects this via ``isinstance`` and wires commit/rollback accordingly.
     """
 
     def __init__(
@@ -40,6 +53,8 @@ class Session:
         *,
         log_cypher: bool = False,
     ) -> None:
+        from runic.orm.driver import TransactionalGraphDriver
+
         self._driver = driver
         self._log_cypher = log_cypher
         self._mapper: Mapper = (
@@ -55,6 +70,9 @@ class Session:
         self._pending: list[Any] = []
         # Entities staged for DETACH DELETE
         self._deleted: list[Any] = []
+        # True when a driver-level transaction is open (lazy-begin on first query)
+        self._in_transaction: bool = False
+        self._is_transactional: bool = isinstance(driver, TransactionalGraphDriver)
 
     # ------------------------------------------------------------------
     # Internal query runner
@@ -63,6 +81,9 @@ class Session:
     def _run_query(self, cypher: str, params: dict[str, Any]) -> GraphResult:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
+        if self._is_transactional and not self._in_transaction:
+            self._driver.begin()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = True
         return self._driver.execute(cypher, params)
 
     # ------------------------------------------------------------------
@@ -204,22 +225,36 @@ class Session:
         self._flush_deleted()
 
     def commit(self) -> None:
-        """``flush()`` then clear the pending/deleted tracking sets."""
+        """``flush()`` then clear the pending/deleted tracking sets.
+
+        For transactional drivers (Bolt, AGE), also commits the active
+        database transaction so all flushed writes become durable and visible.
+        """
         self.flush()
         self._pending.clear()
         self._deleted.clear()
+        if self._in_transaction:
+            self._driver.commit()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = False
         log.debug("Session committed")
 
     def rollback(self) -> None:
         """Discard un-flushed pending/deleted sets; expire all persistent entities.
 
-        Cannot undo writes already sent to the graph.
+        For transactional drivers (Bolt, AGE), also rolls back the active
+        database transaction — writes already flushed but not yet committed
+        are discarded atomically.  For FalkorDB (no native transactions),
+        only un-flushed in-memory state is cleared; writes already sent to
+        the graph cannot be undone.
         """
         self._pending.clear()
         self._deleted.clear()
         for entity in self._identity_map.values():
             entity.__dict__["_expired"] = True
             entity.__dict__["_dirty"] = False
+        if self._in_transaction:
+            self._driver.rollback()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = False
         log.debug(
             "Session rolled back (pending/deleted cleared; persistent entities expired)"
         )
@@ -439,7 +474,21 @@ class Session:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """``expunge_all()`` and release the graph connection."""
+        """Expunge all tracked entities; roll back any orphaned transaction.
+
+        If ``close()`` is called without a prior ``commit()`` or
+        ``rollback()`` (e.g. the session was not used as a context manager),
+        any active driver-level transaction is rolled back to release the
+        connection cleanly.
+        """
+        if self._in_transaction:
+            try:
+                self._driver.rollback()  # ty: ignore[unresolved-attribute]
+            except Exception:
+                log.warning(
+                    "Session.close(): driver rollback failed; connection may leak"
+                )
+            self._in_transaction = False
         self.expunge_all()
 
     def __enter__(self) -> Session:

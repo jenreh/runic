@@ -263,3 +263,154 @@ def test_create_indexes_no_index_fields_is_noop(graph: Any) -> None:
     manager = IndexManager(graph)
     manager.create_indexes(SchemaNodeNoIndexes)
     assert parse_existing_specs(graph) == set()
+
+
+# ---------------------------------------------------------------------------
+# IndexManager with generic IndexAdapter (non-FalkorDB path)
+# ---------------------------------------------------------------------------
+
+
+class _MockAdapter:
+    """Minimal IndexAdapter stub for unit testing IndexManager dispatch."""
+
+    def __init__(self) -> None:
+        from unittest.mock import MagicMock
+
+        self.create_range_index = MagicMock()
+        self.drop_range_index = MagicMock()
+        self.create_fulltext_index = MagicMock()
+        self.drop_fulltext_index = MagicMock()
+        self.create_vector_index = MagicMock()
+        self.drop_vector_index = MagicMock()
+        self.create_constraint = MagicMock()
+        self.drop_constraint = MagicMock()
+        self._existing: set[IndexSpec] = set()
+
+    def get_existing_specs(self) -> set[IndexSpec]:
+        return self._existing
+
+
+class TestIndexManagerWithGenericAdapter:
+    def _make_manager(self) -> tuple[IndexManager, _MockAdapter]:
+        adapter = _MockAdapter()
+        manager = IndexManager(adapter)
+        return manager, adapter
+
+    def test_auto_detection_wraps_falkordb_handle(self) -> None:
+        from unittest.mock import MagicMock
+
+        from runic.orm.schema.index_manager import FalkorDBIndexAdapter
+
+        fake_graph = MagicMock()
+        fake_graph.create_node_range_index = MagicMock()
+        manager = IndexManager(fake_graph)
+        assert isinstance(manager._adapter, FalkorDBIndexAdapter)  # noqa: SLF001
+
+    def test_generic_adapter_not_wrapped(self) -> None:
+        adapter = _MockAdapter()
+        manager = IndexManager(adapter)
+        assert manager._adapter is adapter  # noqa: SLF001
+
+    def test_create_range_index_dispatched(self) -> None:
+        class RangeEntity(Node, labels=["RangeEnt"]):
+            id: str = Field()
+            score: int = Field(index=True)
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(RangeEntity)
+        adapter.create_range_index.assert_called_once_with("RangeEnt", "score")
+
+    def test_create_unique_dispatched(self) -> None:
+        class UniqueEntity(Node, labels=["UniqueEnt"]):
+            id: str = Field()
+            code: str = Field(unique=True)
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(UniqueEntity)
+        adapter.create_constraint.assert_called_once_with(
+            "UNIQUE", "NODE", "UniqueEnt", ["code"]
+        )
+
+    def test_fulltext_batched_by_label(self) -> None:
+        class FTEntity(Node, labels=["FTEnt"]):
+            id: str = Field()
+            title: str = Field(index_type="FULLTEXT")
+            body: str = Field(index_type="FULLTEXT")
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(FTEntity)
+        # Must be called exactly once, with both props
+        assert adapter.create_fulltext_index.call_count == 1
+        call_args = adapter.create_fulltext_index.call_args
+        assert call_args[0][0] == "FTEnt"
+        props_passed = set(call_args[0][1:])
+        assert props_passed == {"title", "body"}
+
+    def test_fulltext_skipped_when_already_existing(self) -> None:
+        class FTEntity2(Node, labels=["FTEnt2"]):
+            id: str = Field()
+            bio: str = Field(index_type="FULLTEXT")
+
+        manager, adapter = self._make_manager()
+        adapter._existing = {IndexSpec("FTEnt2", "bio", "FULLTEXT")}
+        manager.create_indexes(FTEntity2)
+        adapter.create_fulltext_index.assert_not_called()
+
+    def test_range_skipped_when_already_existing(self) -> None:
+        class RangeExist(Node, labels=["RangeExist"]):
+            id: str = Field()
+            val: int = Field(index=True)
+
+        manager, adapter = self._make_manager()
+        adapter._existing = {IndexSpec("RangeExist", "val", "RANGE")}
+        manager.create_indexes(RangeExist)
+        adapter.create_range_index.assert_not_called()
+
+    def test_no_indexes_is_noop(self) -> None:
+        class NoIdxEnt(Node, labels=["NoIdxEnt"]):
+            id: str = Field()
+            value: str = Field()
+
+        manager, adapter = self._make_manager()
+        manager.create_indexes(NoIdxEnt)
+        adapter.create_range_index.assert_not_called()
+        adapter.create_fulltext_index.assert_not_called()
+        adapter.create_constraint.assert_not_called()
+
+    def test_create_spec_range(self) -> None:
+        manager, adapter = self._make_manager()
+        manager.create_spec(IndexSpec("Foo", "bar", "RANGE"))
+        adapter.create_range_index.assert_called_once_with("Foo", "bar")
+
+    def test_create_spec_unique(self) -> None:
+        manager, adapter = self._make_manager()
+        manager.create_spec(IndexSpec("Foo", "bar", "UNIQUE"))
+        adapter.create_constraint.assert_called_once_with(
+            "UNIQUE", "NODE", "Foo", ["bar"]
+        )
+
+    def test_create_spec_vector(self) -> None:
+        manager, adapter = self._make_manager()
+        manager.create_spec(IndexSpec("Foo", "vec", "VECTOR"))
+        adapter.create_vector_index.assert_called_once_with("Foo", "vec", 0, "cosine")
+
+    def test_drop_spec_range(self) -> None:
+        manager, adapter = self._make_manager()
+        manager.drop_spec(IndexSpec("Foo", "bar", "RANGE"))
+        adapter.drop_range_index.assert_called_once_with("Foo", "bar")
+
+    def test_drop_spec_unique(self) -> None:
+        manager, adapter = self._make_manager()
+        manager.drop_spec(IndexSpec("Foo", "bar", "UNIQUE"))
+        adapter.drop_constraint.assert_called_once_with(
+            "UNIQUE", "NODE", "Foo", ["bar"]
+        )
+
+    def test_ensure_indexes_delegates_to_create_indexes(self) -> None:
+        class EnsureEnt(Node, labels=["EnsureEnt"]):
+            id: str = Field()
+            tag: str = Field(index=True)
+
+        manager, adapter = self._make_manager()
+        manager.ensure_indexes(EnsureEnt)
+        adapter.create_range_index.assert_called_once_with("EnsureEnt", "tag")

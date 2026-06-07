@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from runic.orm.core.descriptors import FieldInfo
@@ -84,6 +84,47 @@ class GraphDriver(Protocol):
     def execute(self, cypher: str, params: dict[str, Any]) -> GraphResult: ...
 
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class TransactionalGraphDriver(Protocol):
+    """Sync driver that supports explicit ACID transactions.
+
+    Drivers that implement this protocol (BoltDriver, AGEDriver) allow the
+    ORM Session to wrap multi-query operations in a single database transaction.
+
+    Drivers without native transaction support (FalkorDB) do NOT implement
+    this protocol — each query is individually atomic at the DB level.
+
+    Lifecycle::
+
+        driver.begin()  # open a transaction
+        driver.execute(...)  # run queries within the transaction
+        driver.commit()  # commit all changes atomically
+        # — or —
+        driver.rollback()  # discard all changes since begin()
+    """
+
+    def begin(self) -> None:
+        """Open a new transaction.
+
+        Raises ``RuntimeError`` if a transaction is already active.
+        """
+        ...
+
+    def commit(self) -> None:
+        """Commit the active transaction.
+
+        No-op when no transaction is active.
+        """
+        ...
+
+    def rollback(self) -> None:
+        """Roll back the active transaction.
+
+        No-op when no transaction is active.
+        """
+        ...
 
 
 class AsyncGraphDriver(Protocol):

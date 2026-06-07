@@ -135,8 +135,45 @@ def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter:
             password=kwargs.get("password", "playwithdata"),
         )
 
+    if backend == "age":
+        from runic.migrate.adapters.age import AGEAdapter
+
+        return AGEAdapter.from_params(
+            graph=kwargs["graph"],
+            host=kwargs.get("host", "localhost"),
+            port=int(kwargs.get("port", 5432)),
+            database=kwargs.get("database", "postgres"),
+            username=kwargs.get("username", "postgres"),
+            password=kwargs.get("password", ""),
+        )
+
+    if backend == "neo4j":
+        from runic.migrate.adapters.neo4j import Neo4jAdapter
+
+        return Neo4jAdapter.from_params(
+            database=kwargs["database"],
+            host=kwargs.get("host", "localhost"),
+            port=int(kwargs.get("port", 7687)),
+            username=kwargs.get("username", "neo4j"),
+            password=kwargs.get("password", ""),
+            encrypted=bool(kwargs.get("encrypted", True)),
+        )
+
+    if backend == "memgraph":
+        from runic.migrate.adapters.memgraph import MemgraphAdapter
+
+        return MemgraphAdapter.from_params(
+            database=kwargs.get("database", "memgraph"),
+            host=kwargs.get("host", "localhost"),
+            port=int(kwargs.get("port", 7687)),
+            username=kwargs.get("username", ""),
+            password=kwargs.get("password", ""),
+            encrypted=bool(kwargs.get("encrypted", False)),
+        )
+
     raise KeyError(
-        f"Unknown adapter backend {backend!r}. Supported: 'falkordb', 'arcadedb'"
+        f"Unknown adapter backend {backend!r}. "
+        "Supported: 'falkordb', 'arcadedb', 'age', 'neo4j', 'memgraph'"
     )
 
 

@@ -15,6 +15,11 @@ Run against FalkorDB (live server):
 Run against ArcadeDB (via Bolt):
     RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
         uv run python examples/orm/01_simple_crud.py
+
+Run against Apache AGE (PostgreSQL):
+    RUNIC_BACKEND=age AGE_HOST=localhost AGE_DATABASE=postgres AGE_GRAPH=runic_examples \\
+        AGE_USER=postgres AGE_PASSWORD=secret \\
+        uv run python examples/orm/01_simple_crud.py
 """
 
 from __future__ import annotations
@@ -73,8 +78,18 @@ def _create_driver() -> GraphDriver:
             username=os.getenv("ARCADEDB_USERNAME", "root"),
             password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
         )
+    if backend == "age":
+        return create_driver(
+            "age",
+            host=os.getenv("AGE_HOST", "localhost"),
+            port=int(os.getenv("AGE_PORT", "5432")),
+            database=os.getenv("AGE_DATABASE", "postgres"),
+            graph=os.getenv("AGE_GRAPH", "runic_examples"),
+            username=os.getenv("AGE_USER", "postgres"),
+            password=os.getenv("AGE_PASSWORD", ""),
+        )
     raise ValueError(
-        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb', 'age'"
     )
 
 

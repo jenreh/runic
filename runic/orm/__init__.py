@@ -1,6 +1,13 @@
 """runic.orm — lightweight graph ORM for Cypher-based graph databases."""
 
-from runic.orm.driver import AsyncGraphDriver, GraphDialect, GraphDriver, GraphResult
+from runic.orm.driver import (
+    AsyncGraphDriver,
+    GraphDialect,
+    GraphDriver,
+    GraphResult,
+    TransactionalGraphDriver,
+)
+from runic.orm.driver.age import AGEDialect, AGEDriver, create_age_driver
 from runic.orm.driver.arcadedb import ArcadeDBDialect, create_arcadedb_driver
 from runic.orm.driver.bolt import BoltDriver
 from runic.orm.driver.factory import create_driver
@@ -10,6 +17,8 @@ from runic.orm.driver.falkordb import (
     FalkorDBDriver,
     create_falkordb_driver,
 )
+from runic.orm.driver.memgraph import MemgraphDialect, create_memgraph_driver
+from runic.orm.driver.neo4j import Neo4jDialect, create_neo4j_driver
 from runic.orm.core.descriptors import (
     MISSING,
     Field,
@@ -70,6 +79,8 @@ from runic.orm.session.session import Session
 
 __all__ = [  # noqa: RUF022
     # Driver / dialect
+    "AGEDialect",
+    "AGEDriver",
     "AsyncFalkorDBDriver",
     "AsyncGraphDriver",
     "ArcadeDBDialect",
@@ -79,9 +90,15 @@ __all__ = [  # noqa: RUF022
     "GraphDialect",
     "GraphDriver",
     "GraphResult",
+    "TransactionalGraphDriver",
+    "MemgraphDialect",
+    "Neo4jDialect",
+    "create_age_driver",
     "create_arcadedb_driver",
     "create_driver",
     "create_falkordb_driver",
+    "create_memgraph_driver",
+    "create_neo4j_driver",
     # Core
     "MISSING",
     "_NOT_LOADED",

@@ -81,7 +81,7 @@ def _make_writer() -> tuple[RelationshipWriter, Mapper]:
 
 
 def _fi(person_cls: type, field_name: str) -> FieldInfo:
-    return next(f for f in person_cls._fields if f.name == field_name)
+    return next(f for f in person_cls._fields if f.name == field_name)  # ty: ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +403,7 @@ def test_session_relate_with_descriptor_executes_query() -> None:
     source = WrPerson(id="p1", name="Alice")
     target = WrCompany(id="c1", name="Acme")
 
-    session.relate(source, WrPerson.company, target)
+    session.relate(source, WrPerson.company, target)  # ty: ignore[invalid-argument-type]
 
     mock_graph.query.assert_called_once()
     cypher, params = mock_graph.query.call_args[0]
@@ -419,7 +419,7 @@ def test_session_relate_with_descriptor_invalidates_cache() -> None:
     target = WrCompany(id="c1", name="Acme")
     source.__dict__["company"] = target
 
-    session.relate(source, WrPerson.company, target)
+    session.relate(source, WrPerson.company, target)  # ty: ignore[invalid-argument-type]
 
     assert source.__dict__["company"] is _NOT_LOADED
 
@@ -430,7 +430,7 @@ def test_session_relate_with_descriptor_and_edge() -> None:
     target = WrCompany(id="c1", name="Acme")
     edge = WrMemberEdge(role="admin")
 
-    session.relate(source, WrPerson.member_of, target, edge=edge)
+    session.relate(source, WrPerson.member_of, target, edge=edge)  # ty: ignore[invalid-argument-type]
 
     cypher, params = mock_graph.query.call_args[0]
     assert "SET" in cypher
@@ -442,7 +442,7 @@ def test_session_unrelate_with_descriptor_executes_query() -> None:
     source = WrPerson(id="p1", name="Alice")
     target = WrCompany(id="c1", name="Acme")
 
-    session.unrelate(source, WrPerson.company, target)
+    session.unrelate(source, WrPerson.company, target)  # ty: ignore[invalid-argument-type]
 
     cypher, params = mock_graph.query.call_args[0]
     assert "DELETE r" in cypher
@@ -456,7 +456,7 @@ def test_session_unrelate_with_descriptor_invalidates_cache() -> None:
     target = WrCompany(id="c1", name="Acme")
     source.__dict__["company"] = target
 
-    session.unrelate(source, WrPerson.company, target)
+    session.unrelate(source, WrPerson.company, target)  # ty: ignore[invalid-argument-type]
 
     assert source.__dict__["company"] is _NOT_LOADED
 

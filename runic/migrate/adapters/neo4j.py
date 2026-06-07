@@ -1,4 +1,4 @@
-"""ArcadeDB migration adapter using the Bolt protocol via the neo4j Python driver."""
+"""Neo4j migration adapter using the Bolt protocol via the neo4j Python driver."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.introspect import LiveSchema
-from runic.orm.driver.arcadedb import ArcadeDBDialect
 from runic.orm.driver.bolt import BoltDriver
+from runic.orm.driver.neo4j import _NEO4J_DIALECT, Neo4jDialect
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
@@ -24,8 +24,6 @@ _SET_TRACKING_QUERY = (
     f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
     " SET v.checksums = $checksums, v.installed_by = $installed_by"
 )
-
-_ARCADE_DIALECT = ArcadeDBDialect()
 
 
 def _parse_kv_list(items: list | None) -> dict[str, str]:
@@ -43,8 +41,18 @@ def _encode_kv_list(d: dict[str, str]) -> list[str]:
     return [f"{k}:{v}" for k, v in d.items()]
 
 
-class ArcadeDBAdapter(GraphAdapter):
-    """Migration adapter for ArcadeDB accessed via Bolt protocol."""
+class Neo4jAdapter(GraphAdapter):
+    """Migration adapter for Neo4j 5.x accessed via Bolt protocol.
+
+    Named index convention (must match :class:`~runic.orm.driver.neo4j.Neo4jDialect`):
+
+    - **Fulltext** index name = ``{label}`` (e.g. ``Post``)
+    - **Vector** index name = ``{label}_{prop}`` (e.g. ``Article_embedding``)
+    - **Range** index name = ``{label}_{prop}`` (e.g. ``User_email``)
+    - **Unique** constraint name = ``{label}_{prop}_unique``
+
+    All DDL uses ``IF NOT EXISTS`` / ``IF EXISTS`` for idempotency.
+    """
 
     def __init__(self, driver: BoltDriver, database: str) -> None:
         self._driver = driver
@@ -57,17 +65,19 @@ class ArcadeDBAdapter(GraphAdapter):
         *,
         host: str = "localhost",
         port: int = 7687,
-        username: str = "root",
+        username: str = "neo4j",
         password: str = "",  # noqa: S107
-    ) -> ArcadeDBAdapter:
+        encrypted: bool = True,
+        dialect: Neo4jDialect = _NEO4J_DIALECT,
+    ) -> Neo4jAdapter:
         driver = BoltDriver.from_params(
             host=host,
             port=port,
             database=database,
             username=username,
             password=password,
-            dialect=_ARCADE_DIALECT,
-            encrypted=False,
+            dialect=dialect,
+            encrypted=encrypted,
         )
         return cls(driver, database)
 
@@ -81,16 +91,20 @@ class ArcadeDBAdapter(GraphAdapter):
     def run_ro_query(self, query: str) -> Any:
         return self._driver.execute(query, {})
 
-    def fork(self, graph_name: str) -> ArcadeDBAdapter:
-        """Return a new adapter targeting a different ArcadeDB database."""
+    def fork(self, graph_name: str) -> Neo4jAdapter:
+        """Return a new adapter targeting a different Neo4j database."""
         new_driver = BoltDriver(
             uri=self._driver.uri,
             auth=self._driver.auth,
             database=graph_name,
-            dialect=_ARCADE_DIALECT,
-            encrypted=False,
+            dialect=_NEO4J_DIALECT,
+            encrypted=True,
         )
-        return ArcadeDBAdapter(new_driver, graph_name)
+        return Neo4jAdapter(new_driver, graph_name)
+
+    # ------------------------------------------------------------------
+    # Version tracking
+    # ------------------------------------------------------------------
 
     def get_version(self) -> list[str]:
         result = self.run_ro_query(_GET_VERSION_QUERY)
@@ -105,9 +119,13 @@ class ArcadeDBAdapter(GraphAdapter):
     def set_version(self, revisions: list[str]) -> None:
         self.run_query(_SET_VERSION_QUERY, {"revisions": revisions})
 
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
     def read_live_schema(self) -> LiveSchema:
         log.debug(
-            "ArcadeDB read_live_schema: returning empty schema (not yet implemented)"
+            "Neo4j read_live_schema: returning empty schema (introspect via SHOW INDEXES)"
         )
         return LiveSchema(
             range_indexes=[],
@@ -116,29 +134,32 @@ class ArcadeDBAdapter(GraphAdapter):
             constraints=[],
         )
 
-    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"CREATE INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
+    def get_existing_specs(self) -> set[IndexSpec]:
+        """Return empty set — Neo4j DDL uses IF NOT EXISTS for idempotency."""
+        return set()
+
+    # ------------------------------------------------------------------
+    # DDL — indexes
+    # ------------------------------------------------------------------
+
+    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
+        entity = f"()-[n:{label}]->()" if rel else f"(n:{label})"
+        cypher = f"CREATE INDEX {label}_{prop} IF NOT EXISTS FOR {entity} ON (n.{prop})"
+        log.info("Neo4j DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
             log.warning(
-                "ArcadeDB create_range_index failed for %s.%s: %s", label, prop, exc
+                "Neo4j create_range_index failed for %s.%s: %s", label, prop, exc
             )
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
+        cypher = f"DROP INDEX {label}_{prop} IF EXISTS"
+        log.info("Neo4j DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_range_index failed for %s.%s: %s", label, prop, exc
-            )
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        """Return empty set — ArcadeDB DDL uses try/except for idempotency."""
-        return set()
+            log.warning("Neo4j drop_range_index failed for %s.%s: %s", label, prop, exc)
 
     def create_fulltext_index(
         self,
@@ -147,70 +168,87 @@ class ArcadeDBAdapter(GraphAdapter):
         language: str | None = None,  # noqa: ARG002
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
-        props_str = ", ".join(props)
-        cypher = f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
+        prop_list = ", ".join(f"n.{p}" for p in props)
+        cypher = f"CREATE FULLTEXT INDEX {label} IF NOT EXISTS FOR (n:{label}) ON EACH [{prop_list}]"
+        log.info("Neo4j DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
             log.warning(
-                "ArcadeDB create_fulltext_index failed for %s %s: %s", label, props, exc
+                "Neo4j create_fulltext_index failed for %s %s: %s", label, props, exc
             )
 
-    def drop_fulltext_index(self, label: str, *props: str) -> None:
-        props_str = ", ".join(props)
-        cypher = f"DROP INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
+    def drop_fulltext_index(self, label: str, *props: str) -> None:  # noqa: ARG002
+        cypher = f"DROP INDEX {label} IF EXISTS"
+        log.info("Neo4j DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+            log.warning("Neo4j drop_fulltext_index failed for %s: %s", label, exc)
 
     def create_vector_index(
         self,
         label: str,
         prop: str,
-        dimension: int,  # noqa: ARG002
-        similarity: str,  # noqa: ARG002
+        dimension: int,
+        similarity: str,
         *,
         m: int = 16,  # noqa: ARG002
         ef_construction: int = 200,  # noqa: ARG002
         ef_runtime: int = 10,  # noqa: ARG002
     ) -> None:
-        # ArcadeDB vector indexes are created via the HTTP management API, not openCypher DDL.
-        log.warning(
-            "ArcadeDB create_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to create vector indexes.",
-            label,
-            prop,
+        if dimension == 0:
+            log.warning(
+                "Neo4j create_vector_index: dimension=0 for %s.%s — "
+                "pre-create the index with the correct dimension via Cypher DDL.",
+                label,
+                prop,
+            )
+            return
+        cypher = (
+            f"CREATE VECTOR INDEX {label}_{prop} IF NOT EXISTS FOR (n:{label}) ON (n.{prop}) "
+            f"OPTIONS {{indexConfig: {{`vector.dimensions`: {dimension}, "
+            f"`vector.similarity_function`: '{similarity}'}}}}"
         )
+        log.info("Neo4j DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "Neo4j create_vector_index failed for %s.%s: %s", label, prop, exc
+            )
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        log.warning(
-            "ArcadeDB drop_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to manage vector indexes.",
-            label,
-            prop,
-        )
+        cypher = f"DROP INDEX {label}_{prop} IF EXISTS"
+        log.info("Neo4j DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "Neo4j drop_vector_index failed for %s.%s: %s", label, prop, exc
+            )
+
+    # ------------------------------------------------------------------
+    # DDL — constraints
+    # ------------------------------------------------------------------
 
     def create_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"CREATE INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
+            name = f"{label}_{prop}_unique"
+            cypher = f"CREATE CONSTRAINT {name} IF NOT EXISTS FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
+            log.info("Neo4j DDL: %s", cypher)
             try:
                 self.run_query(cypher)
             except Exception as exc:
                 log.warning(
-                    "ArcadeDB create_constraint failed for %s.%s: %s", label, prop, exc
+                    "Neo4j create_constraint failed for %s.%s: %s", label, prop, exc
                 )
         else:
             log.warning(
-                "ArcadeDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                "Neo4j create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
                 kind,
                 entity,
                 label,
@@ -222,42 +260,51 @@ class ArcadeDBAdapter(GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"DROP INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
+            name = f"{label}_{prop}_unique"
+            cypher = f"DROP CONSTRAINT {name} IF EXISTS"
+            log.info("Neo4j DDL: %s", cypher)
             try:
                 self.run_query(cypher)
             except Exception as exc:
                 log.warning(
-                    "ArcadeDB drop_constraint failed for %s.%s: %s", label, prop, exc
+                    "Neo4j drop_constraint failed for %s.%s: %s", label, prop, exc
                 )
         else:
             log.warning(
-                "ArcadeDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                "Neo4j drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
                 kind,
                 entity,
                 label,
                 props,
             )
 
+    # ------------------------------------------------------------------
+    # Graph lifecycle
+    # ------------------------------------------------------------------
+
     def delete_graph(self) -> None:
         log.warning(
-            "ArcadeDB delete_graph: dropping all vertices and edges in %r",
+            "Neo4j delete_graph: dropping all nodes and relationships in %r",
             self._database,
         )
         self.run_query("MATCH (n) DETACH DELETE n")
 
     def snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshots are not yet supported via runic migrate."
+            "Neo4j snapshots are not supported via runic migrate."
         )
 
     def restore_snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshot restore is not yet supported via runic migrate."
+            "Neo4j snapshot restore is not supported via runic migrate."
         )
 
     def snapshot_exists(self, snap_name: str) -> bool:  # noqa: ARG002
         return False
+
+    # ------------------------------------------------------------------
+    # Checksum tracking
+    # ------------------------------------------------------------------
 
     def get_checksums(self) -> dict[str, str]:
         result = self.run_ro_query(_GET_TRACKING_QUERY)

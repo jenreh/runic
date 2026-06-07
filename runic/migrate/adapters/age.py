@@ -1,4 +1,10 @@
-"""ArcadeDB migration adapter using the Bolt protocol via the neo4j Python driver."""
+"""Apache AGE migration adapter.
+
+Apache AGE stores graph data inside PostgreSQL, so migration version-tracking
+nodes are created as AGE vertices (not PostgreSQL tables).  The adapter
+executes Cypher through the AGE ``cypher()`` SQL function and delegates
+agtype decoding to the :mod:`runic.orm.driver.age` module.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +13,7 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.introspect import LiveSchema
-from runic.orm.driver.arcadedb import ArcadeDBDialect
-from runic.orm.driver.bolt import BoltDriver
+from runic.orm.driver.age import AGEDialect, AGEDriver
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
@@ -25,7 +30,7 @@ _SET_TRACKING_QUERY = (
     " SET v.checksums = $checksums, v.installed_by = $installed_by"
 )
 
-_ARCADE_DIALECT = ArcadeDBDialect()
+_AGE_DIALECT = AGEDialect()
 
 
 def _parse_kv_list(items: list | None) -> dict[str, str]:
@@ -43,54 +48,54 @@ def _encode_kv_list(d: dict[str, str]) -> list[str]:
     return [f"{k}:{v}" for k, v in d.items()]
 
 
-class ArcadeDBAdapter(GraphAdapter):
-    """Migration adapter for ArcadeDB accessed via Bolt protocol."""
+class AGEAdapter(GraphAdapter):
+    """Migration adapter for Apache AGE (PostgreSQL graph extension)."""
 
-    def __init__(self, driver: BoltDriver, database: str) -> None:
+    def __init__(self, driver: AGEDriver, graph_name: str) -> None:
         self._driver = driver
-        self._database = database
+        self._graph_name = graph_name
 
     @classmethod
     def from_params(
         cls,
-        database: str,
+        graph: str,
         *,
         host: str = "localhost",
-        port: int = 7687,
-        username: str = "root",
+        port: int = 5432,
+        database: str = "postgres",
+        username: str = "postgres",
         password: str = "",  # noqa: S107
-    ) -> ArcadeDBAdapter:
-        driver = BoltDriver.from_params(
+    ) -> AGEAdapter:
+        from runic.orm.driver.age import create_age_driver
+
+        driver = create_age_driver(
             host=host,
             port=port,
             database=database,
+            graph=graph,
             username=username,
             password=password,
-            dialect=_ARCADE_DIALECT,
-            encrypted=False,
         )
-        return cls(driver, database)
+        return cls(driver, graph)
 
     @property
     def name(self) -> str:
-        return self._database
+        return self._graph_name
 
     def run_query(self, query: str, params: dict | None = None) -> Any:
-        return self._driver.execute(query, params or {})
+        result = self._driver.execute(query, params or {})
+        # AGEDriver no longer auto-commits; the adapter owns the transaction
+        # lifecycle for write operations (not managed by an ORM Session here).
+        self._driver.commit()
+        return result
 
     def run_ro_query(self, query: str) -> Any:
         return self._driver.execute(query, {})
 
-    def fork(self, graph_name: str) -> ArcadeDBAdapter:
-        """Return a new adapter targeting a different ArcadeDB database."""
-        new_driver = BoltDriver(
-            uri=self._driver.uri,
-            auth=self._driver.auth,
-            database=graph_name,
-            dialect=_ARCADE_DIALECT,
-            encrypted=False,
-        )
-        return ArcadeDBAdapter(new_driver, graph_name)
+    def fork(self, graph_name: str) -> AGEAdapter:
+        """Return a new adapter targeting a different AGE graph on the same connection."""
+        new_driver = AGEDriver(self._driver._conn, graph_name)  # noqa: SLF001
+        return AGEAdapter(new_driver, graph_name)
 
     def get_version(self) -> list[str]:
         result = self.run_ro_query(_GET_VERSION_QUERY)
@@ -107,7 +112,7 @@ class ArcadeDBAdapter(GraphAdapter):
 
     def read_live_schema(self) -> LiveSchema:
         log.debug(
-            "ArcadeDB read_live_schema: returning empty schema (not yet implemented)"
+            "AGEAdapter read_live_schema: returning empty schema (not yet implemented)"
         )
         return LiveSchema(
             range_indexes=[],
@@ -117,27 +122,26 @@ class ArcadeDBAdapter(GraphAdapter):
         )
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"CREATE INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB create_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        # AGE does not expose a direct Cypher DDL for per-property indexes;
+        # indices are created on the underlying PostgreSQL edge/vertex tables.
+        log.warning(
+            "AGEAdapter create_range_index: AGE does not support Cypher-level "
+            "range index creation for %s.%s — create a B-tree index on the "
+            "underlying PostgreSQL table manually.",
+            label,
+            prop,
+        )
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        log.warning(
+            "AGEAdapter drop_range_index: AGE does not support Cypher-level "
+            "range index drops for %s.%s.",
+            label,
+            prop,
+        )
 
     def get_existing_specs(self) -> set[IndexSpec]:
-        """Return empty set — ArcadeDB DDL uses try/except for idempotency."""
+        """Return empty set — AGE indexes are PostgreSQL-level, not introspectable via Cypher."""
         return set()
 
     def create_fulltext_index(
@@ -147,26 +151,21 @@ class ArcadeDBAdapter(GraphAdapter):
         language: str | None = None,  # noqa: ARG002
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
-        props_str = ", ".join(props)
-        cypher = f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB create_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+        log.warning(
+            "AGEAdapter create_fulltext_index: AGE does not support Cypher-level "
+            "fulltext index creation for %s %s — "
+            "use PostgreSQL full-text search on the underlying tables.",
+            label,
+            props,
+        )
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
-        props_str = ", ".join(props)
-        cypher = f"DROP INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+        log.warning(
+            "AGEAdapter drop_fulltext_index: AGE does not support Cypher-level "
+            "fulltext index drops for %s %s.",
+            label,
+            props,
+        )
 
     def create_vector_index(
         self,
@@ -179,18 +178,18 @@ class ArcadeDBAdapter(GraphAdapter):
         ef_construction: int = 200,  # noqa: ARG002
         ef_runtime: int = 10,  # noqa: ARG002
     ) -> None:
-        # ArcadeDB vector indexes are created via the HTTP management API, not openCypher DDL.
         log.warning(
-            "ArcadeDB create_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to create vector indexes.",
+            "AGEAdapter create_vector_index: AGE does not support Cypher-level "
+            "vector index creation for %s.%s — "
+            "use pgvector on the underlying PostgreSQL tables.",
             label,
             prop,
         )
 
     def drop_vector_index(self, label: str, prop: str) -> None:
         log.warning(
-            "ArcadeDB drop_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to manage vector indexes.",
+            "AGEAdapter drop_vector_index: AGE does not support Cypher-level "
+            "vector index drops for %s.%s.",
             label,
             prop,
         )
@@ -198,62 +197,43 @@ class ArcadeDBAdapter(GraphAdapter):
     def create_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
-            prop = props[0]
-            cypher = f"CREATE INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "ArcadeDB create_constraint failed for %s.%s: %s", label, prop, exc
-                )
-        else:
-            log.warning(
-                "ArcadeDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
-                kind,
-                entity,
-                label,
-                props,
-            )
+        log.warning(
+            "AGEAdapter create_constraint: AGE does not support Cypher-level "
+            "constraint creation (kind=%s entity=%s label=%s props=%s) — "
+            "use PostgreSQL constraints on the underlying tables.",
+            kind,
+            entity,
+            label,
+            props,
+        )
 
     def drop_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
-            prop = props[0]
-            cypher = f"DROP INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "ArcadeDB drop_constraint failed for %s.%s: %s", label, prop, exc
-                )
-        else:
-            log.warning(
-                "ArcadeDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
-                kind,
-                entity,
-                label,
-                props,
-            )
+        log.warning(
+            "AGEAdapter drop_constraint: AGE does not support Cypher-level "
+            "constraint drops (kind=%s entity=%s label=%s props=%s).",
+            kind,
+            entity,
+            label,
+            props,
+        )
 
     def delete_graph(self) -> None:
         log.warning(
-            "ArcadeDB delete_graph: dropping all vertices and edges in %r",
-            self._database,
+            "AGEAdapter delete_graph: dropping all vertices and edges in %r",
+            self._graph_name,
         )
         self.run_query("MATCH (n) DETACH DELETE n")
 
     def snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshots are not yet supported via runic migrate."
+            "Apache AGE snapshots are not yet supported via runic migrate."
         )
 
     def restore_snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshot restore is not yet supported via runic migrate."
+            "Apache AGE snapshot restore is not yet supported via runic migrate."
         )
 
     def snapshot_exists(self, snap_name: str) -> bool:  # noqa: ARG002

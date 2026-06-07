@@ -3,7 +3,7 @@
 Welcome to **Runic**
 ====================
 
-Graph ORM and Schema Migrations for FalkorDB
+Graph ORM and Schema Migrations for FalkorDB, Apache AGE, and more
 
 |PyPI| |Python| |License|
 
@@ -27,8 +27,9 @@ Documentation for version: 0.2.2.
 **runic** ships two tools:
 
 * **runic.orm** — a lightweight, graph-optimized ORM that maps Python classes
-  to graph nodes and edges.  Supports FalkorDB, ArcadeDB, and any
-  Bolt-compatible database via a pluggable driver layer.
+  to graph nodes and edges.  Supports FalkorDB, ArcadeDB, Neo4j,
+  Memgraph, Apache AGE (PostgreSQL), and any Bolt-compatible database
+  via a pluggable driver layer.
 * **runic.migrate** — an Alembic-style migration engine that tracks index and
   constraint changes as versioned, replayable scripts.
 

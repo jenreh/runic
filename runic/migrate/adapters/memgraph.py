@@ -1,4 +1,4 @@
-"""ArcadeDB migration adapter using the Bolt protocol via the neo4j Python driver."""
+"""Memgraph migration adapter using the Bolt protocol via the neo4j Python driver."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.introspect import LiveSchema
-from runic.orm.driver.arcadedb import ArcadeDBDialect
 from runic.orm.driver.bolt import BoltDriver
+from runic.orm.driver.memgraph import _MEMGRAPH_DIALECT, MemgraphDialect
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
@@ -24,8 +24,6 @@ _SET_TRACKING_QUERY = (
     f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
     " SET v.checksums = $checksums, v.installed_by = $installed_by"
 )
-
-_ARCADE_DIALECT = ArcadeDBDialect()
 
 
 def _parse_kv_list(items: list | None) -> dict[str, str]:
@@ -43,8 +41,18 @@ def _encode_kv_list(d: dict[str, str]) -> list[str]:
     return [f"{k}:{v}" for k, v in d.items()]
 
 
-class ArcadeDBAdapter(GraphAdapter):
-    """Migration adapter for ArcadeDB accessed via Bolt protocol."""
+class MemgraphAdapter(GraphAdapter):
+    """Migration adapter for Memgraph accessed via Bolt protocol.
+
+    Named index convention (must match :class:`~runic.orm.driver.memgraph.MemgraphDialect`):
+
+    - **Fulltext** (text search) index name = ``{label}`` (e.g. ``Post``)
+    - **Vector** index name = ``{label}_{prop}`` (e.g. ``Article_embedding``)
+    - **Range** indexes via ``CREATE INDEX ON :{label}({prop})`` — idempotent in Memgraph
+
+    Requires the MAGE ``text_search`` and ``vector_search`` modules for
+    fulltext and vector search respectively.
+    """
 
     def __init__(self, driver: BoltDriver, database: str) -> None:
         self._driver = driver
@@ -57,17 +65,19 @@ class ArcadeDBAdapter(GraphAdapter):
         *,
         host: str = "localhost",
         port: int = 7687,
-        username: str = "root",
+        username: str = "",
         password: str = "",  # noqa: S107
-    ) -> ArcadeDBAdapter:
+        encrypted: bool = False,
+        dialect: MemgraphDialect = _MEMGRAPH_DIALECT,
+    ) -> MemgraphAdapter:
         driver = BoltDriver.from_params(
             host=host,
             port=port,
             database=database,
             username=username,
             password=password,
-            dialect=_ARCADE_DIALECT,
-            encrypted=False,
+            dialect=dialect,
+            encrypted=encrypted,
         )
         return cls(driver, database)
 
@@ -81,16 +91,20 @@ class ArcadeDBAdapter(GraphAdapter):
     def run_ro_query(self, query: str) -> Any:
         return self._driver.execute(query, {})
 
-    def fork(self, graph_name: str) -> ArcadeDBAdapter:
-        """Return a new adapter targeting a different ArcadeDB database."""
+    def fork(self, graph_name: str) -> MemgraphAdapter:
+        """Return a new adapter targeting a different Memgraph database."""
         new_driver = BoltDriver(
             uri=self._driver.uri,
             auth=self._driver.auth,
             database=graph_name,
-            dialect=_ARCADE_DIALECT,
+            dialect=_MEMGRAPH_DIALECT,
             encrypted=False,
         )
-        return ArcadeDBAdapter(new_driver, graph_name)
+        return MemgraphAdapter(new_driver, graph_name)
+
+    # ------------------------------------------------------------------
+    # Version tracking
+    # ------------------------------------------------------------------
 
     def get_version(self) -> list[str]:
         result = self.run_ro_query(_GET_VERSION_QUERY)
@@ -105,10 +119,12 @@ class ArcadeDBAdapter(GraphAdapter):
     def set_version(self, revisions: list[str]) -> None:
         self.run_query(_SET_VERSION_QUERY, {"revisions": revisions})
 
+    # ------------------------------------------------------------------
+    # Schema introspection
+    # ------------------------------------------------------------------
+
     def read_live_schema(self) -> LiveSchema:
-        log.debug(
-            "ArcadeDB read_live_schema: returning empty schema (not yet implemented)"
-        )
+        log.debug("Memgraph read_live_schema: returning empty schema")
         return LiveSchema(
             range_indexes=[],
             fulltext_indexes=[],
@@ -116,29 +132,36 @@ class ArcadeDBAdapter(GraphAdapter):
             constraints=[],
         )
 
-    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"CREATE INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
+    def get_existing_specs(self) -> set[IndexSpec]:
+        """Return empty set — Memgraph DDL is idempotent for range; others use try/except."""
+        return set()
+
+    # ------------------------------------------------------------------
+    # DDL — indexes
+    # ------------------------------------------------------------------
+
+    def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
+        if rel:
+            cypher = f"CREATE INDEX ON :{label}({prop})"
+        else:
+            cypher = f"CREATE INDEX ON :{label}({prop})"
+        log.info("Memgraph DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
             log.warning(
-                "ArcadeDB create_range_index failed for %s.%s: %s", label, prop, exc
+                "Memgraph create_range_index failed for %s.%s: %s", label, prop, exc
             )
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
+        cypher = f"DROP INDEX ON :{label}({prop})"
+        log.info("Memgraph DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
             log.warning(
-                "ArcadeDB drop_range_index failed for %s.%s: %s", label, prop, exc
+                "Memgraph drop_range_index failed for %s.%s: %s", label, prop, exc
             )
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        """Return empty set — ArcadeDB DDL uses try/except for idempotency."""
-        return set()
 
     def create_fulltext_index(
         self,
@@ -147,70 +170,91 @@ class ArcadeDBAdapter(GraphAdapter):
         language: str | None = None,  # noqa: ARG002
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
-        props_str = ", ".join(props)
-        cypher = f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
+        # Memgraph TEXT INDEX is whole-label; index name = label (matches MemgraphDialect)
+        cypher = f"CREATE TEXT INDEX {label} ON :{label}"
+        log.info("Memgraph DDL: %s", cypher)
+        if len(props) > 1:
+            log.warning(
+                "Memgraph text indexes cover the full label — "
+                "multiple props %s on %s map to one whole-label index",
+                props,
+                label,
+            )
         try:
             self.run_query(cypher)
         except Exception as exc:
-            log.warning(
-                "ArcadeDB create_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+            log.warning("Memgraph create_fulltext_index failed for %s: %s", label, exc)
 
-    def drop_fulltext_index(self, label: str, *props: str) -> None:
-        props_str = ", ".join(props)
-        cypher = f"DROP INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
+    def drop_fulltext_index(self, label: str, *props: str) -> None:  # noqa: ARG002
+        cypher = f"DROP TEXT INDEX {label}"
+        log.info("Memgraph DDL: %s", cypher)
         try:
             self.run_query(cypher)
         except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+            log.warning("Memgraph drop_fulltext_index failed for %s: %s", label, exc)
 
     def create_vector_index(
         self,
         label: str,
         prop: str,
-        dimension: int,  # noqa: ARG002
-        similarity: str,  # noqa: ARG002
+        dimension: int,
+        similarity: str,
         *,
-        m: int = 16,  # noqa: ARG002
-        ef_construction: int = 200,  # noqa: ARG002
+        m: int = 16,
+        ef_construction: int = 200,
         ef_runtime: int = 10,  # noqa: ARG002
     ) -> None:
-        # ArcadeDB vector indexes are created via the HTTP management API, not openCypher DDL.
-        log.warning(
-            "ArcadeDB create_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to create vector indexes.",
-            label,
-            prop,
+        if dimension == 0:
+            log.warning(
+                "Memgraph create_vector_index: dimension=0 for %s.%s — "
+                "pre-create the index with the correct dimension via Cypher DDL.",
+                label,
+                prop,
+            )
+            return
+        cypher = (
+            f"CREATE VECTOR INDEX {label}_{prop} ON :{label}({prop}) WITH CONFIG "
+            f'{{"dimension": {dimension}, "capacity": 1000, "metric": "{similarity}", '
+            f'"resize_coefficient": 2, "m": {m}, "ef_construction": {ef_construction}}}'
         )
+        log.info("Memgraph DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "Memgraph create_vector_index failed for %s.%s: %s", label, prop, exc
+            )
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        log.warning(
-            "ArcadeDB drop_vector_index: %s.%s — "
-            "use the ArcadeDB HTTP management API to manage vector indexes.",
-            label,
-            prop,
-        )
+        cypher = f"DROP VECTOR INDEX {label}_{prop}"
+        log.info("Memgraph DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "Memgraph drop_vector_index failed for %s.%s: %s", label, prop, exc
+            )
+
+    # ------------------------------------------------------------------
+    # DDL — constraints
+    # ------------------------------------------------------------------
 
     def create_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"CREATE INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
+            cypher = f"CREATE CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
+            log.info("Memgraph DDL: %s", cypher)
             try:
                 self.run_query(cypher)
             except Exception as exc:
                 log.warning(
-                    "ArcadeDB create_constraint failed for %s.%s: %s", label, prop, exc
+                    "Memgraph create_constraint failed for %s.%s: %s", label, prop, exc
                 )
         else:
             log.warning(
-                "ArcadeDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                "Memgraph create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
                 kind,
                 entity,
                 label,
@@ -222,42 +266,50 @@ class ArcadeDBAdapter(GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"DROP INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
+            cypher = f"DROP CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
+            log.info("Memgraph DDL: %s", cypher)
             try:
                 self.run_query(cypher)
             except Exception as exc:
                 log.warning(
-                    "ArcadeDB drop_constraint failed for %s.%s: %s", label, prop, exc
+                    "Memgraph drop_constraint failed for %s.%s: %s", label, prop, exc
                 )
         else:
             log.warning(
-                "ArcadeDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                "Memgraph drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
                 kind,
                 entity,
                 label,
                 props,
             )
 
+    # ------------------------------------------------------------------
+    # Graph lifecycle
+    # ------------------------------------------------------------------
+
     def delete_graph(self) -> None:
         log.warning(
-            "ArcadeDB delete_graph: dropping all vertices and edges in %r",
+            "Memgraph delete_graph: dropping all nodes and relationships in %r",
             self._database,
         )
         self.run_query("MATCH (n) DETACH DELETE n")
 
     def snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshots are not yet supported via runic migrate."
+            "Memgraph snapshots are not supported via runic migrate."
         )
 
     def restore_snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(
-            "ArcadeDB snapshot restore is not yet supported via runic migrate."
+            "Memgraph snapshot restore is not supported via runic migrate."
         )
 
     def snapshot_exists(self, snap_name: str) -> bool:  # noqa: ARG002
         return False
+
+    # ------------------------------------------------------------------
+    # Checksum tracking
+    # ------------------------------------------------------------------
 
     def get_checksums(self) -> dict[str, str]:
         result = self.run_ro_query(_GET_TRACKING_QUERY)
