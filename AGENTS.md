@@ -92,7 +92,7 @@ Prefer official docs; widen via web search for cross-version issues.
 
 ### Quality Gates
 
-- `task lint`, `task format`.
+- `task lint`, `task format`, `task typecheck`.
 - `task test` — coverage ≥ **80%** non-Reflex classes & Reflex states.
 
 ### Commit & PR
