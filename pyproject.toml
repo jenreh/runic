@@ -1,6 +1,6 @@
 [project]
 name = "runic-py"
-version = "0.3.0"
+version = "0.3.1"
 description = "OGM and schema migrations for Graph Databases."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -91,7 +91,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.3.0"
+current_version = "0.3.1"
 tag = false
 allow-dirty = false
 
