@@ -38,11 +38,13 @@ services:
     image: arcadedata/arcadedb:latest
     ports:
       - "2480:2480"
-      - "2424:2424"
+      - "2424:7687"
     environment:
-      JAVA_OPTS: "-Darcadedb.server.rootPassword=playwithdata"
+      JAVA_OPTS: >-
+        -Darcadedb.server.rootPassword=playwithdata
+        -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:2480/api/v1/ready || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2480/api/v1/ready && exit 0 || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 15

@@ -235,6 +235,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: requires a live graph backend (embedded FalkorDB via redislite by default; other backends via RUNIC_TEST_BACKENDS env var + docker-compose.test.yml)",
     "requires_multi_label: test requires multi-label node support (not available on Apache AGE)",
+    "requires_geo_update: test requires SET n.prop = point() support (not available on ArcadeDB via Bolt)",
 ]
 
 [tool.ty.environment]

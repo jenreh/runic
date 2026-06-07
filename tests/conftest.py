@@ -58,6 +58,14 @@ def graph_driver(request: pytest.FixtureRequest) -> Iterator[Any]:
     ):
         cleanup()
         pytest.skip(f"Backend {backend!r} does not support multi-label nodes")
+    dialect = getattr(driver, "dialect", None)
+    if request.node.get_closest_marker("requires_geo_update") and not getattr(
+        dialect, "supports_geo_update", True
+    ):
+        cleanup()
+        pytest.skip(
+            f"Backend {backend!r} does not support SET n.prop = point() via Bolt"
+        )
     yield driver
     cleanup()
 
