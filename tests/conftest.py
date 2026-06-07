@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from dotenv import load_dotenv
+
+# Load test backend config from .env.test before any fixture params are resolved.
+# Shell-set env vars are NOT overridden — they always take precedence.
+load_dotenv(Path(__file__).parent.parent / ".env.test", override=False)
 
 # Expose falkordblite-backed fixtures for all tests that need a live graph.
 # Kept for backward-compatibility during transition; new tests use graph_driver.
