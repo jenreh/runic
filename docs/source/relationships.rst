@@ -159,11 +159,17 @@ Create the edge once from either side; it is readable from both:
 
 .. note::
 
-   ``direction="BOTH"`` uses ``MERGE (a)-[r:TYPE]-(b)`` when writing, which
-   is valid Cypher but not all graph databases support undirected ``MERGE``.
-   Check your database documentation before using this in production.  For
-   directed graphs (FalkorDB, Neo4j, ArcadeDB) the edge is still stored with
-   a physical direction, but the ``MATCH`` pattern ignores it.
+   ``direction="BOTH"`` uses ``MERGE (a)-[r:TYPE]-(b)`` when writing on
+   backends that support undirected ``MERGE`` (Neo4j, Memgraph, ArcadeDB,
+   Apache AGE).
+
+   **FalkorDB exception** — FalkorDB rejects undirected ``MERGE``.  The ORM
+   automatically falls back to ``MERGE (a)-[r:TYPE]->(b)`` (``OUTGOING``) on
+   FalkorDB, so the edge is stored with a physical direction.
+   ``MATCH (a)-[r:TYPE]-(b)`` still finds it from both ends during reads.
+   You do not need to change your model declaration; the fallback is
+   transparent.  The behaviour is controlled by
+   ``FalkorDBDialect.supports_undirected_merge = False``.
 
 ----
 
