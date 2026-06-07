@@ -1210,34 +1210,34 @@ class AsyncQueryBuilder(QueryBuilder[T]):
             )
     """
 
-    async def all(self) -> list[T]:  # type: ignore[override]
+    async def all(self) -> list[T]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.all`."""
         cypher, params = self.build()
         log.debug("AsyncQueryBuilder.all: %s", cypher)
         result = await self._session.execute(cypher, params)
         return self._decode_node_result(result)
 
-    async def one(self) -> T | None:  # type: ignore[override]
+    async def one(self) -> T | None:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.one`."""
         self.limit(1)
         items = await self.all()
         return items[0] if items else None
 
-    async def all_with_edges(self) -> list[tuple[Any, ...]]:  # type: ignore[override]
+    async def all_with_edges(self) -> list[tuple[Any, ...]]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.all_with_edges`."""
         cypher, params = self.build()
         log.debug("AsyncQueryBuilder.all_with_edges: %s", cypher)
         result = await self._session.execute(cypher, params)
         return self._decode_edge_result(result)
 
-    async def all_rows(self) -> list[dict[str, Any]]:  # type: ignore[override]
+    async def all_rows(self) -> list[dict[str, Any]]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.all_rows`."""
         cypher, params = self.build()
         log.debug("AsyncQueryBuilder.all_rows: %s", cypher)
         result = await self._session.execute(cypher, params)
         return self._decode_rows_as_dicts(result)
 
-    async def count(self) -> int:  # type: ignore[override]
+    async def count(self) -> int:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.count`."""
         saved_agg = self._agg_exprs
         saved_group = self._group_by_alias
@@ -1271,7 +1271,7 @@ class AsyncQueryBuilder(QueryBuilder[T]):
             return result.rows[0][0]
         return None
 
-    async def scalars(self) -> list[Any]:  # type: ignore[override]
+    async def scalars(self) -> list[Any]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         """Async version of :meth:`~QueryBuilder.scalars`."""
         result = await self._session.execute(*self.build())
         return [row[0] for row in result.rows]

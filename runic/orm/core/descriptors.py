@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 if TYPE_CHECKING:
     from runic.orm.core.types import TypeConverter
@@ -151,6 +151,12 @@ class FieldDescriptor:
     def name(self) -> str:
         """Public read-only accessor for the attribute name set by ``__set_name__``."""
         return self._name
+
+    @overload
+    def __get__(self, obj: None, objtype: type | None = ...) -> FieldDescriptor: ...
+
+    @overload
+    def __get__(self, obj: object, objtype: type | None = ...) -> Any: ...
 
     def __get__(self, obj: Any, objtype: type | None = None) -> Any:
         if obj is None:

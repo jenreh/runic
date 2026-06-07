@@ -71,69 +71,69 @@ class TestFieldDescriptorOperators:
 
     def test_ne_scalar(self) -> None:
         expr = ExprPerson.name != "Bob"
-        assert expr.op == "<>"
-        assert expr.value == "Bob"
+        assert expr.op == "<>"  # ty: ignore[unresolved-attribute]
+        assert expr.value == "Bob"  # ty: ignore[unresolved-attribute]
 
     def test_ne_none_produces_is_not_null(self) -> None:
         expr = ExprPerson.deleted_at != None  # noqa: E711
-        assert expr.op == "IS NOT NULL"
+        assert expr.op == "IS NOT NULL"  # ty: ignore[unresolved-attribute]
 
     def test_gt(self) -> None:
-        expr = ExprPerson.age > 18
+        expr = ExprPerson.age > 18  # ty: ignore[unsupported-operator]
         assert expr.op == ">"
         assert expr.value == 18
 
     def test_ge(self) -> None:
-        expr = ExprPerson.age >= 18
+        expr = ExprPerson.age >= 18  # ty: ignore[unsupported-operator]
         assert expr.op == ">="
 
     def test_lt(self) -> None:
-        expr = ExprPerson.age < 65
+        expr = ExprPerson.age < 65  # ty: ignore[unsupported-operator]
         assert expr.op == "<"
 
     def test_le(self) -> None:
-        expr = ExprPerson.age <= 65
+        expr = ExprPerson.age <= 65  # ty: ignore[unsupported-operator]
         assert expr.op == "<="
 
     def test_contains(self) -> None:
-        expr = ExprPerson.name.contains("ali")
+        expr = ExprPerson.name.contains("ali")  # ty: ignore[unresolved-attribute]
         assert expr.op == "CONTAINS"
         assert expr.value == "ali"
 
     def test_startswith(self) -> None:
         expr = ExprPerson.name.startswith("A")
-        assert expr.op == "STARTS WITH"
+        assert expr.op == "STARTS WITH"  # ty: ignore[unresolved-attribute]
 
     def test_endswith(self) -> None:
         expr = ExprPerson.name.endswith("e")
-        assert expr.op == "ENDS WITH"
+        assert expr.op == "ENDS WITH"  # ty: ignore[unresolved-attribute]
 
     def test_matches_regex(self) -> None:
-        expr = ExprPerson.name.matches(r".*lic.*")
+        expr = ExprPerson.name.matches(r".*lic.*")  # ty: ignore[unresolved-attribute]
         assert expr.op == "=~"
 
     def test_is_null(self) -> None:
-        expr = ExprPerson.deleted_at.is_null()
+        expr = ExprPerson.deleted_at.is_null()  # ty: ignore[unresolved-attribute]
         assert expr.op == "IS NULL"
         assert expr.value is None
 
     def test_is_not_null(self) -> None:
-        expr = ExprPerson.deleted_at.is_not_null()
+        expr = ExprPerson.deleted_at.is_not_null()  # ty: ignore[unresolved-attribute]
         assert expr.op == "IS NOT NULL"
 
     def test_in(self) -> None:
-        expr = ExprPerson.name.in_(["Alice", "Bob"])
+        expr = ExprPerson.name.in_(["Alice", "Bob"])  # ty: ignore[unresolved-attribute]
         assert expr.op == "IN"
         assert expr.value == ["Alice", "Bob"]
 
     def test_not_in(self) -> None:
-        expr = ExprPerson.name.not_in_(["spam"])
+        expr = ExprPerson.name.not_in_(["spam"])  # ty: ignore[unresolved-attribute]
         assert expr.op == "IN"
         assert expr.negate is True
 
     def test_descriptor_owner_is_correct(self) -> None:
-        assert ExprPerson.name._owner is ExprPerson
-        assert ExprPost.status._owner is ExprPost
+        assert ExprPerson.name._owner is ExprPerson  # ty: ignore[unresolved-attribute]
+        assert ExprPost.status._owner is ExprPost  # ty: ignore[unresolved-attribute]
 
     def test_descriptor_remains_hashable(self) -> None:
         s: set = {ExprPerson.name, ExprPerson.age}
@@ -147,7 +147,7 @@ class TestFieldDescriptorOperators:
 
 class TestBooleanComposition:
     def test_and_two_filters(self) -> None:
-        compound = (ExprPerson.age > 18) & (ExprPerson.active == True)  # noqa: E712
+        compound = (ExprPerson.age > 18) & (ExprPerson.active == True)  # noqa: E712  # ty: ignore[unsupported-operator]
         assert isinstance(compound, CompoundExpr)
         assert compound.op == "AND"
         assert len(compound.operands) == 2
@@ -158,7 +158,7 @@ class TestBooleanComposition:
         assert compound.op == "OR"
 
     def test_and_flattens_same_op(self) -> None:
-        a = ExprPerson.age > 18
+        a = ExprPerson.age > 18  # ty: ignore[unsupported-operator]
         b = ExprPerson.active == True  # noqa: E712
         c = ExprPerson.name == "Alice"
         compound = (a & b) & c
@@ -170,7 +170,7 @@ class TestBooleanComposition:
         b = ExprPerson.name == "Bob"
         c = ExprPerson.name == "Carol"
         compound = (a | b) | c
-        assert len(compound.operands) == 3
+        assert len(compound.operands) == 3  # ty: ignore[unresolved-attribute]
 
     def test_not_wraps_filter(self) -> None:
         negated = ~(ExprPerson.active == True)  # noqa: E712
@@ -179,9 +179,11 @@ class TestBooleanComposition:
 
     def test_with_alias_returns_copy(self) -> None:
         expr = ExprPerson.name == "Alice"
-        expr2 = expr.with_alias("u")
+        expr2 = expr.with_alias("u")  # ty: ignore[unresolved-attribute]
         assert expr2.alias == "u"
-        assert expr.alias is None  # original unchanged
+        assert (
+            expr.alias is None
+        )  # original unchanged  # ty: ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------

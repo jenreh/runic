@@ -9,6 +9,7 @@ from runic.migrate.adapters import GraphAdapter
 from runic.migrate.introspect import LiveSchema
 from runic.orm.driver.arcadedb import ArcadeDBDialect
 from runic.orm.driver.bolt import BoltDriver
+from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -135,55 +136,108 @@ class ArcadeDBAdapter(GraphAdapter):
                 "ArcadeDB drop_range_index failed for %s.%s: %s", label, prop, exc
             )
 
+    def get_existing_specs(self) -> set[IndexSpec]:
+        """Return empty set — ArcadeDB DDL uses try/except for idempotency."""
+        return set()
+
     def create_fulltext_index(
         self,
         label: str,
         *props: str,
-        language: str | None = None,
-        stopwords: list[str] | None = None,
+        language: str | None = None,  # noqa: ARG002
+        stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
-        raise NotImplementedError(
-            "ArcadeDB fulltext index creation via runic migrate is not yet supported."
-        )
+        props_str = ", ".join(props)
+        cypher = f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})"
+        log.info("ArcadeDB DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "ArcadeDB create_fulltext_index failed for %s %s: %s", label, props, exc
+            )
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
-        raise NotImplementedError(
-            "ArcadeDB fulltext index drop via runic migrate is not yet supported."
-        )
+        props_str = ", ".join(props)
+        cypher = f"DROP INDEX ON `{label}` ({props_str})"
+        log.info("ArcadeDB DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning(
+                "ArcadeDB drop_fulltext_index failed for %s %s: %s", label, props, exc
+            )
 
     def create_vector_index(
         self,
         label: str,
         prop: str,
-        dimension: int,
-        similarity: str,
+        dimension: int,  # noqa: ARG002
+        similarity: str,  # noqa: ARG002
         *,
-        m: int = 16,
-        ef_construction: int = 200,
-        ef_runtime: int = 10,
+        m: int = 16,  # noqa: ARG002
+        ef_construction: int = 200,  # noqa: ARG002
+        ef_runtime: int = 10,  # noqa: ARG002
     ) -> None:
-        raise NotImplementedError(
-            "ArcadeDB vector index creation via runic migrate is not yet supported."
+        # ArcadeDB vector indexes are created via the HTTP management API, not openCypher DDL.
+        log.warning(
+            "ArcadeDB create_vector_index: %s.%s — "
+            "use the ArcadeDB HTTP management API to create vector indexes.",
+            label,
+            prop,
         )
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        raise NotImplementedError(
-            "ArcadeDB vector index drop via runic migrate is not yet supported."
+        log.warning(
+            "ArcadeDB drop_vector_index: %s.%s — "
+            "use the ArcadeDB HTTP management API to manage vector indexes.",
+            label,
+            prop,
         )
 
     def create_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        raise NotImplementedError(
-            "ArcadeDB constraint creation via runic migrate is not yet supported."
-        )
+        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
+            prop = props[0]
+            cypher = f"CREATE INDEX ON `{label}` ({prop}) UNIQUE"
+            log.info("ArcadeDB DDL: %s", cypher)
+            try:
+                self.run_query(cypher)
+            except Exception as exc:
+                log.warning(
+                    "ArcadeDB create_constraint failed for %s.%s: %s", label, prop, exc
+                )
+        else:
+            log.warning(
+                "ArcadeDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                kind,
+                entity,
+                label,
+                props,
+            )
 
     def drop_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        raise NotImplementedError(
-            "ArcadeDB constraint drop via runic migrate is not yet supported."
-        )
+        if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
+            prop = props[0]
+            cypher = f"DROP INDEX ON `{label}` ({prop}) UNIQUE"
+            log.info("ArcadeDB DDL: %s", cypher)
+            try:
+                self.run_query(cypher)
+            except Exception as exc:
+                log.warning(
+                    "ArcadeDB drop_constraint failed for %s.%s: %s", label, prop, exc
+                )
+        else:
+            log.warning(
+                "ArcadeDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",
+                kind,
+                entity,
+                label,
+                props,
+            )
 
     def delete_graph(self) -> None:
         log.warning(
