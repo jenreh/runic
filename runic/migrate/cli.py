@@ -482,8 +482,13 @@ def show(
 
 
 def _entity_count(adapter: Any) -> int:
+    # Use labels() to filter version nodes — compatible with all backends including AGE
+    # which does not support label predicates in WHERE clauses (WHERE n:Label).
     result = adapter.run_query(
-        "MATCH (n) WHERE NOT n:_FalkorMigrateVersion RETURN count(n) AS c"
+        "MATCH (n)"
+        " WHERE NOT '_FalkorMigrateVersion' IN labels(n)"
+        " AND NOT '_RunicMigrateVersion' IN labels(n)"
+        " RETURN count(n) AS c"
     )
     return int(result.rows[0][0]) if result.rows else 0
 

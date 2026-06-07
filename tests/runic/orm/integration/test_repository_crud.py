@@ -174,6 +174,7 @@ def test_find_all_by_ids_returns_same_instance_as_get(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.requires_multi_label
 def test_find_all_polymorphic_base_returns_subtypes(graph_driver: Any) -> None:
     with Session(graph_driver) as s:
         s.add(CrudLocation(id="LOC1", title="Base Location"))
@@ -189,6 +190,7 @@ def test_find_all_polymorphic_base_returns_subtypes(graph_driver: Any) -> None:
     assert "CrudCountry" in classes
 
 
+@pytest.mark.requires_multi_label
 def test_find_all_subtype_returns_only_subtype(graph_driver: Any) -> None:
     with Session(graph_driver) as s:
         s.add(CrudLocation(id="LOC1", title="Base Location"))

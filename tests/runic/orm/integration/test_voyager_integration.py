@@ -109,6 +109,7 @@ def _uid() -> str:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.requires_multi_label
 class TestPolymorphism:
     """Multi-label polymorphic Location hierarchy."""
 
@@ -302,6 +303,7 @@ class TestSessionLifecycle:
             entity2 = s.get(VUser, user_id)
             assert entity2 is not entity
 
+    @pytest.mark.requires_multi_label
     def test_detached_entity_lazy_access_raises(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
         user_id = f"U_{_uid()}"
@@ -367,6 +369,7 @@ class TestIdentityMap:
 
 
 class TestRepositoryCrud:
+    @pytest.mark.requires_multi_label
     def test_count_returns_correct_number(self, graph_driver: Any) -> None:
         with Session(graph_driver) as s:
             for i in range(3):
@@ -377,6 +380,7 @@ class TestRepositoryCrud:
             repo = Repository(s, VCity)
             assert repo.count() >= 3
 
+    @pytest.mark.requires_multi_label
     def test_exists_true_and_false(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
         with Session(graph_driver) as s:
@@ -447,6 +451,7 @@ class TestRepositoryCrud:
 
 
 class TestRelationshipLoading:
+    @pytest.mark.requires_multi_label
     def test_user_home_lazy_load(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
         user_id = f"U_{_uid()}"
@@ -507,6 +512,7 @@ class TestRelationshipLoading:
             trips = user.invited_trips  # type: ignore[attr-defined]
             assert any(t.id == trip_id for t in trips)
 
+    @pytest.mark.requires_multi_label
     def test_eager_fetch_home(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
         user_id = f"U_{_uid()}"
@@ -554,6 +560,7 @@ class TestRelationshipLoading:
             assert isinstance(trips, list)
             assert any(t.id == trip_id for t in trips)
 
+    @pytest.mark.requires_multi_label
     def test_lazy_loaded_entity_has_session_for_traversal(
         self, graph_driver: Any
     ) -> None:
@@ -585,6 +592,7 @@ class TestRelationshipLoading:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.requires_multi_label
 class TestRelationshipMutations:
     def test_relate_creates_located_in(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
@@ -692,6 +700,7 @@ class TestRelationshipMutations:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.requires_multi_label
 class TestPagination:
     def test_paginated_returns_correct_count(self, graph_driver: Any) -> None:
         suffix = _uid()
@@ -737,6 +746,7 @@ class TestPagination:
 
 
 class TestCustomTypes:
+    @pytest.mark.requires_multi_label
     def test_geolocation_roundtrip_on_restaurant(self, graph_driver: Any) -> None:
         rest_id = f"R_{_uid()}"
         munich = GeoLocation(latitude=48.137, longitude=11.576)
@@ -813,6 +823,7 @@ class TestCustomTypes:
 
 
 class TestSearch:
+    @pytest.mark.requires_multi_label
     def test_cypher_property_filter(self, graph_driver: Any) -> None:
         suffix = _uid()
         with Session(graph_driver) as s:
@@ -871,6 +882,7 @@ class TestSearch:
 
 
 class TestDataOperations:
+    @pytest.mark.requires_multi_label
     def test_create_via_raw_cypher_readable_via_orm(self, graph_driver: Any) -> None:
         city_id = f"RAW_C_{_uid()}"
         graph_driver.execute(
@@ -883,6 +895,7 @@ class TestDataOperations:
             assert city is not None
             assert city.title == "Raw City"  # type: ignore[attr-defined]
 
+    @pytest.mark.requires_multi_label
     def test_update_via_raw_cypher_then_refresh(self, graph_driver: Any) -> None:
         city_id = f"UPD_C_{_uid()}"
         with Session(graph_driver) as s:

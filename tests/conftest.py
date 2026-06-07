@@ -13,12 +13,12 @@ load_dotenv(Path(__file__).parent.parent / ".env.test", override=False)
 
 # Expose falkordblite-backed fixtures for all tests that need a live graph.
 # Kept for backward-compatibility during transition; new tests use graph_driver.
-from runic.migrate.testing import (  # noqa: F401
+from runic.migrate.testing import (  # noqa: E402, F401
     falkordb_graph,
     falkordb_server,
     runic_context,
 )
-from tests._backends import (
+from tests._backends import (  # noqa: E402
     _set_shared_falkordb_server,
     enabled_backends,
     make_driver,
@@ -47,10 +47,17 @@ def graph_driver(request: pytest.FixtureRequest) -> Iterator[Any]:
 
     Controlled by the ``RUNIC_TEST_BACKENDS`` env var (default: ``falkordb``).
     Backends that are unreachable are skipped automatically.
+    Tests marked ``requires_multi_label`` are skipped for backends that only
+    support single-label nodes (e.g. Apache AGE).
     """
     backend: str = request.param
     graph_name = random_graph_name(prefix=f"test_{backend}")
     driver, cleanup = make_driver(backend, graph_name)
+    if request.node.get_closest_marker("requires_multi_label") and not getattr(
+        driver, "supports_multi_label", True
+    ):
+        cleanup()
+        pytest.skip(f"Backend {backend!r} does not support multi-label nodes")
     yield driver
     cleanup()
 

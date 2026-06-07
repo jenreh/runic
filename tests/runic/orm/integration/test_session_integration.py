@@ -203,6 +203,7 @@ def test_multiple_entities_flushed(graph_driver: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.requires_multi_label
 def test_polymorphic_node_create_and_get(graph_driver: Any) -> None:
     with Session(graph_driver) as s:
         country = Country(id="FR", title="France", iso_code="FR")

@@ -66,9 +66,23 @@ def _parse_agtype(text: str) -> Any:
     """Parse an AGE agtype string representation into a Python value.
 
     Vertices arrive as ``{...}::vertex``, edges as ``{...}::edge``;
-    plain scalars/arrays/maps are valid JSON.
+    arrays as ``[elem1, elem2, ...]`` (elements may carry their own ``::type``);
+    plain scalars/maps are valid JSON.
     """
     text = text.strip()
+
+    # AGE arrays: [elem1::vertex, elem2::vertex, ...]
+    if text.startswith("["):
+        inner = text[1:-1] if text.endswith("]") else text[1:]
+        inner = inner.strip()
+        if not inner:
+            return []
+        return [
+            _parse_agtype(e.strip())
+            for e in _split_agtype_array_elements(inner)
+            if e.strip()
+        ]
+
     if "::" in text:
         json_part, _, type_tag = text.rpartition("::")
         json_part = json_part.strip()
@@ -198,6 +212,52 @@ def _split_at_top_level_commas(expr: str) -> list[str]:
     return parts
 
 
+def _split_agtype_array_elements(text: str) -> list[str]:
+    """Split agtype array content by top-level commas.
+
+    Unlike :func:`_split_at_top_level_commas`, this function tracks all bracket
+    types (``{}``, ``[]``, ``()``) and quoted strings so it correctly splits
+    agtype arrays of vertices/edges that contain nested JSON objects.
+    """
+    parts: list[str] = []
+    depth = 0
+    in_string = False
+    escape_next = False
+    current: list[str] = []
+
+    for ch in text:
+        if escape_next:
+            current.append(ch)
+            escape_next = False
+        elif in_string:
+            if ch == "\\":
+                current.append(ch)
+                escape_next = True
+            elif ch == '"':
+                current.append(ch)
+                in_string = False
+            else:
+                current.append(ch)
+        elif ch == '"':
+            current.append(ch)
+            in_string = True
+        elif ch in "{[(":
+            depth += 1
+            current.append(ch)
+        elif ch in "}])":
+            depth -= 1
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
 def _parse_return_columns(cypher: str) -> list[str]:
     """Extract SQL column names from the Cypher RETURN clause.
 
@@ -221,6 +281,11 @@ def _parse_return_columns(cypher: str) -> list[str]:
 
     if not return_expr:
         return ["result"]
+
+    # Strip trailing ORDER BY / SKIP / LIMIT / UNION clauses before parsing columns.
+    return_expr = re.split(
+        r"\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNION\b", return_expr, flags=re.IGNORECASE
+    )[0].rstrip()
 
     # Strip DISTINCT keyword
     return_expr = re.sub(r"^DISTINCT\s+", "", return_expr, flags=re.IGNORECASE)
