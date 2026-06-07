@@ -5,22 +5,62 @@ Requirements
 ------------
 
 * Python 3.14 or newer
-* A running `FalkorDB <https://falkordb.com>`_ instance **or**
-  `falkordblite <https://pypi.org/project/falkordblite/>`_ for embedded
-  testing without an external server
+* A running graph database instance (see backend sections below)
+
+The core ``runic-py`` package has no graph-driver dependency. Install only
+the optional extra for the backend you use.
 
 Install from PyPI
 -----------------
 
 .. code-block:: bash
 
-   pip install runic-py
+   # FalkorDB
+   uv add "runic-py[falkordb]"
 
-With **uv** (recommended):
+   # Neo4j
+   uv add "runic-py[neo4j]"
 
-.. code-block:: bash
+   # Memgraph  (uses the Neo4j Bolt driver)
+   uv add "runic-py[memgraph]"
 
-   uv add runic-py
+   # ArcadeDB  (uses the Neo4j Bolt driver)
+   uv add "runic-py[arcadedb]"
+
+   # Apache AGE  (PostgreSQL extension, requires psycopg)
+   uv add "runic-py[age]"
+
+   # All backends at once
+   uv add "runic-py[all]"
+
+Available extras
+~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 20 60
+
+   * - Extra
+     - Package installed
+     - Backend
+   * - ``falkordb``
+     - ``falkordb``
+     - FalkorDB
+   * - ``neo4j``
+     - ``neo4j``
+     - Neo4j
+   * - ``memgraph``
+     - ``neo4j`` (Bolt)
+     - Memgraph
+   * - ``arcadedb``
+     - ``neo4j`` (Bolt)
+     - ArcadeDB
+   * - ``age``
+     - ``psycopg[binary]``
+     - Apache AGE (PostgreSQL)
+   * - ``all``
+     - all of the above
+     - every supported backend
 
 Verify the installation:
 
@@ -33,11 +73,7 @@ You should see the runic help text listing all available commands.
 FalkorDB
 --------
 
-runic talks to FalkorDB via the official `falkordb <https://pypi.org/project/falkordb/>`_
-Python client, which is declared as a direct dependency and installed
-automatically.
-
-For a quick local FalkorDB instance with Docker:
+Start a local FalkorDB instance with Docker:
 
 .. code-block:: bash
 
@@ -51,6 +87,45 @@ For integration testing without an external server, install
    uv add --dev falkordblite
 
 See :doc:`migration/testing` for how to use the embedded server in your test suite.
+
+Neo4j
+-----
+
+Start a local Neo4j instance with Docker:
+
+.. code-block:: bash
+
+   docker run -p 7474:7474 -p 7687:7687 neo4j:latest
+
+Memgraph
+--------
+
+Memgraph speaks the Bolt protocol, so the ``memgraph`` extra installs the
+Neo4j driver:
+
+.. code-block:: bash
+
+   docker run -p 7687:7687 memgraph/memgraph
+
+ArcadeDB
+--------
+
+ArcadeDB also exposes a Bolt endpoint. The ``arcadedb`` extra installs the
+Neo4j driver:
+
+.. code-block:: bash
+
+   docker run -p 2480:2480 -p 2424:2424 -p 7687:7687 arcadedata/arcadedb
+
+Apache AGE
+----------
+
+Apache AGE is a PostgreSQL extension. The ``age`` extra installs
+``psycopg[binary]``:
+
+.. code-block:: bash
+
+   docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres apache/age
 
 Development install
 -------------------

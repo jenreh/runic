@@ -3,7 +3,7 @@
 Welcome to **Runic**
 ====================
 
-Graph ORM and Schema Migrations for FalkorDB
+Graph ORM and Schema Migrations for FalkorDB, Apache AGE, and more
 
 |PyPI| |Python| |License|
 
@@ -27,20 +27,22 @@ Documentation for version: 0.2.2.
 **runic** ships two tools:
 
 * **runic.orm** — a lightweight, graph-optimized ORM that maps Python classes
-  to FalkorDB nodes and edges.
+  to graph nodes and edges.  Supports FalkorDB, ArcadeDB, Neo4j,
+  Memgraph, Apache AGE (PostgreSQL), and any Bolt-compatible database
+  via a pluggable driver layer.
 * **runic.migrate** — an Alembic-style migration engine that tracks index and
   constraint changes as versioned, replayable scripts.
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Repository, Session
+   from runic.orm import Field, Node, Repository, Session, create_driver
 
    class Person(Node, labels=["Person"]):
        id: str = Field()
        name: str = Field()
        email: str = Field(index=True, unique=True)
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        session.add(Person(id="alice", name="Alice", email="alice@example.com"))
        session.commit()
 
@@ -88,11 +90,11 @@ Documentation for version: 0.2.2.
 
       Fluent filter, traversal, aggregation, fulltext and vector KNN API.
 
-   .. grid-item-card:: Schema management
-      :link: schema
+   .. grid-item-card:: Supported drivers
+      :link: drivers
       :link-type: doc
 
-      IndexManager and SchemaManager — sync indexes to FalkorDB.
+      FalkorDB, ArcadeDB, and generic Bolt — feature matrix and limitations.
 
 .. grid:: 2
 
@@ -129,6 +131,14 @@ Documentation for version: 0.2.2.
 
       Full list of ``op.*`` calls available inside migration scripts.
 
+   .. grid-item-card:: Schema management
+      :link: migration/schema
+      :link-type: doc
+
+      IndexManager and SchemaManager — declare, validate, and sync indexes.
+
+.. grid:: 2
+
    .. grid-item-card:: Migration API reference
       :link: migration/api
       :link-type: doc
@@ -144,9 +154,9 @@ Documentation for version: 0.2.2.
    quickstart
    concepts
    relationships
-   session
    query_builder
-   schema
+   session
+   drivers
    api
 
 .. toctree::

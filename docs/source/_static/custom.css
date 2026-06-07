@@ -244,6 +244,8 @@ td code {
     border-radius: var(--runic-radius-sm);
     background: var(--color-background-secondary);
     border: 1px solid var(--color-background-border);
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0;
 }
 
 /* Code blocks */
@@ -265,6 +267,22 @@ pre {
     padding: 1em 1.2em !important;
     margin: 0 !important;
     overflow-x: auto;
+    letter-spacing: 0.01em;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* Fix italic character overlap (comments, etc.) in code blocks */
+pre em,
+pre i,
+.highlight em,
+.highlight span.c,
+.highlight span.c1,
+.highlight span.cm,
+.highlight span.cs,
+.highlight span.cp,
+.highlight span.ch {
+    letter-spacing: 0.03em;
 }
 
 /* Code block filename / title bar */

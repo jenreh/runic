@@ -1,11 +1,11 @@
-"""Session: unit-of-work manager for FalkorDB graph writes."""
+"""Session: unit-of-work manager for graph writes."""
 
 from __future__ import annotations
 
 import logging
 import weakref
 from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
@@ -14,7 +14,13 @@ from runic.orm.mapper.mapper import Mapper
 from runic.orm.mapper.relationship_loader import RelationshipLoader
 from runic.orm.mapper.relationship_writer import RelationshipWriter
 
+if TYPE_CHECKING:
+    from runic.orm.driver import GraphDriver, GraphResult
+    from runic.orm.query.builder import QueryBuilder
+
 log = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class Session:
@@ -24,23 +30,40 @@ class Session:
     identity map, and flush/commit lifecycle.  Repositories hold a session
     reference and delegate writes and PK lookups to it.
 
-    FalkorDB transaction model: single ``GRAPH.QUERY`` is fully atomic.
-    Multi-query uses sequential individual queries (no native pipeline in
-    the Python client).  ``rollback()`` discards un-flushed pending/deleted
-    sets only; cannot undo writes already sent to the graph.
+    **Transaction model** — determined by the injected driver:
+
+    - **FalkorDB** (no native multi-query transactions): each ``GRAPH.QUERY``
+      is individually atomic.  ``commit()`` flushes pending writes;
+      ``rollback()`` discards un-flushed state only — it cannot undo writes
+      already sent to the graph.
+    - **Bolt-based drivers** (Neo4j, Memgraph, ArcadeDB): full ACID
+      transactions via the Bolt protocol.  The first query lazily opens a Bolt
+      transaction; ``commit()`` / ``rollback()`` commit or discard all changes
+      as a single atomic unit.
+    - **Apache AGE** (psycopg3): full PostgreSQL ACID transactions.  psycopg3
+      starts an implicit ``BEGIN`` on the first SQL statement; ``commit()`` /
+      ``rollback()`` map to ``conn.commit()`` / ``conn.rollback()``.
+
+    Drivers that support explicit transactions implement the
+    :class:`~runic.orm.driver.TransactionalGraphDriver` protocol.  The Session
+    detects this via ``isinstance`` and wires commit/rollback accordingly.
     """
 
     def __init__(
         self,
-        graph: Any,
+        driver: GraphDriver,
         mapper: Mapper | None = None,
         *,
         log_cypher: bool = False,
     ) -> None:
-        self._graph = graph
+        from runic.orm.driver import TransactionalGraphDriver
+
+        self._driver = driver
         self._log_cypher = log_cypher
         self._mapper: Mapper = (
-            mapper if mapper is not None else Mapper(_global_metadata)
+            mapper
+            if mapper is not None
+            else Mapper(_global_metadata, dialect=driver.dialect)
         )
         self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
         self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
@@ -50,15 +73,21 @@ class Session:
         self._pending: list[Any] = []
         # Entities staged for DETACH DELETE
         self._deleted: list[Any] = []
+        # True when a driver-level transaction is open (lazy-begin on first query)
+        self._in_transaction: bool = False
+        self._is_transactional: bool = isinstance(driver, TransactionalGraphDriver)
 
     # ------------------------------------------------------------------
     # Internal query runner
     # ------------------------------------------------------------------
 
-    def _run_query(self, cypher: str, params: dict[str, Any]) -> Any:
+    def _run_query(self, cypher: str, params: dict[str, Any]) -> GraphResult:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
-        return self._graph.query(cypher, params)
+        if self._is_transactional and not self._in_transaction:
+            self._driver.begin()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = True
+        return self._driver.execute(cypher, params)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -150,11 +179,11 @@ class Session:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        falkor_node = result.result_set[0][0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        raw_node = result.rows[0][0]
+        entity = self._mapper.decode_node(raw_node, cls)
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
         log.debug("Loaded %s pk=%r from graph", cls.__name__, actual_pk)
@@ -199,22 +228,36 @@ class Session:
         self._flush_deleted()
 
     def commit(self) -> None:
-        """``flush()`` then clear the pending/deleted tracking sets."""
+        """``flush()`` then clear the pending/deleted tracking sets.
+
+        For transactional drivers (Bolt, AGE), also commits the active
+        database transaction so all flushed writes become durable and visible.
+        """
         self.flush()
         self._pending.clear()
         self._deleted.clear()
+        if self._in_transaction:
+            self._driver.commit()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = False
         log.debug("Session committed")
 
     def rollback(self) -> None:
         """Discard un-flushed pending/deleted sets; expire all persistent entities.
 
-        Cannot undo writes already sent to the graph.
+        For transactional drivers (Bolt, AGE), also rolls back the active
+        database transaction — writes already flushed but not yet committed
+        are discarded atomically.  For FalkorDB (no native transactions),
+        only un-flushed in-memory state is cleared; writes already sent to
+        the graph cannot be undone.
         """
         self._pending.clear()
         self._deleted.clear()
         for entity in self._identity_map.values():
             entity.__dict__["_expired"] = True
             entity.__dict__["_dirty"] = False
+        if self._in_transaction:
+            self._driver.rollback()  # ty: ignore[unresolved-attribute]
+            self._in_transaction = False
         log.debug(
             "Session rolled back (pending/deleted cleared; persistent entities expired)"
         )
@@ -322,6 +365,109 @@ class Session:
         return self._run_query(cypher, params or {})
 
     # ------------------------------------------------------------------
+    # Statement-based execution (select() pattern)
+    # ------------------------------------------------------------------
+
+    def scalars(self, stmt: QueryBuilder[_T]) -> list[_T]:
+        """Execute a :func:`~runic.orm.query.select` statement; return decoded entities.
+
+        Type-safe: ``session.scalars(select(User).where(...))`` infers ``list[User]``.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
+            via :func:`~runic.orm.query.select`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalars() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_node_result(result)  # type: ignore[return-value]  # noqa: SLF001
+
+    def scalar(self, stmt: QueryBuilder[_T]) -> _T | None:
+        """Execute a :func:`~runic.orm.query.select` statement; return first entity or ``None``.
+
+        Adds ``LIMIT 1`` internally without permanently modifying the statement.
+        Type-safe: ``session.scalar(select(User).where(...))`` infers ``User | None``.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
+            via :func:`~runic.orm.query.select`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalar() expects a QueryBuilder created by select()")
+        old_limit = stmt._limit_val  # noqa: SLF001
+        stmt._limit_val = 1  # noqa: SLF001
+        try:
+            with stmt._bound_to(self) as bound:  # noqa: SLF001
+                cypher, params = bound.build()
+                result = self._run_query(cypher, params)
+                entities = bound._decode_node_result(result)  # noqa: SLF001
+                return entities[0] if entities else None  # type: ignore[return-value]
+        finally:
+            stmt._limit_val = old_limit  # noqa: SLF001
+
+    def all_rows(self, stmt: QueryBuilder[Any]) -> list[dict[str, Any]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return column-keyed dicts.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("all_rows() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_rows_as_dicts(result)  # noqa: SLF001
+
+    def all_with_edges(self, stmt: QueryBuilder[Any]) -> list[tuple[Any, ...]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return ``(NodeA, Edge, NodeB)`` tuples.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` with
+            ``return_nodes()`` and ``return_edge()`` configured.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError(
+                "all_with_edges() expects a QueryBuilder created by select()"
+            )
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_edge_result(result)  # noqa: SLF001
+
+    def count(self, stmt: QueryBuilder[Any]) -> int:
+        """Execute a :func:`~runic.orm.query.select` statement; return the row count.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("count() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            return bound.count()
+
+    # ------------------------------------------------------------------
     # Query builder entry points
     # ------------------------------------------------------------------
 
@@ -385,7 +531,7 @@ class Session:
                 .all()
             )
         """
-        from runic.orm.query.builder import FulltextQueryBuilder
+        from runic.orm.query.specialised import FulltextQueryBuilder
 
         return FulltextQueryBuilder(self, cls, query=query, fields=fields)
 
@@ -425,7 +571,7 @@ class Session:
                 .all()
             )
         """
-        from runic.orm.query.builder import VectorQueryBuilder
+        from runic.orm.query.specialised import VectorQueryBuilder
 
         return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 
@@ -434,7 +580,21 @@ class Session:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """``expunge_all()`` and release the graph connection."""
+        """Expunge all tracked entities; roll back any orphaned transaction.
+
+        If ``close()`` is called without a prior ``commit()`` or
+        ``rollback()`` (e.g. the session was not used as a context manager),
+        any active driver-level transaction is rolled back to release the
+        connection cleanly.
+        """
+        if self._in_transaction:
+            try:
+                self._driver.rollback()  # ty: ignore[unresolved-attribute]
+            except Exception:
+                log.warning(
+                    "Session.close(): driver rollback failed; connection may leak"
+                )
+            self._in_transaction = False
         self.expunge_all()
 
     def __enter__(self) -> Session:
@@ -463,12 +623,12 @@ class Session:
         )
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             return None
 
-        row = result.result_set[0]
-        falkor_node = row[0]
-        entity = self._mapper.decode_node(falkor_node, cls)
+        row = result.rows[0]
+        raw_node = row[0]
+        entity = self._mapper.decode_node(raw_node, cls)
         related = self._rel_loader.decode_eager_columns(row, entity, fetch_meta)
 
         actual_pk = self._mapper.get_pk_value(entity)
@@ -498,9 +658,9 @@ class Session:
             cypher, params = self._mapper.build_create_query(entity)
             result = self._run_query(cypher, params)
 
-            falkor_node = result.result_set[0][0] if result.result_set else None
-            if falkor_node is not None:
-                self._mapper.update_entity_from_node(entity, falkor_node)
+            raw_node = result.rows[0][0] if result.rows else None
+            if raw_node is not None:
+                self._mapper.update_entity_from_node(entity, raw_node)
 
             entity.__dict__["_new"] = False
             entity.__dict__["_dirty"] = False
@@ -526,8 +686,8 @@ class Session:
                 continue
 
             result = self._run_query(cypher, params)
-            if result.result_set:
-                self._mapper.update_entity_from_node(entity, result.result_set[0][0])
+            if result.rows:
+                self._mapper.update_entity_from_node(entity, result.rows[0][0])
             else:
                 entity.__dict__["_dirty"] = False
 
@@ -573,10 +733,9 @@ class Session:
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = self._run_query(cypher, params)
 
-        if not result.result_set:
+        if not result.rows:
             raise EntityNotFoundError(
                 f"{cls.__name__} pk={pk!r} no longer exists in the graph"
             )
 
-        falkor_node = result.result_set[0][0]
-        self._mapper.update_entity_from_node(entity, falkor_node)
+        self._mapper.update_entity_from_node(entity, result.rows[0][0])

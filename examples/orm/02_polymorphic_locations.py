@@ -7,20 +7,29 @@ Demonstrates:
   - Inherited fields (latitude/longitude on all Location subtypes)
   - QueryBuilder: .where() on subtype fields, .project(), .scalars(), compound predicates
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/02_polymorphic_locations.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/02_polymorphic_locations.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/02_polymorphic_locations.py
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Node, Repository, Session  # noqa: E402
+from runic.orm import Node, Repository, Session, select  # noqa: E402
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Model hierarchy
@@ -61,17 +70,33 @@ class Museum(Location, labels=["Location", "Museum"], primary_label="Location"):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_locations",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_locations")
+        return FalkorDBDriver(db.select_graph("example_locations"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -80,10 +105,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed mixed location types ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         entities: list[Location] = [
             Country(
                 id="FR",
@@ -140,31 +165,31 @@ def run() -> None:
         log.info("Created %d location entities", len(entities))
 
     # --- Query all via parent class ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = Repository(session, Location)
-        all_locs = repo.find_all()
+        all_locs: list[Location] = repo.find_all()
         log.info("All locations (%d):", len(all_locs))
         for loc in all_locs:
             log.info("  [%s] %s — %s", type(loc).__name__, loc.id, loc.title)
 
     # --- Query only countries ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = Repository(session, Country)
-        countries = repo.find_all()
+        countries: list[Country] = repo.find_all()
         log.info("Countries (%d):", len(countries))
         for c in countries:
             log.info("  %s: pop=%s, capital=%s", c.iso_code, c.population, c.capital)
 
     # --- Update an inherited field on a subtype ---
-    with Session(graph) as session:
-        france = session.get(Country, "FR")
+    with Session(driver) as session:
+        france: Country | None = session.get(Country, "FR")
         assert france is not None
         france.population = 68_000_000  # type: ignore[attr-defined]
         session.commit()
         log.info("Updated France population to %d", france.population)  # type: ignore[attr-defined]
 
     # --- Polymorphic type resolution ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = Repository(session, Location)
         all_locs = repo.find_all()
         type_counts: dict[str, int] = {}
@@ -177,61 +202,53 @@ def run() -> None:
         assert type_counts.get("Restaurant", 0) == 1
         assert type_counts.get("Museum", 0) == 1
 
-    # --- Custom Cypher on parent-class repository ---
-    with Session(graph) as session:
-        repo_loc: Repository[Location] = Repository(session, Location)
-        restaurants = repo_loc.cypher(
-            "MATCH (n:Location:Restaurant) RETURN n",
-            {},
-            returns=Restaurant,
-        )
-        log.info("Restaurants via Cypher: %d", len(restaurants))
+    # --- QueryBuilder: query Restaurant subtype ---
+    with Session(driver) as session:
+        restaurants: list[Restaurant] = session.scalars(select(Restaurant))
+        log.info("Restaurants via QueryBuilder: %d", len(restaurants))
 
     # --- Query builder: filter Country by population threshold ---
-    with Session(graph) as session:
-        large = (
-            session.query(Country)
+    with Session(driver) as session:
+        large: list[Country] = session.scalars(
+            select(Country)
             .where(Country.population > 70_000_000)
             .order_by(Country.population, desc=True)
-            .all()
         )
         log.info("Countries population > 70M: %s", [c.iso_code for c in large])
 
     # --- Query builder: compound AND predicate ---
-    with Session(graph) as session:
-        paris_area = (
-            session.query(City)
-            .where(
+    with Session(driver) as session:
+        paris_area: list[City] = session.scalars(
+            select(City).where(
                 (City.latitude > 48.0)  # type: ignore[operator]
                 & (City.longitude > 2.0)  # type: ignore[operator]
             )
-            .all()
         )
         log.info("Cities in Paris quadrant: %s", [c.title for c in paris_area])
 
     # --- Query builder: project() → scalar list ---
-    with Session(graph) as session:
-        titles = (
-            session.query(Location)
-            .order_by(Location.title)
-            .project(Location.title)
-            .scalars()
+    with Session(driver) as session:
+        rows = session.all_rows(
+            select(Location).order_by(Location.title).project(Location.title)
         )
+        titles: list[str] = [r["n.title"] for r in rows]
         log.info("All location titles (projected): %s", titles)
 
     # --- Query builder: null check (locations without coordinates) ---
-    with Session(graph) as session:
-        no_coords = (
-            session.query(Location)
-            .where(Location.latitude.is_null())  # type: ignore[attr-defined]
-            .count()
+    with Session(driver) as session:
+        no_coords: int = session.count(
+            select(Location).where(Location.latitude.is_null())  # type: ignore[attr-defined]
         )
         log.info("Locations without latitude: %d", no_coords)
 
     # --- Query builder: one() on specific subtype ---
-    with Session(graph) as session:
-        louvre = session.query(Museum).where(Museum.id == "LOUVRE").one()
+    with Session(driver) as session:
+        louvre: Museum | None = session.scalar(
+            select(Museum).where(Museum.id == "LOUVRE")
+        )
         log.info("Museum one(): %s", louvre and louvre.title)
+
+    driver.close()
 
 
 if __name__ == "__main__":

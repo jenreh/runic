@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
-import secrets
 from typing import Any
 
 import pytest
@@ -12,13 +10,6 @@ from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
-
-try:
-    from redislite import FalkorDB as _FalkorDB
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
 
 pytestmark = pytest.mark.integration
 
@@ -39,22 +30,11 @@ class CypherPerson(Node, labels=["CypherPerson"]):
 
 
 @pytest.fixture
-def graph() -> Any:
-    if not _HAS_FALKORDBLITE:
-        pytest.skip("falkordblite (redislite) not installed")
-    db = _FalkorDB(protocol=2)
-    g = db.select_graph(f"test_cypher_{secrets.token_hex(6)}")
-    yield g
-    with contextlib.suppress(Exception):
-        g.delete()
-
-
-@pytest.fixture
-def populated_graph(graph: Any) -> Any:
-    with Session(graph) as s:
+def populated_graph(graph_driver: Any) -> Any:
+    with Session(graph_driver) as s:
         for i in range(1, 6):
             s.add(CypherPerson(id=f"cp{i}", name=f"Cypher Person {i}", age=20 + i))
-    return graph
+    return graph_driver
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +56,8 @@ def test_cypher_one_count(populated_graph: Any) -> None:
     assert total == 5
 
 
-def test_cypher_one_returns_none_when_no_match(graph: Any) -> None:
-    with Session(graph) as s:
+def test_cypher_one_returns_none_when_no_match(graph_driver: Any) -> None:
+    with Session(graph_driver) as s:
         repo = Repository(s, CypherPerson)
         result = repo.cypher_one(
             "MATCH (n:CypherPerson {id: $id}) RETURN n",
@@ -182,8 +162,8 @@ def test_cypher_raw_returns_query_result(populated_graph: Any) -> None:
         repo = Repository(s, CypherPerson)
         raw = repo.cypher_raw("MATCH (n:CypherPerson) RETURN n.id, n.name")
 
-    assert hasattr(raw, "result_set")
-    assert len(raw.result_set) == 5
+    assert hasattr(raw, "rows")
+    assert len(raw.rows) == 5
 
 
 def test_cypher_raw_result_not_decoded(populated_graph: Any) -> None:
@@ -191,5 +171,5 @@ def test_cypher_raw_result_not_decoded(populated_graph: Any) -> None:
         repo = Repository(s, CypherPerson)
         raw = repo.cypher_raw("MATCH (n:CypherPerson) RETURN n.id ORDER BY n.id")
 
-    ids = [row[0] for row in raw.result_set]
+    ids = [row[0] for row in raw.rows]
     assert ids == ["cp1", "cp2", "cp3", "cp4", "cp5"]

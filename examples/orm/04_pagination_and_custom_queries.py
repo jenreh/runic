@@ -1,14 +1,20 @@
 """Example 4 — Pagination and custom Cypher queries.
 
 Demonstrates:
-  - Pageable / Page[T] — offset-based pagination with sort
-  - find_all_paginated() → page traversal
+  - find_all(skip=..., limit=...) — offset-based pagination
   - cypher() / cypher_one() / cypher_raw() helpers in a custom Repository
   - Raw session.execute() for write queries that don't map to a single entity
   - QueryBuilder: .skip()/.limit() pagination, .where() with OR, aggregations via .all_rows()
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/04_pagination_and_custom_queries.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/04_pagination_and_custom_queries.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/04_pagination_and_custom_queries.py
 """
 
 from __future__ import annotations
@@ -20,7 +26,19 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, Node, Pageable, Repository, Session  # noqa: E402
+from runic.orm import (  # noqa: E402
+    Field,
+    Node,
+    Repository,
+    Session,
+    avg,
+    count,
+    select,
+    sum_,
+)
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models
@@ -76,17 +94,33 @@ class ArticleRepository(Repository[Article]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_pagination",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_pagination")
+        return FalkorDBDriver(db.select_graph("example_pagination"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -95,11 +129,11 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed 30 articles ---
-    with Session(graph) as session:
-        articles = [
+    with Session(driver) as session:
+        articles: list[Article] = [
             Article(
                 id=f"alice-{i:03d}",
                 title=f"Alice's Post #{i:03d}",
@@ -122,85 +156,75 @@ def run() -> None:
         session.commit()
         log.info("Created %d articles", len(articles))
 
-    # --- Pagination: walk all pages ---
-    with Session(graph) as session:
+    # --- Pagination: walk all items using skip/limit ---
+    page_size = 10
+    with Session(driver) as session:
         repo = ArticleRepository(session, Article)
-        pageable = Pageable(page=0, size=10, sort_by="id", direction="ASC")
-        page = repo.find_all_paginated(pageable)
-        log.info(
-            "Page 0: %d items | total=%d pages=%d",
-            len(list(page)),
-            page.total_elements,
-            page.total_pages,
-        )
-        log.info("has_next=%s has_prev=%s", page.has_next(), page.has_previous())
+        items = repo.find_all(limit=page_size)
+        log.info("First page: %d items", len(items))
 
-        # Walk all pages
-        pageable = Pageable(page=0, size=10, sort_by="id")
-        page = repo.find_all_paginated(pageable)
+        # Walk all pages by incrementing skip until fewer items than page_size
+        skip = 0
         total_seen = 0
         while True:
-            items = list(page)
-            total_seen += len(items)
-            if not page.has_next():
+            batch = repo.find_all(skip=skip, limit=page_size)
+            total_seen += len(batch)
+            if len(batch) < page_size:
                 break
-            pageable = pageable.next()
-            page = repo.find_all_paginated(pageable)
+            skip += page_size
         log.info("Walked all pages — total items seen: %d", total_seen)
 
     # --- Custom Cypher helpers ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = ArticleRepository(session, Article)
 
-        alice_articles = repo.find_by_author("alice")
+        alice_articles: list[Article] = repo.find_by_author("alice")
         log.info("Alice's articles: %d", len(alice_articles))
 
-        published_count = repo.count_by_status("published")
+        published_count: int = repo.count_by_status("published")
         log.info("Published count: %d", published_count)
 
-        top5 = repo.top_by_views(5)
+        top5: list[Article] = repo.top_by_views(5)
         log.info("Top 5 by views:")
         for a in top5:
             log.info("  %s (%d views)", a.title, a.views or 0)
 
     # --- Bulk write via custom Cypher ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         repo = ArticleRepository(session, Article)
         repo.bulk_archive("bob")
         archived = repo.count_by_status("archived")
         log.info("Archived Bob's articles: %d", archived)
 
-    # --- cypher_raw: full QueryResult access ---
-    with Session(graph) as session:
+    # --- cypher_raw: GraphResult access via protocol-standard .columns / .rows ---
+    with Session(driver) as session:
         repo = ArticleRepository(session, Article)
         raw = repo.cypher_raw(
             "MATCH (a:Article) RETURN a.author AS author, count(a) AS total",
             {},
         )
-        header = [col[1] for col in raw.header]
+        header = raw.columns
         log.info("Raw result columns: %s", header)
-        for row in raw.result_set:
+        for row in raw.rows:
             row_dict = dict(zip(header, row, strict=False))
             log.info("  %s", row_dict)
 
     # --- Query builder: manual skip/limit pagination ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         page_size = 10
-        page_0 = (
-            session.query(Article)
+        page_0: list[Article] = session.scalars(
+            select(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
             .skip(0)
             .limit(page_size)
-            .all()
         )
-        page_1 = (
-            session.query(Article)
+        page_1: list[Article] = session.scalars(
+            select(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
             .skip(page_size)
             .limit(page_size)
-            .all()
         )
         log.info(
             "QueryBuilder page 0: %d items, page 1: %d items",
@@ -209,13 +233,12 @@ def run() -> None:
         )
 
     # --- Query builder: OR predicate — articles by alice or bob ---
-    with Session(graph) as session:
-        results = (
-            session.query(Article)
+    with Session(driver) as session:
+        results: list[Article] = session.scalars(
+            select(Article)
             .where((Article.author == "alice") | (Article.author == "bob"))
             .order_by(Article.views, desc=True)
             .limit(5)
-            .all()
         )
         log.info(
             "QueryBuilder OR top 5 by views: %s",
@@ -223,26 +246,26 @@ def run() -> None:
         )
 
     # --- Query builder: in_() membership filter ---
-    with Session(graph) as session:
-        selected = (
-            session.query(Article)
-            .where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
-            .all()
+    with Session(driver) as session:
+        selected: list[Article] = session.scalars(
+            select(Article).where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
         )
         log.info("QueryBuilder in_(): %s", [a.id for a in selected])
 
     # --- Query builder: count() per status ---
-    with Session(graph) as session:
-        pub_count = session.query(Article).where(Article.status == "published").count()
-        arc_count = session.query(Article).where(Article.status == "archived").count()
+    with Session(driver) as session:
+        pub_count: int = session.count(
+            select(Article).where(Article.status == "published")
+        )
+        arc_count: int = session.count(
+            select(Article).where(Article.status == "archived")
+        )
         log.info("QueryBuilder count: published=%d archived=%d", pub_count, arc_count)
 
-    # --- Query builder: project() → author names only ---
-    with Session(graph) as session:
-        from runic.orm import avg, count, sum_
-
-        rows = (
-            session.query(Article)
+    # --- Query builder: aggregate per article ---
+    with Session(driver) as session:
+        rows: list[dict[str, Any]] = session.all_rows(
+            select(Article)
             .alias("a")
             .aggregate(
                 count("*").as_("total"),
@@ -250,9 +273,10 @@ def run() -> None:
                 sum_(Article.views).as_("total_views"),
                 group_by="a",
             )
-            .all_rows()
         )
         log.info("QueryBuilder aggregate all_rows: %d rows returned", len(rows))
+
+    driver.close()
 
 
 if __name__ == "__main__":

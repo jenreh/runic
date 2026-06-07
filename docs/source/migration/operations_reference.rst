@@ -2,13 +2,23 @@ Operations Reference
 ====================
 
 The ``op`` object passed to every ``upgrade(op)`` and ``downgrade(op)``
-function is an instance of :class:`~runic.migrate.operations.GraphOperations`.  It
-wraps the FalkorDB client and exposes a safe, preview-aware API for all
-supported schema operations.
+function is an instance of :class:`~runic.migrate.operations.GraphOperations`.
+It wraps the active :class:`~runic.migrate.adapters.GraphAdapter` and exposes
+a safe, preview-aware API for all supported schema operations.
 
 In preview mode (``runic upgrade --preview``) none of the methods below
 touch the database; instead each operation is recorded as a string in
 ``op.preview_log`` and printed to the console.
+
+.. note::
+
+   FalkorDB, Neo4j, and Memgraph support most DDL natively via Cypher.
+   ArcadeDB supports most DDL except vector indexes (which require the HTTP
+   management API).  Apache AGE does not support Cypher-level DDL: all
+   ``op.*`` calls on an AGE adapter log a warning and do nothing — manage
+   indexes and constraints via PostgreSQL DDL directly.  Backend-specific
+   differences are noted per section.  The ``MANDATORY`` constraint kind and
+   automatic constraint-ready polling are FalkorDB-only.
 
 ----
 
@@ -102,6 +112,13 @@ Vector indexes
 Vector indexes enable approximate nearest-neighbour search (ANN) via HNSW.
 Used for semantic similarity queries.
 
+.. note::
+
+   ArcadeDB vector indexes must be created via the ArcadeDB HTTP management
+   API.  Calling ``op.create_vector_index`` on an ArcadeDB adapter logs a
+   warning and does nothing; configure vector indexes outside runic for that
+   backend.
+
 .. py:method:: op.create_vector_index(label, prop, dimension, similarity, *, m=16, ef_construction=200, ef_runtime=10)
 
    Create a vector index.
@@ -140,13 +157,36 @@ Used for semantic similarity queries.
 Constraints
 -----------
 
-FalkorDB supports two constraint kinds: ``UNIQUE`` (ensures no two nodes of
-the same label share the same property value) and ``MANDATORY`` (ensures the
-property is always present).
+``UNIQUE`` constraints ensure no two nodes of the same label share the same
+property value.  ``MANDATORY`` constraints (FalkorDB only) ensure the property
+is always present.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 16 16 16 16 16
+
+   * - Kind
+     - FalkorDB
+     - ArcadeDB
+     - Neo4j
+     - Memgraph
+     - Apache AGE
+   * - ``UNIQUE``
+     - ✓
+     - ✓ (single-prop, NODE only)
+     - ✓ (single-prop, NODE only)
+     - ✓ (single-prop, NODE only)
+     - ✗
+   * - ``MANDATORY``
+     - ✓
+     - ✗
+     - ✗
+     - ✗
+     - ✗
 
 .. py:method:: op.create_constraint(kind, entity, label, props)
 
-   Create a constraint and poll until it becomes ``OPERATIONAL``.
+   Create a constraint.
 
    :param kind: ``"UNIQUE"`` or ``"MANDATORY"``.
    :param entity: ``"NODE"`` or ``"RELATIONSHIP"``.
@@ -155,19 +195,19 @@ property is always present).
 
    .. note::
 
-      For ``UNIQUE`` constraints, runic automatically calls
-      ``create_range_index`` on each property before creating the
-      constraint.  You do not need to call ``create_range_index`` separately
-      in ``upgrade`` for this case.
+      **FalkorDB:** runic automatically calls ``create_range_index`` on each
+      property before creating the constraint and polls ``CALL db.constraints()``
+      until the status is ``OPERATIONAL`` (30 retries × 0.5 s).  You do not
+      need to call ``create_range_index`` separately in ``upgrade`` for this case.
 
    .. code-block:: python
 
       def upgrade(op) -> None:
           op.create_constraint("UNIQUE", "NODE", "Person", ["email"])
-          op.create_constraint("MANDATORY", "NODE", "Person", ["name"])
+          op.create_constraint("MANDATORY", "NODE", "Person", ["name"])  # FalkorDB only
 
-   runic polls ``CALL db.constraints()`` in a loop (30 retries × 0.5 s) and
-   raises :class:`~runic.migrate.operations.ConstraintFailedError` if the status
+   For FalkorDB, runic polls ``CALL db.constraints()`` and raises
+   :class:`~runic.migrate.operations.ConstraintFailedError` if the status
    becomes ``FAILED``, or :class:`~runic.migrate.operations.ConstraintTimeoutError`
    if it does not become ``OPERATIONAL`` within 15 seconds.
 

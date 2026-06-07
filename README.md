@@ -3,7 +3,7 @@
 
 # Runic
 
-**Graph schema migrations and ORM for FalkorDB.**
+**Graph schema migrations and ORM for Cypher-based graph databases.**
 
 ![Version](https://img.shields.io/badge/version-0.2.2-blue)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
@@ -15,44 +15,64 @@
 
 ---
 
-**Runic** is a Python toolkit for [FalkorDB](https://falkordb.com/) that covers two layers:
+**Runic** is a Python toolkit for Cypher-based graph databases that covers two layers:
 
 - **`runic.migrate`** — Alembic-style schema migrations with revision tracking, a CLI, and rollback snapshots.
-- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all using FalkorDB-native Cypher under the hood.
+- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all via a pluggable driver layer supporting FalkorDB, ArcadeDB, and any Bolt-compatible database.
 
 ## Features
 
 ### Migration CLI
 
 - **Alembic-Style Workflow** — Familiar CLI verbs: `init`, `revision`, `upgrade`, `downgrade`, `current`, `baseline`.
-- **Graph-Native** — Migration state stored inside dedicated graph nodes (`:_FalkorMigrateVersion`).
+- **Graph-Native** — Migration state stored inside dedicated graph nodes; no external state table needed.
 - **Idempotent Cypher** — Explicit, guarded migration steps; safe to replay on an empty graph.
 - **Offline & Dry Run** — Review generated Cypher scripts before running them in production.
-- **Rollback Snapshots** — Uses `GRAPH.COPY` for high-risk, non-reversible migrations.
+- **Rollback Snapshots** — Optional snapshot-based rollback for high-risk, non-reversible migrations.
 
 ### Graph ORM
 
 - **Declarative Models** — `Node` and `Edge` subclasses with typed `Field` descriptors; no metaclass magic.
-- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and pagination.
+- **Pluggable Driver Layer** — `GraphDriver` / `GraphDialect` protocols; built-in drivers for FalkorDB, ArcadeDB (via Bolt), and any Bolt-compatible DB. Switch backends without changing model code.
+- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and offset reads.
 - **Relationships** — `Relation` field for INCOMING / OUTGOING edges; lazy and eager loading; edge property models.
 - **Schema Management** — `IndexManager` and `SchemaManager` to create, validate, and sync RANGE, FULLTEXT, and UNIQUE indexes.
-- **Native FalkorDB Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
+- **Native Graph Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
 - **Async Support** — `AsyncSession`, `AsyncRepository`, and `AsyncConnectionManager` for async-first applications.
 
 ## Installation
 
-```bash
-uv pip install runic
-```
+Install the core package, then add the optional extra for your database backend:
 
-Or add it to an existing project:
+| Backend | Extra | Package installed |
+| --- | --- | --- |
+| FalkorDB | `falkordb` | `falkordb` |
+| Neo4j | `neo4j` | `neo4j` |
+| Memgraph | `memgraph` | `neo4j` (Bolt) |
+| ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
+| Apache AGE | `age` | `psycopg[binary]` |
+| All backends | `all` | all of the above |
 
 ```bash
-uv add runic
+# FalkorDB
+uv add "runic-py[falkordb]"
+
+# Neo4j
+uv add "runic-py[neo4j]"
+
+# Memgraph or ArcadeDB (both use the Neo4j Bolt driver)
+uv add "runic-py[memgraph]"
+uv add "runic-py[arcadedb]"
+
+# Apache AGE (PostgreSQL extension)
+uv add "runic-py[age]"
+
+# All backends at once
+uv add "runic-py[all]"
 ```
 
 > [!NOTE]
-> Runic requires Python 3.14+ and is optimized for the latest FalkorDB clients.
+> Runic requires Python 3.14+. The core package has no graph-driver dependency — install only the extra for your backend.
 
 ---
 
@@ -90,7 +110,7 @@ runic downgrade 1975e    # roll back to a specific revision (prefix is enough)
 
 ### Baselining an existing graph
 
-Bring an unmanaged FalkorDB graph under runic control without re-running anything:
+Bring an existing graph under runic control without re-running anything:
 
 ```bash
 runic baseline -m "baseline"   # introspect, generate root revision, stamp it
@@ -112,9 +132,12 @@ from runic.migrate.adapters import create_adapter
 
 init(Path("runic/"))
 
+# Any supported backend — swap the adapter name and kwargs
 adapter = create_adapter(
     "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
 )
+# adapter = create_adapter("neo4j", host="localhost", port=7687, database="neo4j", username="neo4j", password="secret")
+
 runic = Runic(adapter, script_location=Path("runic/"))
 runic.migrate.upgrade("head")
 
@@ -160,23 +183,28 @@ class Author(Node, labels=["Author"]):
 
 ### Session-based CRUD
 
-```python
-from runic.orm import Session, Repository
+`Session` accepts any `GraphDriver`. Use `create_driver()` to build one for your backend:
 
-with Session(graph) as session:
+```python
+from runic.orm import Session, Repository, create_driver
+
+# Pick your backend — the rest of the code is identical
+driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
+
+with Session(driver) as session:
     session.add_all([
         User(id="alice", email="alice@example.com", name="Alice"),
         User(id="bob", email="bob@example.com", name="Bob"),
     ])
     session.commit()
 
-with Session(graph) as session:
+with Session(driver) as session:
     repo = Repository(session, User)
     alice = session.get(User, "alice")
     alice.name = "Alice Smith"  # change tracking — no explicit dirty flag
     session.commit()
 
-with Session(graph) as session:
+with Session(driver) as session:
     user = session.get(User, "bob")
     session.delete(user)
     session.commit()
@@ -186,12 +214,12 @@ with Session(graph) as session:
 
 ```python
 # Lazy load (default) — triggers a query on first access
-with Session(graph) as session:
+with Session(driver) as session:
     author = session.get(Author, "alice")
     posts = author.posts  # query executed here
 
 # Eager load — single round-trip
-with Session(graph) as session:
+with Session(driver) as session:
     author = session.get(Author, "alice", fetch=["posts"])
     posts = author.posts  # already loaded, no extra query
 ```
@@ -199,12 +227,12 @@ with Session(graph) as session:
 ### Pagination and custom queries
 
 ```python
-from runic.orm import Pageable, Repository
+from runic.orm import Repository
 
-with Session(graph) as session:
+with Session(driver) as session:
     repo = Repository(session, User)
-    page = repo.find_all_paginated(Pageable(page=0, size=20, sort_by="name"))
-    print(f"{len(list(page))} of {page.total_elements} total")
+    first_page = repo.find_all(skip=0, limit=20)
+    next_page = repo.find_all(skip=20, limit=20)
 ```
 
 Extend `Repository` to add typed Cypher helpers:
@@ -218,6 +246,28 @@ class UserRepository(Repository[User]):
             returns=User,
         )
 ```
+
+### Composable queries
+
+`select()` creates a query statement independently of any session, enabling
+dynamic query composition (e.g. conditional UI filters) before execution:
+
+```python
+from runic.orm import select
+
+stmt = select(User).where(User.active == True)
+if min_age > 0:
+    stmt = stmt.where(User.age >= min_age)
+
+with Session(driver) as session:
+    users: list[User]  = session.scalars(stmt)   # list[User]
+    user:  User | None = session.scalar(stmt)    # User | None
+    n:     int         = session.count(stmt)     # int
+```
+
+The same `stmt` is reusable — pass it to multiple sessions or execute it
+multiple times.  The older `session.query(User).where(...).all()` pattern is
+still fully supported.
 
 ### Schema management
 
@@ -235,14 +285,14 @@ class Place(Node, labels=["Place"]):
     lon: float = Field(index=True)
 
 
-schema = SchemaManager(graph)
+schema = SchemaManager(driver)
 schema.sync_schema([Place], drop_extra=False)  # create missing; leave extras alone
 
 result = schema.validate_schema([Place])
 print("valid:", result.is_valid)
 ```
 
-### Native FalkorDB types
+### Native graph types
 
 `Vector`, `GeoLocation`, `datetime`, and `Enum` fields get their converters assigned automatically — no `converter=` argument needed:
 

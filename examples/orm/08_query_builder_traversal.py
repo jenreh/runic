@@ -9,8 +9,15 @@ Demonstrates:
   - with_() — WITH clause for multi-stage pipelining
   - Filtering traversal targets with .where(on="alias")
 
-Run:
+Run against FalkorDB (embedded):
     uv run python examples/orm/08_query_builder_traversal.py
+
+Run against FalkorDB (live server):
+    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/08_query_builder_traversal.py
+
+Run against ArcadeDB (via Bolt):
+    RUNIC_BACKEND=arcadedb ARCADEDB_HOST=localhost ARCADEDB_DATABASE=runic_examples \\
+        uv run python examples/orm/08_query_builder_traversal.py
 """
 
 from __future__ import annotations
@@ -22,7 +29,10 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, Node, Relation, Session  # noqa: E402
+from runic.orm import Field, Node, Relation, Session, select  # noqa: E402
+from runic.orm.driver import GraphDriver  # noqa: E402
+from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models: social graph — Person → Friend → Post
@@ -63,17 +73,33 @@ class Person(Node, labels=["Person"]):
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
-        from falkordb import FalkorDB
-
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+def _create_driver() -> GraphDriver:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_driver(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph="example_qb_traversal",
+            )
+        from redislite import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(protocol=2)
-    return db.select_graph("example_qb_traversal")
+        return FalkorDBDriver(db.select_graph("example_qb_traversal"))
+    if backend == "arcadedb":
+        return create_driver(
+            "arcadedb",
+            host=os.getenv("ARCADEDB_HOST", "localhost"),
+            port=int(os.getenv("ARCADEDB_PORT", "7687")),
+            database=os.getenv("ARCADEDB_DATABASE", "runic_examples"),
+            username=os.getenv("ARCADEDB_USERNAME", "root"),
+            password=os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+        )
+    raise ValueError(
+        f"Unknown RUNIC_BACKEND: {backend!r}. Supported: 'falkordb', 'arcadedb'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +108,10 @@ def _connect() -> Any:
 
 
 def run() -> None:
-    graph = _connect()
+    driver = _create_driver()
 
     # --- Seed ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         alice = Person(id="alice", name="Alice", age=30)
         bob = Person(id="bob", name="Bob", age=25)
         carol = Person(id="carol", name="Carol", age=35, active=False)
@@ -99,14 +125,14 @@ def run() -> None:
         session.commit()
         log.info("Created persons and posts")
 
-    with Session(graph) as session:
-        alice = session.get(Person, "alice")
-        bob = session.get(Person, "bob")
-        carol = session.get(Person, "carol")
-        dan = session.get(Person, "dan")
-        p1 = session.get(Post, "post1")
-        p2 = session.get(Post, "post2")
-        p3 = session.get(Post, "post3")
+    with Session(driver) as session:
+        alice: Person | None = session.get(Person, "alice")
+        bob: Person | None = session.get(Person, "bob")
+        carol: Person | None = session.get(Person, "carol")
+        dan: Person | None = session.get(Person, "dan")
+        p1: Post | None = session.get(Post, "post1")
+        p2: Post | None = session.get(Post, "post2")
+        p3: Post | None = session.get(Post, "post3")
         assert all([alice, bob, carol, dan, p1, p2, p3])
 
         # Alice ← friends → Bob, Carol; Bob ← friends → Dan
@@ -126,43 +152,40 @@ def run() -> None:
         log.info("Created relationships")
 
     # --- Single-hop traverse: Alice's friends (OPTIONAL MATCH — left join) ---
-    with Session(graph) as session:
-        friends = (
-            session.query(Person)
+    with Session(driver) as session:
+        friends: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "alice")
             .traverse(Person.friends)
             .alias("f")
             .return_target("f")
-            .all()
         )
         log.info("Alice's friends (optional): %s", [f.name for f in friends])
 
     # --- Single-hop traverse: filter targets with where(on="alias") ---
-    with Session(graph) as session:
-        active_friends = (
-            session.query(Person)
+    with Session(driver) as session:
+        active_friends: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "alice")
             .traverse(Person.friends)
             .alias("f")
             .where(Person.active == True, on="f")  # noqa: E712
             .return_target("f")
-            .all()
         )
         log.info("Alice's ACTIVE friends: %s", [f.name for f in active_friends])
 
     # --- Required traverse (optional=False) — inner join, drops unmatched ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         # Only persons who have at least one authored post
-        authors = (
-            session.query(Person)
+        authors: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .traverse(Person.authored, optional=False)
             .alias("post")
             .return_target("p")
             .distinct()
-            .all()
         )
         log.info(
             "Persons with at least one post (required MATCH): %s",
@@ -170,9 +193,9 @@ def run() -> None:
         )
 
     # --- Multi-hop: friends of friends ---
-    with Session(graph) as session:
-        fof = (
-            session.query(Person)
+    with Session(driver) as session:
+        fof: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "alice")
             .traverse(Person.friends)
@@ -180,14 +203,13 @@ def run() -> None:
             .traverse(Person.friends)
             .alias("fof")
             .return_target("fof")
-            .all()
         )
         log.info("Alice's friends-of-friends: %s", [p.name for p in fof])
 
     # --- Multi-hop with filter on intermediate node ---
-    with Session(graph) as session:
-        posts_via_friends = (
-            session.query(Person)
+    with Session(driver) as session:
+        posts_via_friends: list[Post] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "alice")
             .traverse(Person.friends)
@@ -195,7 +217,6 @@ def run() -> None:
             .traverse(Person.authored)
             .alias("post")
             .return_target("post")
-            .all()
         )
         log.info(
             "Posts authored by Alice's friends: %s",
@@ -203,15 +224,14 @@ def run() -> None:
         )
 
     # --- repeat(): variable-length path — manager chain up to depth 3 ---
-    with Session(graph) as session:
-        managers = (
-            session.query(Person)
+    with Session(driver) as session:
+        managers: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "dan")
             .repeat(Person.reports_to, min_hops=1, max_hops=3)
             .alias("mgr")
             .return_target("mgr")
-            .all()
         )
         log.info(
             "Dan's managers chain (up to depth 3): %s",
@@ -219,15 +239,14 @@ def run() -> None:
         )
 
     # --- repeat(): unbounded (min_hops only) ---
-    with Session(graph) as session:
-        all_above = (
-            session.query(Person)
+    with Session(driver) as session:
+        all_above: list[Person] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.id == "dan")
             .repeat(Person.reports_to, min_hops=1)
             .alias("above")
             .return_target("above")
-            .all()
         )
         log.info(
             "Dan's entire reporting chain (unbounded): %s",
@@ -235,17 +254,16 @@ def run() -> None:
         )
 
     # --- with_() — multi-stage pipeline: filter, then traverse ---
-    with Session(graph) as session:
+    with Session(driver) as session:
         # Stage 1: find active persons; stage 2: find their posts
-        posts = (
-            session.query(Person)
+        posts: list[Post] = session.scalars(
+            select(Person)
             .alias("p")
             .where(Person.active == True)  # noqa: E712
             .with_("p")
             .traverse(Person.authored)
             .alias("post")
             .return_target("post")
-            .all()
         )
         log.info(
             "Posts by active persons (with_ pipeline): %s",
@@ -253,32 +271,34 @@ def run() -> None:
         )
 
     # --- Traverse then filter the target by a field value ---
-    with Session(graph) as session:
-        cypher_posts = (
-            session.query(Person)
+    with Session(driver) as session:
+        cypher_posts: list[Post] = session.scalars(
+            select(Person)
             .alias("p")
             .traverse(Person.authored)
             .alias("post")
             .where(Post.tags.contains("cypher"), on="post")  # type: ignore[attr-defined]
             .return_target("post")
-            .all()
         )
         log.info("Posts tagged 'cypher': %s", [pt.title for pt in cypher_posts])
 
     # --- build() for traversal — inspect generated Cypher ---
-    with Session(graph) as session:
-        cypher, params = (
-            session.query(Person)
-            .alias("p")
-            .where(Person.id == "alice")
-            .traverse(Person.friends)
-            .alias("f")
-            .traverse(Person.authored)
-            .alias("post")
-            .return_target("post")
-            .build()
-        )
-        log.info("Traversal Cypher:\n%s\nparams: %s", cypher, params)
+    cypher: str
+    params: dict[str, Any]
+    cypher, params = (
+        select(Person)
+        .alias("p")
+        .where(Person.id == "alice")
+        .traverse(Person.friends)
+        .alias("f")
+        .traverse(Person.authored)
+        .alias("post")
+        .return_target("post")
+        .build()
+    )
+    log.info("Traversal Cypher:\n%s\nparams: %s", cypher, params)
+
+    driver.close()
 
 
 if __name__ == "__main__":

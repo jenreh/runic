@@ -3,8 +3,8 @@ Session & Unit of Work
 
 The :class:`~runic.orm.session.session.Session` (and its async twin
 :class:`~runic.orm.session.async_session.AsyncSession`) is the unit-of-work
-manager for FalkorDB.  It owns all mutations, manages the identity map, and
-controls the flush/commit lifecycle.
+manager for Cypher-based graph databases.  It owns all mutations, manages
+the identity map, and controls the flush/commit lifecycle.
 
 .. seealso::
 
@@ -17,21 +17,26 @@ controls the flush/commit lifecycle.
 Opening a session
 -----------------
 
+``Session`` accepts a :class:`~runic.orm.driver.GraphDriver` (or
+:class:`~runic.orm.driver.AsyncGraphDriver` for the async variant).
+Use the helpers in ``runic.orm.driver`` to build one:
+
 .. code-block:: python
 
-   from falkordb import FalkorDB
-   from runic.orm import Session
+   from runic.orm import Session, create_driver
 
-   db = FalkorDB(host="localhost", port=6379)
-   graph = db.select_graph("myapp")
-
-   with Session(graph) as session:
+   # FalkorDB
+   driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
+   with Session(driver) as session:
        ...   # commit on success, rollback on exception
 
-   # --- Async ---
-   from runic.orm import AsyncSession
-
-   async with AsyncSession(graph) as session:
+   # ArcadeDB (via Bolt)
+   driver = create_driver(
+       "arcadedb",
+       host="localhost", port=7687, database="mydb",
+       username="root", password="playwithdata",
+   )
+   with Session(driver) as session:
        ...
 
 Mutations
@@ -43,7 +48,7 @@ All writes go through the Session, never the Repository.
 
    from runic.orm import Session
 
-   with Session(graph) as session:
+   with Session(driver) as session:
        # add: transient → pending; CREATE on flush
        session.add(entity)
        session.add_all([e1, e2])
@@ -75,13 +80,12 @@ Flush and commit
    session.flush()     # execute writes; does not clear identity map
    session.commit()    # flush + clear pending/deleted sets
 
-FalkorDB transaction model
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Transaction model
+~~~~~~~~~~~~~~~~~
 
-A single ``GRAPH.QUERY`` is fully atomic.  ``flush()`` sends each pending
-entity as its own query.  Entities with ``generated=True`` IDs must be
-flushed individually so the returned ID can be assigned before the next
-write.
+Each ``flush()`` sends each pending entity as its own query.  Entities
+with ``generated=True`` IDs must be flushed individually so the returned
+ID can be assigned before the next write.
 
 ``rollback()`` discards the **un-flushed** pending/deleted sets only.  Once
 ``flush()`` has executed queries, those writes are permanent.
@@ -91,7 +95,7 @@ Rollback
 
 .. code-block:: python
 
-   session = Session(graph)
+   session = Session(driver)
    try:
        session.add(Person(id="bob", name="Bob", email="bob@example.com"))
        session.rollback()   # discard pending; nothing written to graph
@@ -116,22 +120,79 @@ Expunge
    session.expunge(entity)   # remove from session → detached; no DB action
    session.expunge_all()
 
-Raw Cypher
-----------
+Composable statement execution
+------------------------------
 
-``session.execute()`` runs a Cypher query and returns a raw
-``QueryResult``.  No entity mapping is applied.
+:func:`~runic.orm.query.select` creates a
+:class:`~runic.orm.query.builder.QueryBuilder` that is **not bound to a
+session**.  Build the statement freely — including conditional filters — then
+pass it to one of the session execution methods:
 
 .. code-block:: python
 
-   result = session.execute(
-       "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE p.id = $id RETURN f.name",
-       {"id": "alice"},
-   )
-   for row in result.result_set:
-       print(row[0])
+   from runic.orm import select
 
-   # Write queries require write=True
+   stmt = select(Person).where(Person.active == True)
+   if min_age > 0:
+       stmt = stmt.where(Person.age >= min_age)
+
+   # All five execution methods accept a QueryBuilder
+   people: list[Person]  = session.scalars(stmt)
+   person: Person | None = session.scalar(stmt)
+   n:      int           = session.count(stmt)
+   rows:   list[dict]    = session.all_rows(stmt)
+
+   # Async sessions accept the same stmt
+   people = await async_session.scalars(stmt)
+
+The same ``stmt`` object is **reusable** — execute it multiple times, against
+different sessions if needed.  Each execution restores the session binding to
+``None`` afterwards.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Method
+     - Returns
+   * - ``scalars(stmt)``
+     - ``list[T]`` — decoded node entities; ``T`` inferred from ``QueryBuilder[T]``
+   * - ``scalar(stmt)``
+     - ``T | None`` — first entity, or ``None`` if the result set is empty
+   * - ``count(stmt)``
+     - ``int`` — total matching nodes
+   * - ``all_rows(stmt)``
+     - ``list[dict[str, Any]]`` — raw column-value dicts
+   * - ``all_with_edges(stmt)``
+     - ``list[tuple[Any, ...]]`` — tuples of ``(node, edge, node)``
+
+.. tip::
+
+   ``session.query(Person).where(...).all()`` is still fully supported.
+   Prefer ``select()`` when you need to compose the query across multiple
+   code paths before executing.
+
+Raw Cypher
+----------
+
+For the common cases prefer the :doc:`query builder <query_builder>`.
+``session.execute()`` is the escape hatch for write mutations and Cypher
+features not covered by the builder.
+
+.. code-block:: python
+
+   from runic.orm import select
+
+   # Prefer select() + session.scalars() for reads
+   stmt = (
+       select(Person)
+       .where(Person.id == "alice")
+       .alias("p")
+       .traverse(Person.knows).alias("f")
+   )
+   friends: list[Person] = session.scalars(stmt)
+
+   # Write mutations (SET, REMOVE, …) require session.execute(write=True)
    session.execute(
        "MATCH (t:Trip {status: $old}) SET t.status = $new",
        {"old": "draft", "new": "archived"},
@@ -169,8 +230,18 @@ Session API summary
      - Remove from session (→ detached); no graph action
    * - ``expunge_all()``
      - Expunge all tracked entities
+   * - ``scalars(stmt)``
+     - Execute a :func:`~runic.orm.query.select` statement; return ``list[T]``
+   * - ``scalar(stmt)``
+     - Execute a statement; return first ``T`` or ``None``
+   * - ``count(stmt)``
+     - Execute a statement; return row count as ``int``
+   * - ``all_rows(stmt)``
+     - Execute a statement; return ``list[dict[str, Any]]``
+   * - ``all_with_edges(stmt)``
+     - Execute a statement; return ``list[tuple[Any, ...]]``
    * - ``execute(cypher, params, write)``
-     - Raw Cypher; returns ``QueryResult``
+     - Raw Cypher; returns :class:`~runic.orm.driver.GraphResult` (``.rows``, ``.columns``)
    * - ``close()``
      - ``expunge_all()`` + release connection
 
@@ -182,7 +253,7 @@ above with ``async``/``await``:
 
 .. code-block:: python
 
-   async with AsyncSession(graph) as session:
+   async with AsyncSession(AsyncFalkorDBDriver(graph)) as session:
        repo = AsyncRepository(session, Trip)
        trips = await repo.find_all()
        for trip in trips:

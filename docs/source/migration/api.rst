@@ -31,9 +31,12 @@ Programmatic usage example
 
 .. code-block:: python
 
+   import logging
    from pathlib import Path
    from runic import Runic
    from runic.migrate.adapters import create_adapter
+
+   log = logging.getLogger(__name__)
 
    adapter = create_adapter(
        "falkordb",
@@ -48,11 +51,11 @@ Programmatic usage example
        raise RuntimeError("\n".join(errors))
 
    runic.migrate.upgrade("head", installed_by="deploy-bot")
-   print("current:", runic.migrate.current())
+   log.info("current: %s", runic.migrate.current())
 
    history = runic.migrate.get_history()
    for entry in history:
-       print(entry.revision, entry.message)
+       log.info("%s  %s", entry.revision, entry.message)
 
    runic.migrate.downgrade("base")
 
