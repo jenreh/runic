@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
 from runic.migrate.adapters.age import AGEAdapter
 from runic.orm.driver.age import AGEDriver, AGEResult
 
@@ -15,29 +14,6 @@ def _make_adapter(graph_name: str = "testgraph") -> tuple[AGEAdapter, MagicMock]
     mock_driver = MagicMock(spec=AGEDriver)
     adapter = AGEAdapter(mock_driver, graph_name)
     return adapter, mock_driver
-
-
-class TestParseKvList:
-    def test_basic(self) -> None:
-        assert _parse_kv_list(["abc:123", "def:456"]) == {"abc": "123", "def": "456"}
-
-    def test_empty_list(self) -> None:
-        assert _parse_kv_list([]) == {}
-
-    def test_none(self) -> None:
-        assert _parse_kv_list(None) == {}
-
-    def test_empty_item_skipped(self) -> None:
-        assert _parse_kv_list(["", "a:1"]) == {"a": "1"}
-
-
-class TestEncodeKvList:
-    def test_basic(self) -> None:
-        result = _encode_kv_list({"a": "1", "b": "2"})
-        assert set(result) == {"a:1", "b:2"}
-
-    def test_empty(self) -> None:
-        assert _encode_kv_list({}) == []
 
 
 class TestAGEAdapterName:

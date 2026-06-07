@@ -9,12 +9,15 @@ import pytest
 from typer.testing import CliRunner
 
 from runic.migrate.cli import app
+from runic.migrate.context import Runic
 
 runner = CliRunner()
 
+_integration = pytest.mark.integration
+
 
 # ---------------------------------------------------------------------------
-# Unit tests — runic.migrate.validate()
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -47,41 +50,40 @@ def _write_rev(versions: Path, rev_id: str, parent: str | None, body: str = "") 
     return p
 
 
-def _make_runic(tmp_path: Path, falkordb_server: Any, *, track_checksums: bool = True):
-    """Create a Runic context. Call AFTER writing any revision files so ScriptDirectory loads them."""
-    from runic.migrate.adapters.falkordb import FalkorDBAdapter
-    from runic.migrate.context import Runic
-
-    db = falkordb_server
-    import secrets
-
-    graph = db.select_graph(f"test_{secrets.token_hex(4)}")
-    adapter = FalkorDBAdapter(db, graph)
+def _make_runic(adapter: Any, tmp_path: Path, *, track_checksums: bool = True) -> Runic:
     _versions_dir(tmp_path)
-    return Runic(adapter, tmp_path / "runic", track_checksums=track_checksums), adapter
+    return Runic(adapter, tmp_path / "runic", track_checksums=track_checksums)
 
 
+# ---------------------------------------------------------------------------
+# validate() behaviour tests (live DB, multi-backend)
+# ---------------------------------------------------------------------------
+
+
+@_integration
 def test_validate_returns_empty_when_no_migrations_applied(
-    tmp_path: Path, falkordb_server: Any
+    tmp_path: Path, migrate_adapter: Any
 ) -> None:
-    ctx, _ = _make_runic(tmp_path, falkordb_server)
+    ctx = _make_runic(migrate_adapter, tmp_path)
     assert ctx.validate() == []
 
 
+@_integration
 def test_validate_returns_empty_when_checksums_match(
-    tmp_path: Path, falkordb_server: Any
+    tmp_path: Path, migrate_adapter: Any
 ) -> None:
     versions = _versions_dir(tmp_path)
     _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path, falkordb_server)
+    ctx = _make_runic(migrate_adapter, tmp_path)
     ctx.upgrade("aabbcc112233")
     assert ctx.validate() == []
 
 
-def test_validate_detects_modified_script(tmp_path: Path, falkordb_server: Any) -> None:
+@_integration
+def test_validate_detects_modified_script(tmp_path: Path, migrate_adapter: Any) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path, falkordb_server)
+    ctx = _make_runic(migrate_adapter, tmp_path)
     ctx.upgrade("aabbcc112233")
 
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
@@ -92,36 +94,38 @@ def test_validate_detects_modified_script(tmp_path: Path, falkordb_server: Any) 
     assert "mismatch" in errors[0]
 
 
+@_integration
 def test_validate_skips_revisions_without_stored_checksum(
-    tmp_path: Path, falkordb_server: Any
+    tmp_path: Path, migrate_adapter: Any
 ) -> None:
-    """Pre-checksum deployments: stamp without recording checksum — must not error."""
     versions = _versions_dir(tmp_path)
     _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path, falkordb_server)
+    ctx = _make_runic(migrate_adapter, tmp_path)
 
     ctx.stamp("aabbcc112233")
     assert ctx.validate() == []
 
 
+@_integration
 def test_validate_disabled_when_track_checksums_false(
-    tmp_path: Path, falkordb_server: Any
+    tmp_path: Path, migrate_adapter: Any
 ) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
-    ctx, _ = _make_runic(tmp_path, falkordb_server, track_checksums=False)
+    ctx = _make_runic(migrate_adapter, tmp_path, track_checksums=False)
     ctx.upgrade("aabbcc112233")
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
     assert ctx.validate() == []
 
 
+@_integration
 def test_validate_on_migrate_aborts_when_mismatch(
-    tmp_path: Path, falkordb_server: Any
+    tmp_path: Path, migrate_adapter: Any
 ) -> None:
     versions = _versions_dir(tmp_path)
     rev_path = _write_rev(versions, "aabbcc112233", None)
     _write_rev(versions, "bbbbbbbbbbbb", "aabbcc112233")
-    ctx, _ = _make_runic(tmp_path, falkordb_server)
+    ctx = _make_runic(migrate_adapter, tmp_path)
     ctx.upgrade("aabbcc112233")
     rev_path.write_text(rev_path.read_text() + "\n# tampered\n")
 
@@ -130,7 +134,7 @@ def test_validate_on_migrate_aborts_when_mismatch(
 
 
 # ---------------------------------------------------------------------------
-# CLI tests — runic validate
+# CLI tests — runic validate (unit, no live DB)
 # ---------------------------------------------------------------------------
 
 

@@ -12,6 +12,15 @@ from runic.orm.core.models import Node
 from runic.orm.repository.async_repository import AsyncRepository
 from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
+from tests.runic.orm.unit.mock_helpers import (
+    empty_result as _empty_result,
+)
+from tests.runic.orm.unit.mock_helpers import (
+    multi_node_result as _multi_node_result,
+)
+from tests.runic.orm.unit.mock_helpers import (
+    scalar_result as _scalar_result,
+)
 
 # ---------------------------------------------------------------------------
 # Test entities
@@ -26,52 +35,6 @@ class RepoPerson(Node, labels=["RepoPerson"]):
 class RepoTag(Node, labels=["RepoTag"]):
     id: int | None = Field(default=None, generated=True)
     label: str = Field()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _empty_result() -> MagicMock:
-    r = MagicMock()
-    r.rows = []
-    r.columns = []
-    return r
-
-
-def _scalar_result(value: Any) -> MagicMock:
-    r = MagicMock()
-    r.rows = [[value]]
-    r.columns = ["value"]
-    return r
-
-
-def _node_result(labels: list[str], props: dict[str, Any]) -> MagicMock:
-    node = MagicMock()
-    node.id = props.get("id", 1)
-    node.labels = labels
-    node.properties = props
-    r = MagicMock()
-    r.rows = [[node]]
-    r.columns = ["n"]
-    return r
-
-
-def _multi_node_result(
-    rows: list[tuple[list[str], dict[str, Any]]],
-) -> MagicMock:
-    result_rows = []
-    for labels, props in rows:
-        node = MagicMock()
-        node.id = props.get("id", 1)
-        node.labels = labels
-        node.properties = props
-        result_rows.append([node])
-    r = MagicMock()
-    r.rows = result_rows
-    r.columns = ["n"]
-    return r
 
 
 def _make_session(
