@@ -42,18 +42,37 @@
 
 ## Installation
 
-```bash
-uv pip install runic
-```
+Install the core package, then add the optional extra for your database backend:
 
-Or add it to an existing project:
+| Backend | Extra | Package installed |
+| --- | --- | --- |
+| FalkorDB | `falkordb` | `falkordb` |
+| Neo4j | `neo4j` | `neo4j` |
+| Memgraph | `memgraph` | `neo4j` (Bolt) |
+| ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
+| Apache AGE | `age` | `psycopg[binary]` |
+| All backends | `all` | all of the above |
 
 ```bash
-uv add runic
+# FalkorDB
+uv add "runic-py[falkordb]"
+
+# Neo4j
+uv add "runic-py[neo4j]"
+
+# Memgraph or ArcadeDB (both use the Neo4j Bolt driver)
+uv add "runic-py[memgraph]"
+uv add "runic-py[arcadedb]"
+
+# Apache AGE (PostgreSQL extension)
+uv add "runic-py[age]"
+
+# All backends at once
+uv add "runic-py[all]"
 ```
 
 > [!NOTE]
-> Runic requires Python 3.14+ and is optimized for the latest FalkorDB clients.
+> Runic requires Python 3.14+. The core package has no graph-driver dependency — install only the extras you need.
 
 ---
 
