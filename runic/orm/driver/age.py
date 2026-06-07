@@ -471,7 +471,7 @@ class AGEDriver:
             ...
     """
 
-    supports_multi_label: bool = True
+    supports_multi_label: bool = False
 
     def __init__(self, conn: Any, graph_name: str) -> None:
         self._conn = conn

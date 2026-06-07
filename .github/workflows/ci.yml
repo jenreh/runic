@@ -58,7 +58,7 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra neo4j
 
       - name: Run tests
         env:

@@ -80,7 +80,7 @@ def _make_falkordb(graph_name: str) -> tuple[Any, Callable[[], None]]:
 
     from runic.orm.driver.falkordb import FalkorDBDriver
 
-    driver = FalkorDBDriver(g)
+    driver = FalkorDBDriver(g, db)
 
     def cleanup() -> None:
         with contextlib.suppress(Exception):

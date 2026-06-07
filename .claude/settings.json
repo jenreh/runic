@@ -30,5 +30,32 @@
       "mcp__plugin_context7_context7__query-docs"
     ],
     "defaultMode": "acceptEdits"
+  },
+  "mcpServers": {
+    "duckduckgo": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "duckduckgo-mcp-server"
+      ],
+      "env": {}
+    },
+    "code-reasoning": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mettamatt/code-reasoning"
+      ]
+    },
+    "pencil": {
+      "command": "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64",
+      "args": [
+        "--app",
+        "desktop"
+      ],
+      "env": {},
+      "type": "stdio"
+    }
   }
 }

@@ -73,6 +73,9 @@ class FalkorDBResult:
 class FalkorDBDialect:
     """Strategy implementation for FalkorDB-specific Cypher generation."""
 
+    # FalkorDB only supports directed edges; undirected MERGE/CREATE is rejected.
+    supports_undirected_merge: bool = False
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = toInteger(${param})"
 
@@ -116,12 +119,14 @@ _DIALECT = FalkorDBDialect()
 class FalkorDBDriver:
     """Sync driver wrapping a FalkorDB graph handle."""
 
-    def __init__(self, graph: Any) -> None:
+    def __init__(self, graph: Any, db: Any = None) -> None:
         self._graph = graph
+        self._db = db
 
     def falkordb_connection(self) -> tuple[Any, Any]:
         """Return (db, graph) for use by the FalkorDB migration adapter."""
-        return self._graph.connection, self._graph
+        db = self._db if self._db is not None else self._graph.connection
+        return db, self._graph
 
     @property
     def dialect(self) -> FalkorDBDialect:
@@ -166,4 +171,4 @@ def create_falkordb_driver(host: str, port: int, graph: str) -> FalkorDBDriver:
     from falkordb import FalkorDB
 
     db = FalkorDB(host=host, port=port)
-    return FalkorDBDriver(db.select_graph(graph))
+    return FalkorDBDriver(db.select_graph(graph), db)

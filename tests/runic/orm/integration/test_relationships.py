@@ -345,7 +345,7 @@ def test_both_direction_lazy_load_from_source(graph_driver: Any) -> None:
     _create_employee(graph_driver, "e30", "Alice")
     _create_employee(graph_driver, "e31", "Bob")
     graph_driver.execute(
-        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]->(b)",
         {"a": "e30", "b": "e31"},
     )
 
@@ -362,7 +362,7 @@ def test_both_direction_lazy_load_from_target(graph_driver: Any) -> None:
     _create_employee(graph_driver, "e32", "Carol")
     _create_employee(graph_driver, "e33", "Dave")
     graph_driver.execute(
-        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]->(b)",
         {"a": "e32", "b": "e33"},
     )
 
@@ -404,7 +404,7 @@ def test_both_direction_session_unrelate(graph_driver: Any) -> None:
     _create_employee(graph_driver, "e36", "Grace")
     _create_employee(graph_driver, "e37", "Hank")
     graph_driver.execute(
-        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]->(b)",
         {"a": "e36", "b": "e37"},
     )
 

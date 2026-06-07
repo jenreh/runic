@@ -52,7 +52,7 @@ class RelationshipWriter:
         dialect = self._mapper.dialect
         match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen, dialect)
         match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen, dialect)
-        merge_rel = _rel_clause("MERGE", "a", "b", rel_type, direction, "r")
+        merge_rel = _rel_clause("MERGE", "a", "b", rel_type, direction, "r", dialect)
 
         params: dict[str, Any] = {"__src_pk": src_pk, "__tgt_pk": tgt_pk}
         clauses = [match_a, match_b, merge_rel]
@@ -144,10 +144,15 @@ def _rel_clause(
     rel_type: str | None,
     direction: str,
     alias: str,
+    dialect: Any = None,
 ) -> str:
-    """Return a ``MERGE`` or ``MATCH`` clause for a directed relationship."""
-    if direction == "OUTGOING":
+    """Return a ``MERGE`` or ``MATCH`` clause for a directed or undirected relationship."""
+    effective = direction
+    if direction == "BOTH" and verb == "MERGE":
+        if not getattr(dialect, "supports_undirected_merge", True):
+            effective = "OUTGOING"
+    if effective == "OUTGOING":
         return f"{verb} ({src})-[{alias}:{rel_type}]->({tgt})"
-    if direction == "INCOMING":
+    if effective == "INCOMING":
         return f"{verb} ({src})<-[{alias}:{rel_type}]-({tgt})"
     return f"{verb} ({src})-[{alias}:{rel_type}]-({tgt})"
