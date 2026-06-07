@@ -1,6 +1,6 @@
 [project]
 name = "runic-py"
-version = "0.2.2"
+version = "0.3.0"
 description = "OGM and schema migrations for Graph Databases."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -50,6 +50,9 @@ dev = [
     "sphinx-design==0.7.0",
     "ty>=0.0.44",
     "python-dotenv>=1.2.2",
+    "falkordb>=1.6.0,<2.0.0",
+    "neo4j>=6.2.0",
+    "psycopg[binary]>=3.3.4",
 ]
 
 [project.scripts]
@@ -88,7 +91,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.2.2"
+current_version = "0.3.0"
 tag = false
 allow-dirty = false
 

@@ -895,7 +895,7 @@ wheels = [
 
 [[package]]
 name = "runic-py"
-version = "0.2.2"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mako" },
@@ -929,9 +929,12 @@ neo4j = [
 dev = [
     { name = "bump-my-version" },
     { name = "detect-secrets" },
+    { name = "falkordb" },
     { name = "falkordblite" },
     { name = "furo" },
+    { name = "neo4j" },
     { name = "pre-commit" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -964,9 +967,12 @@ provides-extras = ["falkordb", "neo4j", "memgraph", "arcadedb", "age", "all"]
 dev = [
     { name = "bump-my-version", specifier = "==1.3.0" },
     { name = "detect-secrets", specifier = "==1.5.0" },
+    { name = "falkordb", specifier = ">=1.6.0,<2.0.0" },
     { name = "falkordblite", specifier = "==0.10.0" },
     { name = "furo", specifier = "==2025.12.19" },
+    { name = "neo4j", specifier = ">=6.2.0" },
     { name = "pre-commit", specifier = "==4.6.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-asyncio", specifier = "==1.4.0" },
     { name = "pytest-cov", specifier = "==7.1.0" },
