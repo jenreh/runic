@@ -121,6 +121,12 @@ class AGEAdapter(GraphAdapter):
             constraints=[],
         )
 
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass  # AGE creates labels implicitly on first INSERT
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass  # AGE creates edge labels implicitly on first INSERT
+
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
         # AGE does not expose a direct Cypher DDL for per-property indexes;
         # indices are created on the underlying PostgreSQL edge/vertex tables.

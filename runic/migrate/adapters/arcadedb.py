@@ -116,6 +116,22 @@ class ArcadeDBAdapter(GraphAdapter):
             constraints=[],
         )
 
+    def create_vertex_type(self, label: str) -> None:
+        cypher = f"CREATE VERTEX TYPE `{label}` IF NOT EXISTS"
+        log.info("ArcadeDB DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning("ArcadeDB create_vertex_type failed for %s: %s", label, exc)
+
+    def create_edge_type(self, type_name: str) -> None:
+        cypher = f"CREATE EDGE TYPE `{type_name}` IF NOT EXISTS"
+        log.info("ArcadeDB DDL: %s", cypher)
+        try:
+            self.run_query(cypher)
+        except Exception as exc:
+            log.warning("ArcadeDB create_edge_type failed for %s: %s", type_name, exc)
+
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
         cypher = f"CREATE INDEX ON `{label}` ({prop})"
         log.info("ArcadeDB: %s", cypher)

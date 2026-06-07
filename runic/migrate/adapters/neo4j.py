@@ -139,6 +139,16 @@ class Neo4jAdapter(GraphAdapter):
         return set()
 
     # ------------------------------------------------------------------
+    # DDL — entity types (no-op: Neo4j is schemaless)
+    # ------------------------------------------------------------------
+
+    def create_vertex_type(self, label: str) -> None:  # noqa: ARG002
+        pass
+
+    def create_edge_type(self, type_name: str) -> None:  # noqa: ARG002
+        pass
+
+    # ------------------------------------------------------------------
     # DDL — indexes
     # ------------------------------------------------------------------
 
