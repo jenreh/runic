@@ -6,6 +6,7 @@ from typing import Any
 
 from runic.migrate import introspect
 from runic.migrate.adapters import GraphAdapter
+from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
 
@@ -25,21 +26,6 @@ _SET_TRACKING_QUERY = (
     f"MERGE (v:{_VERSION_LABEL} {{singleton: true}})"
     " SET v.checksums = $checksums, v.installed_by = $installed_by"
 )
-
-
-def _parse_kv_list(items: list | None) -> dict[str, str]:
-    if not items:
-        return {}
-    result: dict[str, str] = {}
-    for item in items:
-        if item:
-            k, _, v = str(item).partition(":")
-            result[k] = v
-    return result
-
-
-def _encode_kv_list(d: dict[str, str]) -> list[str]:
-    return [f"{k}:{v}" for k, v in d.items()]
 
 
 class FalkorDBAdapter(GraphAdapter):

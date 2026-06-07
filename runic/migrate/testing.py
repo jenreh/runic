@@ -29,7 +29,7 @@ def falkordb_server() -> Any:
     db = _FalkorDB(protocol=2)  # type: ignore[call-arg]
     yield db
     with contextlib.suppress(Exception):
-        db._cleanup()
+        db._cleanup()  # noqa: SLF001
 
 
 @pytest.fixture

@@ -15,7 +15,7 @@ from runic.orm.schema.index_manager import IndexSpec, parse_existing_specs
 from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
 
 try:
-    from redislite import FalkorDB as _FalkorDB
+    from redislite import FalkorDB as _FalkorDB  # noqa: F401
 
     _HAS_FALKORDBLITE = True
 except ImportError:
