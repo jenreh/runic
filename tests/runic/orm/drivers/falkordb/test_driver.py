@@ -10,6 +10,17 @@ from runic.orm.driver.factory import create_driver
 from runic.orm.driver.falkordb import FalkorDBDriver, create_falkordb_driver
 
 
+class TestFalkorDBDriverConnection:
+    def test_falkordb_connection_returns_db_and_graph(self) -> None:
+        mock_graph = MagicMock()
+        mock_db = MagicMock()
+        mock_graph.connection = mock_db
+        driver = FalkorDBDriver(mock_graph)
+        db, graph = driver.falkordb_connection()
+        assert db is mock_db
+        assert graph is mock_graph
+
+
 class TestCreateFalkordbDriver:
     def test_returns_falkordb_driver(self) -> None:
         mock_graph = MagicMock()

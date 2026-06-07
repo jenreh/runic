@@ -175,10 +175,22 @@ class TestAGENode:
         node = AGENode(raw)
         assert node.element_id == 42
 
-    def test_labels(self) -> None:
+    def test_labels_single(self) -> None:
         raw = _AGEVertexData(id=1, label="Movie", properties={})
         node = AGENode(raw)
         assert node.labels == ["Movie"]
+
+    def test_labels_from_labels_property(self) -> None:
+        raw = _AGEVertexData(
+            id=1, label="Location", properties={"_labels": ["Location", "Country"]}
+        )
+        node = AGENode(raw)
+        assert node.labels == ["Location", "Country"]
+
+    def test_labels_falls_back_when_not_list(self) -> None:
+        raw = _AGEVertexData(id=1, label="X", properties={"_labels": "bad"})
+        node = AGENode(raw)
+        assert node.labels == ["X"]
 
     def test_properties(self) -> None:
         raw = _AGEVertexData(id=1, label="X", properties={"a": 1, "b": 2})
@@ -256,6 +268,26 @@ class TestAGEDialect:
 
     def test_dialect_is_singleton(self) -> None:
         assert isinstance(_AGE_DIALECT, AGEDialect)
+
+    def test_labels_clause_returns_primary_only(self) -> None:
+        assert _AGE_DIALECT.labels_clause(["Location", "Country"]) == "Location"
+
+    def test_labels_clause_single_label(self) -> None:
+        assert _AGE_DIALECT.labels_clause(["Person"]) == "Person"
+
+    def test_subtype_where_none_for_single_label(self) -> None:
+        assert _AGE_DIALECT.subtype_where("n", ["Location"]) is None
+
+    def test_subtype_where_condition_for_subtype(self) -> None:
+        result = _AGE_DIALECT.subtype_where("n", ["Location", "Country"])
+        assert result == '"Country" IN n._labels'
+
+    def test_subtype_where_multiple_subtypes(self) -> None:
+        result = _AGE_DIALECT.subtype_where("n", ["A", "B", "C"])
+        assert result == '"B" IN n._labels AND "C" IN n._labels'
+
+    def test_needs_labels_property_true(self) -> None:
+        assert _AGE_DIALECT.needs_labels_property() is True
 
 
 # ---------------------------------------------------------------------------

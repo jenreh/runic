@@ -119,6 +119,10 @@ class FalkorDBDriver:
     def __init__(self, graph: Any) -> None:
         self._graph = graph
 
+    def falkordb_connection(self) -> tuple[Any, Any]:
+        """Return (db, graph) for use by the FalkorDB migration adapter."""
+        return self._graph.connection, self._graph
+
     @property
     def dialect(self) -> FalkorDBDialect:
         return _DIALECT

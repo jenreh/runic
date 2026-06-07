@@ -138,7 +138,8 @@ class AGENode:
 
     @property
     def labels(self) -> list[str]:
-        return [self._raw.label]
+        stored = self._raw.properties.get("_labels")
+        return stored if isinstance(stored, list) else [self._raw.label]
 
     @property
     def properties(self) -> dict[str, Any]:
@@ -369,10 +370,25 @@ class AGEDialect:
     - No ``vecf32()`` or ``intern()`` wrappers (raw Python values stored as-is)
     - Fulltext search: not supported natively (raises ``NotImplementedError``)
     - Vector KNN: not supported natively (raises ``NotImplementedError``)
+    - Multi-label emulation: extra labels stored as ``_labels`` property array
     """
 
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
+
+    def labels_clause(self, labels: list[str]) -> str:
+        """AGE only supports one label per vertex — use the primary label."""
+        return labels[0]
+
+    def subtype_where(self, alias: str, labels: list[str]) -> str | None:
+        """Return a WHERE condition filtering by emulated subtype labels."""
+        if len(labels) > 1:
+            return " AND ".join(f'"{lbl}" IN {alias}._labels' for lbl in labels[1:])
+        return None
+
+    def needs_labels_property(self) -> bool:
+        """Signal to the mapper to inject ``_labels`` on CREATE for subtypes."""
+        return True
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:  # noqa: ARG002
         return None
@@ -455,7 +471,7 @@ class AGEDriver:
             ...
     """
 
-    supports_multi_label: bool = False
+    supports_multi_label: bool = True
 
     def __init__(self, conn: Any, graph_name: str) -> None:
         self._conn = conn

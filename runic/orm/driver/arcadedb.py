@@ -36,19 +36,17 @@ class ArcadeDBDialect:
     - No ``vecf32()`` or ``intern()`` wrappers (raw values stored as-is)
     - Vector KNN via ``CALL vector.neighbors(...)``
     - Fulltext search not yet supported (raises ``NotImplementedError``)
-    - ``SET n.prop = point()`` is not supported via Bolt (CREATE works, SET doesn't)
+    - ``SET n.prop = point()`` is not supported via Bolt (CREATE works, SET doesn't);
+      GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
     """
 
-    supports_geo_update: bool = False
+    supports_geo_update: bool = True
 
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
-    def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:
-        from runic.orm.core.types import GeoLocationConverter
-
-        if isinstance(getattr(fi.field, "converter", None), GeoLocationConverter):
-            return "point"
+    def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:  # noqa: ARG002
+        # GeoLocation serialised as a plain map dict — no point() wrapper needed.
         return None
 
     def fulltext_call(self, label: str, alias: str, query_param: str) -> str:  # noqa: ARG002

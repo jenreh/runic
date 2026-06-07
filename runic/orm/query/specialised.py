@@ -281,7 +281,8 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
                 f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
             )
 
-        labels_str = ":".join(root_meta.labels)
+        _lc = getattr(self._dialect, "labels_clause", None)
+        labels_str = _lc(root_meta.labels) if _lc else ":".join(root_meta.labels)
         alias = self._root_alias
         field_alias = (
             self._alias_for_cls(self._knn_field.owner)

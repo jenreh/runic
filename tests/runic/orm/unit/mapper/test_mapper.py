@@ -545,3 +545,133 @@ class TestGeoLocationCypher:
         conv = GeoLocationConverter()
         assert conv.to_graph(None) is None
         assert conv.from_graph(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Mapper dialect helpers (labels_clause / subtype_where / _labels injection)
+# ---------------------------------------------------------------------------
+
+
+class _SingleLabelDialect:
+    """Stub dialect that emulates single-label backends (AGE-like)."""
+
+    def labels_clause(self, labels: list[str]) -> str:
+        return labels[0]
+
+    def subtype_where(self, alias: str, labels: list[str]) -> str | None:
+        if len(labels) > 1:
+            return " AND ".join(f'"{lbl}" IN {alias}._labels' for lbl in labels[1:])
+        return None
+
+    def needs_labels_property(self) -> bool:
+        return True
+
+    def generated_id_where(self, alias: str, param: str) -> str:
+        return f"WHERE id({alias}) = ${param}"
+
+    def cypher_fn_for_field(self, fi: Any) -> str | None:  # noqa: ARG002
+        return None
+
+    def fulltext_call(self, label: str, alias: str, query_param: str) -> str:  # noqa: ARG002
+        raise NotImplementedError
+
+    def vector_knn_start(
+        self,
+        alias: str,
+        labels_str: str,
+        type_name: str,
+        field_name: str,  # noqa: ARG002
+    ) -> str:
+        raise NotImplementedError
+
+    def vector_knn_score_expr(self, alias: str, field_name: str) -> str:  # noqa: ARG002
+        raise NotImplementedError
+
+    def wrap_node(self, raw: Any) -> Any:
+        return raw
+
+    def wrap_edge(self, raw: Any) -> Any:
+        return raw
+
+
+class TestDialectHelpers:
+    def test_labels_clause_default_multi_label(self, meta: MetaData) -> None:
+        mapper = Mapper(meta)
+        assert mapper.labels_clause(["A", "B"]) == "A:B"
+
+    def test_labels_clause_delegates_to_dialect(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        assert mapper.labels_clause(["Location", "Country"]) == "Location"
+
+    def test_subtype_where_default_none(self, meta: MetaData) -> None:
+        mapper = Mapper(meta)
+        assert mapper.subtype_where("n", ["A", "B"]) is None
+
+    def test_subtype_where_delegates_to_dialect(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        result = mapper.subtype_where("n", ["Location", "Country"])
+        assert result == '"Country" IN n._labels'
+
+    def test_build_create_injects_labels_property(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        child = MapperChild(id="c1", kind="test", extra="x")
+        cypher, params = mapper.build_create_query(child)
+        assert "_labels" in params
+        assert params["_labels"] == ["MapperParent", "MapperChild"]
+        assert "MapperParent" in cypher
+
+    def test_build_create_no_labels_property_for_single_label(
+        self, meta: MetaData
+    ) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        p = MapperPerson(id="p1", name="Alice")
+        _, params = mapper.build_create_query(p)
+        assert "_labels" not in params
+
+    def test_build_find_all_includes_subtype_filter(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, _ = mapper.build_find_all_query(MapperChild)
+        assert "MapperParent" in cypher
+        assert '"MapperChild" IN n._labels' in cypher
+
+    def test_build_paginated_includes_subtype_filter(self, meta: MetaData) -> None:
+        from runic.orm.repository.pagination import Pageable
+
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        pageable = Pageable(page=0, size=10)
+        cypher, _ = mapper.build_paginated_query(MapperChild, pageable)
+        assert '"MapperChild" IN n._labels' in cypher
+
+    def test_build_count_includes_subtype_filter(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, _ = mapper.build_count_query(MapperChild)
+        assert '"MapperChild" IN n._labels' in cypher
+
+    def test_build_exists_includes_subtype_filter_generated_pk(
+        self, meta: MetaData
+    ) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, _ = mapper.build_exists_query(MapperGenerated, 42)
+        assert "MapperGenerated" in cypher
+
+    def test_build_exists_includes_subtype_filter_field_pk(
+        self, meta: MetaData
+    ) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, params = mapper.build_exists_query(MapperChild, "c1")
+        assert '"MapperChild" IN n._labels' in cypher
+        assert params["__pk"] == "c1"
+
+    def test_build_get_includes_subtype_filter_field_pk(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, params = mapper.build_get_query(MapperChild, "c1")
+        assert '"MapperChild" IN n._labels' in cypher
+        assert params["__pk"] == "c1"
+
+    def test_build_find_all_by_ids_includes_subtype_filter(
+        self, meta: MetaData
+    ) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        cypher, params = mapper.build_find_all_by_ids_query(MapperChild, ["c1", "c2"])
+        assert '"MapperChild" IN n._labels' in cypher
+        assert params["__pks"] == ["c1", "c2"]

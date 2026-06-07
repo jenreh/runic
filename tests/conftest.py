@@ -101,6 +101,10 @@ def migrate_context(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[
         from runic.migrate.adapters.age import AGEAdapter
 
         adapter = AGEAdapter(driver, graph_name)
+    elif backend == "arcadedb":
+        from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
+
+        adapter = ArcadeDBAdapter(driver, graph_name)
     else:
         pytest.skip(f"No migrate adapter for backend {backend!r}")
         return
@@ -146,6 +150,10 @@ def migrate_adapter(request: pytest.FixtureRequest) -> Iterator[Any]:
         from runic.migrate.adapters.age import AGEAdapter
 
         adapter = AGEAdapter(driver, graph_name)
+    elif backend == "arcadedb":
+        from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
+
+        adapter = ArcadeDBAdapter(driver, graph_name)
     else:
         pytest.skip(f"No migrate adapter for backend {backend!r}")
         return
@@ -156,6 +164,8 @@ def migrate_adapter(request: pytest.FixtureRequest) -> Iterator[Any]:
 
 def _get_falkordb_db_and_graph(driver: Any) -> tuple[Any, Any] | None:
     """Extract (db, graph) from a FalkorDB driver for the migrate adapter."""
+    if hasattr(driver, "falkordb_connection"):
+        return driver.falkordb_connection()
     with contextlib.suppress(AttributeError):
         return driver._graph.connection, driver._graph  # type: ignore[attr-defined]  # noqa: SLF001
     return None

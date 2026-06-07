@@ -90,14 +90,20 @@ class RelationshipLoader:
         """
         node_meta = self._mapper.require_node_meta(cls)
         generated = self._mapper.is_generated_pk(cls)
-        labels_str = ":".join(node_meta.labels)
+        labels_str = self._mapper.labels_clause(node_meta.labels)
+        subtype_filter = self._mapper.subtype_where("n", node_meta.labels)
 
         if generated:
             id_where = self._mapper.dialect.generated_id_where("n", "__pk")
+            if subtype_filter:
+                id_where = f"WHERE {subtype_filter} AND {id_where[6:]}"
             main_match = f"MATCH (n:{labels_str}) {id_where}"
         else:
             pk_name = node_meta.pk_field_name
-            main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
+            if subtype_filter:
+                main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) WHERE {subtype_filter}"
+            else:
+                main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
@@ -112,8 +118,10 @@ class RelationshipLoader:
     ) -> tuple[str, dict[str, Any], list[tuple[str, FieldInfo]]]:
         """Build MATCH + OPTIONAL MATCHes to find all entities with eager loading."""
         node_meta = self._mapper.require_node_meta(cls)
-        labels_str = ":".join(node_meta.labels)
-        main_match = f"MATCH (n:{labels_str})"
+        labels_str = self._mapper.labels_clause(node_meta.labels)
+        subtype_filter = self._mapper.subtype_where("n", node_meta.labels)
+        where = f" WHERE {subtype_filter}" if subtype_filter else ""
+        main_match = f"MATCH (n:{labels_str}){where}"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
@@ -130,13 +138,16 @@ class RelationshipLoader:
         """Build MATCH + OPTIONAL MATCHes to fetch a batch of entities by PK."""
         node_meta = self._mapper.require_node_meta(cls)
         generated = self._mapper.is_generated_pk(cls)
-        labels_str = ":".join(node_meta.labels)
+        labels_str = self._mapper.labels_clause(node_meta.labels)
+        subtype_filter = self._mapper.subtype_where("n", node_meta.labels)
 
         if generated:
-            main_match = f"MATCH (n:{labels_str}) WHERE id(n) IN $__pks"
+            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
+            main_match = f"MATCH (n:{labels_str}) {where}id(n) IN $__pks"
         else:
             pk_name = node_meta.pk_field_name
-            main_match = f"MATCH (n:{labels_str}) WHERE n.{pk_name} IN $__pks"
+            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
+            main_match = f"MATCH (n:{labels_str}) {where}n.{pk_name} IN $__pks"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
