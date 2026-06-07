@@ -469,9 +469,9 @@ class TestVectorQueryBuilder:
         q = VectorQueryBuilder(
             sess,
             BDocument,
-            field=BDocument.embedding,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
             vector=vec,
-            k=5,  # ty: ignore[invalid-argument-type]
+            k=5,
         )
         cypher, params = q.build()
         assert "vecf32(n.embedding) <-> vecf32($__knn_vec)" in cypher
@@ -484,9 +484,9 @@ class TestVectorQueryBuilder:
         q = VectorQueryBuilder(
             sess,
             BDocument,
-            field=BDocument.embedding,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
             vector=[0.1],
-            k=3,  # ty: ignore[invalid-argument-type]
+            k=3,
         )
         q.where(BDocument.text.is_not_null())  # ty: ignore[unresolved-attribute]
         cypher, _ = q.build()

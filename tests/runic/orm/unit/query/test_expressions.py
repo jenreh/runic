@@ -182,8 +182,8 @@ class TestBooleanComposition:
         expr2 = expr.with_alias("u")  # ty: ignore[unresolved-attribute]
         assert expr2.alias == "u"
         assert (
-            expr.alias is None
-        )  # original unchanged  # ty: ignore[unresolved-attribute]
+            expr.alias is None  # ty: ignore[unresolved-attribute]
+        )  # original unchanged
 
 
 # ---------------------------------------------------------------------------
