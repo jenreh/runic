@@ -560,8 +560,13 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             raise ValueError(
                 f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
             )
-        labels_str = ":".join(root_meta.labels)
+        _lc = getattr(self._dialect, "labels_clause", None)
+        labels_str = _lc(root_meta.labels) if _lc else ":".join(root_meta.labels)
+        _sw = getattr(self._dialect, "subtype_where", None)
+        subtype_filter = _sw(self._root_alias, root_meta.labels) if _sw else None
         parts.append(f"MATCH ({self._root_alias}:{labels_str})")
+        if subtype_filter:
+            parts.append(f"WHERE {subtype_filter}")
 
         # ── WHERE (root conditions) + WITH + Traversal + WHERE (post)
         #
