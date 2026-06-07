@@ -8,6 +8,7 @@ import pytest
 
 from runic.migrate.adapters.neo4j import Neo4jAdapter
 from runic.orm.driver.bolt import BoltDriver
+from runic.orm.schema.index_manager import IndexSpec
 from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
 from tests.runic.orm.unit.mock_helpers import row_result as _row_result
 
@@ -75,9 +76,125 @@ class TestReadLiveSchema:
         assert schema.range_indexes == []
         assert schema.fulltext_indexes == []
 
-    def test_get_existing_specs_empty(self) -> None:
+
+class TestGetExistingSpecs:
+    def test_empty_results_return_empty_set(self) -> None:
         adapter, _ = _make_adapter()
         assert adapter.get_existing_specs() == set()
+
+    def test_range_index_online_node_returned(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["RANGE", "NODE", ["User"], ["email"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+
+    def test_fulltext_index_returned(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["FULLTEXT", "NODE", ["Post"], ["body"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="Post", property="body", index_type="FULLTEXT") in specs
+
+    def test_vector_index_returned(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["VECTOR", "NODE", ["Article"], ["embedding"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert (
+            IndexSpec(label="Article", property="embedding", index_type="VECTOR")
+            in specs
+        )
+
+    def test_offline_index_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["RANGE", "NODE", ["User"], ["email"], "POPULATING"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_lookup_index_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["LOOKUP", "NODE", ["User"], ["id"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_relationship_index_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["RANGE", "RELATIONSHIP", ["KNOWS"], ["since"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_uniqueness_constraint_returned(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["UNIQUENESS", "NODE", ["User"], ["id"]]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+
+    def test_non_uniqueness_constraint_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["NODE_KEY", "NODE", ["User"], ["id"]]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_indexes_query_failure_returns_partial_results(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["UNIQUENESS", "NODE", ["User"], ["id"]]
+        mock_driver.execute.side_effect = [
+            RuntimeError("show indexes unavailable"),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+
+    def test_constraints_query_failure_returns_partial_results(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["RANGE", "NODE", ["User"], ["email"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            RuntimeError("show constraints unavailable"),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+
+    def test_multi_prop_index_produces_multiple_specs(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        indexes_row = ["FULLTEXT", "NODE", ["Post"], ["title", "body"], "ONLINE"]
+        mock_driver.execute.side_effect = [
+            _row_result(indexes_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="Post", property="title", index_type="FULLTEXT") in specs
+        assert IndexSpec(label="Post", property="body", index_type="FULLTEXT") in specs
 
 
 # ---------------------------------------------------------------------------

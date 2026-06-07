@@ -36,8 +36,7 @@ class ArcadeDBDialect:
     - No ``vecf32()`` or ``intern()`` wrappers (raw values stored as-is)
     - Vector KNN via ``CALL vector.neighbors(...)``
     - Fulltext search not yet supported (raises ``NotImplementedError``)
-    - ``SET n.prop = point()`` is not supported via Bolt (CREATE works, SET doesn't);
-      GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
+    - ``SET n.prop = point()`` is not supported via Bolt; GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
     """
 
     supports_geo_update: bool = True

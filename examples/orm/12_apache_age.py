@@ -28,7 +28,7 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, Node, Repository, Session  # noqa: E402
+from runic.orm import Field, Node, Repository, Session, select  # noqa: E402
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 
@@ -72,8 +72,8 @@ def run() -> None:
 
     # Clean slate
     with Session(driver) as session:
-        session.query(Language).where(Language.id.in_(["en", "de", "fr"])).all()  # type: ignore[attr-defined]
-        for lang in session.query(Language).all():
+        session.scalars(select(Language).where(Language.id.in_(["en", "de", "fr"])))  # type: ignore[attr-defined]
+        for lang in session.scalars(select(Language)):
             session.delete(lang)
         session.commit()
 
@@ -125,22 +125,28 @@ def run() -> None:
 
     # --- QueryBuilder: filter by field ---
     with Session(driver) as session:
-        results: list[Language] = session.query(Language).where(Language.code == "en").all()
+        results: list[Language] = session.scalars(
+            select(Language).where(Language.code == "en")
+        )
         log.info("QueryBuilder filter code='en': %s", [r.title for r in results])
 
     # --- QueryBuilder: count ---
     with Session(driver) as session:
-        total: int = session.query(Language).count()
+        total: int = session.count(select(Language))
         log.info("QueryBuilder count: %d", total)
 
     # --- QueryBuilder: one() ---
     with Session(driver) as session:
-        lang: Language | None = session.query(Language).where(Language.code == "de").one()
+        lang: Language | None = session.scalar(
+            select(Language).where(Language.code == "de")
+        )
         log.info("QueryBuilder one() German: %s", lang and lang.title)
 
     # --- QueryBuilder: order_by + limit ---
     with Session(driver) as session:
-        ordered: list[Language] = session.query(Language).order_by(Language.code).limit(2).all()
+        ordered: list[Language] = session.scalars(
+            select(Language).order_by(Language.code).limit(2)
+        )
         log.info("QueryBuilder ordered codes: %s", [r.code for r in ordered])
 
     driver.close()

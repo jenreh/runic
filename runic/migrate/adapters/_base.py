@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from runic.migrate.introspect import LiveSchema
 from runic.orm.schema.index_manager import IndexSpec
@@ -42,6 +42,59 @@ def _parse_kv_list(items: list | None) -> dict[str, str]:
 
 def _encode_kv_list(d: dict[str, str]) -> list[str]:
     return [f"{k}:{v}" for k, v in d.items()]
+
+
+@runtime_checkable
+class IndexAdapter(Protocol):
+    """Structural protocol satisfied by all runic migrate GraphAdapter subclasses.
+
+    IndexManager and SchemaManager in runic.migrate.schema accept any object
+    satisfying this protocol — no explicit ``implements`` declaration is needed.
+    """
+
+    def create_range_index(
+        self, label: str, prop: str, *, rel: bool = False
+    ) -> None: ...
+
+    def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None: ...
+
+    def create_fulltext_index(
+        self,
+        label: str,
+        *props: str,
+        language: str | None = None,
+        stopwords: list[str] | None = None,
+    ) -> None: ...
+
+    def drop_fulltext_index(self, label: str, *props: str) -> None: ...
+
+    def create_vector_index(
+        self,
+        label: str,
+        prop: str,
+        dimension: int,
+        similarity: str,
+        *,
+        m: int = 16,
+        ef_construction: int = 200,
+        ef_runtime: int = 10,
+    ) -> None: ...
+
+    def drop_vector_index(self, label: str, prop: str) -> None: ...
+
+    def create_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
+    ) -> None: ...
+
+    def drop_constraint(
+        self, kind: str, entity: str, label: str, props: list[str]
+    ) -> None: ...
+
+    def create_vertex_type(self, label: str) -> None: ...
+
+    def create_edge_type(self, type_name: str) -> None: ...
+
+    def get_existing_specs(self) -> set[IndexSpec]: ...
 
 
 class GraphAdapterBase(ABC):

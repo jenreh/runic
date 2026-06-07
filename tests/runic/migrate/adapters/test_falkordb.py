@@ -11,6 +11,9 @@ import pytest
 
 from runic.migrate.adapters.falkordb import FalkorDBAdapter
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
+from runic.migrate.introspect import LiveSchema
+from runic.migrate.manifest import MandatoryConstraint, RangeIndex, UniqueConstraint
+from runic.orm.schema.index_manager import IndexSpec
 
 
 @pytest.fixture
@@ -134,3 +137,123 @@ def test_set_version_empty_clears(
     adapter.set_version([])
     params: dict = mock_graph.query.call_args[0][1]
     assert params["revisions"] == []
+
+
+# ---------------------------------------------------------------------------
+# get_existing_specs
+# ---------------------------------------------------------------------------
+
+
+def _make_live_schema(
+    range_indexes: list | None = None,
+    fulltext_indexes: list | None = None,
+    vector_indexes: list | None = None,
+    constraints: list | None = None,
+) -> LiveSchema:
+
+    return LiveSchema(
+        range_indexes=range_indexes or [],
+        fulltext_indexes=fulltext_indexes or [],
+        vector_indexes=vector_indexes or [],
+        constraints=constraints or [],
+    )
+
+
+class TestGetExistingSpecs:
+    def test_empty_schema_returns_empty_set(self, adapter: FalkorDBAdapter) -> None:
+        with patch.object(
+            adapter, "read_live_schema", return_value=_make_live_schema()
+        ):
+            assert adapter.get_existing_specs() == set()
+
+    def test_range_index_returned(self, adapter: FalkorDBAdapter) -> None:
+        schema = _make_live_schema(
+            range_indexes=[RangeIndex(label="User", prop="email")]
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+
+    def test_unique_constraint_returned(self, adapter: FalkorDBAdapter) -> None:
+        schema = _make_live_schema(
+            constraints=[UniqueConstraint(entity="NODE", label="User", props=["id"])]
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+
+    def test_mandatory_constraint_returned(self, adapter: FalkorDBAdapter) -> None:
+        schema = _make_live_schema(
+            constraints=[
+                MandatoryConstraint(entity="NODE", label="Post", props=["title"])
+            ]
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert (
+            IndexSpec(label="Post", property="title", index_type="MANDATORY") in specs
+        )
+
+    def test_backing_range_index_for_unique_excluded(
+        self, adapter: FalkorDBAdapter
+    ) -> None:
+        schema = _make_live_schema(
+            range_indexes=[RangeIndex(label="User", prop="email")],
+            constraints=[
+                UniqueConstraint(entity="NODE", label="User", props=["email"])
+            ],
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert (
+            IndexSpec(label="User", property="email", index_type="RANGE") not in specs
+        )
+        assert IndexSpec(label="User", property="email", index_type="UNIQUE") in specs
+
+    def test_non_backing_range_index_kept(self, adapter: FalkorDBAdapter) -> None:
+        schema = _make_live_schema(
+            range_indexes=[
+                RangeIndex(label="User", prop="email"),
+                RangeIndex(label="User", prop="name"),
+            ],
+            constraints=[
+                UniqueConstraint(entity="NODE", label="User", props=["email"])
+            ],
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="name", index_type="RANGE") in specs
+        assert (
+            IndexSpec(label="User", property="email", index_type="RANGE") not in specs
+        )
+
+    def test_fulltext_index_each_prop_is_a_spec(self, adapter: FalkorDBAdapter) -> None:
+        from runic.migrate.manifest import FulltextIndex
+
+        schema = _make_live_schema(
+            fulltext_indexes=[FulltextIndex(label="Post", props=["title", "body"])]
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert IndexSpec(label="Post", property="title", index_type="FULLTEXT") in specs
+        assert IndexSpec(label="Post", property="body", index_type="FULLTEXT") in specs
+
+    def test_vector_index_returned(self, adapter: FalkorDBAdapter) -> None:
+        from runic.migrate.manifest import VectorIndex
+
+        schema = _make_live_schema(
+            vector_indexes=[
+                VectorIndex(
+                    label="Article",
+                    prop="embedding",
+                    dimension=128,
+                    similarity="cosine",
+                )
+            ]
+        )
+        with patch.object(adapter, "read_live_schema", return_value=schema):
+            specs = adapter.get_existing_specs()
+        assert (
+            IndexSpec(label="Article", property="embedding", index_type="VECTOR")
+            in specs
+        )

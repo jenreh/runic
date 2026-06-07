@@ -8,14 +8,13 @@ from typing import Any
 
 import pytest
 
+from runic.migrate.adapters.falkordb import (
+    _parse_existing_specs as parse_existing_specs,
+)
+from runic.migrate.schema import IndexManager, SchemaManager
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
-from runic.orm.schema.index_manager import (
-    IndexManager,
-    IndexSpec,
-    parse_existing_specs,
-)
-from runic.orm.schema.schema_manager import SchemaManager
+from runic.orm.schema.index_manager import IndexSpec
 
 _integration = pytest.mark.integration
 
@@ -58,6 +57,17 @@ def graph(falkordb_server: Any) -> Any:
     db = falkordb_server
     g = db.select_graph(f"test_schema_{secrets.token_hex(6)}")
     yield g
+    with contextlib.suppress(Exception):
+        g.delete()
+
+
+@pytest.fixture
+def falkordb_adapter(falkordb_server: Any) -> Any:
+    from runic.migrate.adapters.falkordb import FalkorDBAdapter
+
+    g = falkordb_server.select_graph(f"test_adapter_{secrets.token_hex(6)}")
+    adapter = FalkorDBAdapter(falkordb_server, g)
+    yield adapter
     with contextlib.suppress(Exception):
         g.delete()
 
@@ -338,3 +348,59 @@ def test_get_schema_info_missing_count(graph: Any) -> None:
     info = schema.get_schema_info([SMPerson])
     assert info.missing_count > 0
     assert info.declared_count > 0
+
+
+# ---------------------------------------------------------------------------
+# FalkorDB via migrate adapter (create_adapter path)
+# ---------------------------------------------------------------------------
+
+# Uses RANGE and FULLTEXT only — UNIQUE constraints require GRAPH.CONSTRAINT
+# which is not available in the embedded falkordblite test backend.
+
+
+class SMAdapterPerson(Node, labels=["SMAdapterPerson"]):
+    id: str = Field()
+    score: int = Field(index=True)
+    bio: str = Field(index_type="FULLTEXT")
+
+
+@_integration
+def test_adapter_get_existing_specs_empty(falkordb_adapter: Any) -> None:
+    specs = falkordb_adapter.get_existing_specs()
+    assert specs == set()
+
+
+@_integration
+def test_adapter_get_existing_specs_after_sync(falkordb_adapter: Any) -> None:
+    schema = SchemaManager(falkordb_adapter)
+    schema.sync_schema([SMAdapterPerson])
+    specs = falkordb_adapter.get_existing_specs()
+    assert IndexSpec("SMAdapterPerson", "score", "RANGE") in specs
+    assert IndexSpec("SMAdapterPerson", "bio", "FULLTEXT") in specs
+
+
+@_integration
+def test_adapter_validate_schema_detects_missing(falkordb_adapter: Any) -> None:
+    schema = SchemaManager(falkordb_adapter)
+    result = schema.validate_schema([SMAdapterPerson])
+    assert not result.is_valid
+    missing_types = {(s.property, s.index_type) for s in result.missing_indexes}
+    assert ("score", "RANGE") in missing_types
+    assert ("bio", "FULLTEXT") in missing_types
+
+
+@_integration
+def test_adapter_validate_schema_valid_after_sync(falkordb_adapter: Any) -> None:
+    schema = SchemaManager(falkordb_adapter)
+    schema.sync_schema([SMAdapterPerson])
+    result = schema.validate_schema([SMAdapterPerson])
+    assert result.is_valid
+    assert result.missing_indexes == []
+
+
+@_integration
+def test_adapter_get_schema_diff_shows_missing(falkordb_adapter: Any) -> None:
+    schema = SchemaManager(falkordb_adapter)
+    diff = schema.get_schema_diff([SMAdapterPerson])
+    assert "MISSING" in diff
+    assert "score" in diff

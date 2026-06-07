@@ -237,4 +237,47 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
             )
 
     def get_existing_specs(self) -> set[IndexSpec]:
-        return set()
+        specs: set[IndexSpec] = set()
+        try:
+            result = self.run_ro_query(
+                "SHOW INDEXES YIELD type, entityType, labelsOrTypes, properties, state"
+            )
+            for row in result.rows:
+                idx_type, entity_type, labels, props, state = (
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                )
+                if state != "ONLINE" or entity_type != "NODE":
+                    continue
+                if idx_type not in {"RANGE", "FULLTEXT", "VECTOR"}:
+                    continue
+                label = labels[0] if labels else None
+                if not label:
+                    continue
+                for prop in props:
+                    specs.add(
+                        IndexSpec(label=label, property=prop, index_type=idx_type)
+                    )
+        except Exception as exc:
+            log.warning("Neo4j SHOW INDEXES failed: %s", exc)
+        try:
+            result = self.run_ro_query(
+                "SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties"
+            )
+            for row in result.rows:
+                con_type, entity_type, labels, props = row[0], row[1], row[2], row[3]
+                if entity_type != "NODE" or con_type != "UNIQUENESS":
+                    continue
+                label = labels[0] if labels else None
+                if not label:
+                    continue
+                for prop in props:
+                    specs.add(
+                        IndexSpec(label=label, property=prop, index_type="UNIQUE")
+                    )
+        except Exception as exc:
+            log.warning("Neo4j SHOW CONSTRAINTS failed: %s", exc)
+        return specs

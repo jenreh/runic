@@ -10,7 +10,6 @@ import pytest
 from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
 from runic.orm.repository.async_repository import AsyncRepository
-from runic.orm.repository.pagination import Page, Pageable
 from runic.orm.repository.repository import Repository
 from tests.runic.orm.unit.mock_helpers import (
     empty_result as _empty_result,
@@ -50,7 +49,6 @@ def _make_session(
     mapper.build_find_all_by_ids_query.return_value = ("MATCH...", {})
     mapper.build_count_query.return_value = ("COUNT...", {})
     mapper.build_exists_query.return_value = ("EXISTS...", {})
-    mapper.build_paginated_query.return_value = ("PAGINATED...", {})
     session.mapper = mapper
 
     # rel_loader stubs
@@ -88,7 +86,6 @@ def test_find_all_returns_empty_when_no_results() -> None:
 def test_find_all_decodes_nodes() -> None:
     result = _multi_node_result([(["RepoPerson"], {"id": "p1", "name": "Alice"})])
     session = _make_session([result])
-    # Mapper.decode_node returns a real entity when called on mock_session.mapper
     decoded = RepoPerson(id="p1", name="Alice")
     session.mapper.decode_node.return_value = decoded
 
@@ -96,8 +93,20 @@ def test_find_all_decodes_nodes() -> None:
     items = repo.find_all()
 
     assert len(items) == 1
-    session.mapper.build_find_all_query.assert_called_once_with(RepoPerson)
+    session.mapper.build_find_all_query.assert_called_once_with(
+        RepoPerson, skip=0, limit=None
+    )
     session.register_or_get.assert_called_once_with(decoded)
+
+
+def test_find_all_with_skip_and_limit_calls_correct_query() -> None:
+    session = _make_session([_empty_result()])
+    repo: Repository[RepoPerson] = Repository(session, RepoPerson)
+    repo.find_all(skip=5, limit=10)
+
+    session.mapper.build_find_all_query.assert_called_once_with(
+        RepoPerson, skip=5, limit=10
+    )
 
 
 def test_find_all_with_fetch_uses_rel_loader() -> None:
@@ -113,6 +122,20 @@ def test_find_all_with_fetch_uses_rel_loader() -> None:
     session.rel_loader.build_find_all_with_fetch_query.assert_called_once_with(
         RepoPerson, ["company"]
     )
+
+
+def test_find_all_fetch_and_skip_raises_value_error() -> None:
+    session = _make_session()
+    repo: Repository[RepoPerson] = Repository(session, RepoPerson)
+    with pytest.raises(ValueError, match="fetch="):
+        repo.find_all(fetch=["company"], skip=5)
+
+
+def test_find_all_fetch_and_limit_raises_value_error() -> None:
+    session = _make_session()
+    repo: Repository[RepoPerson] = Repository(session, RepoPerson)
+    with pytest.raises(ValueError, match="fetch="):
+        repo.find_all(fetch=["company"], limit=10)
 
 
 # ---------------------------------------------------------------------------
@@ -176,33 +199,6 @@ def test_exists_false_on_empty_result() -> None:
     session = _make_session([_empty_result()])
     repo: Repository[RepoPerson] = Repository(session, RepoPerson)
     assert repo.exists("p99") is False
-
-
-# ---------------------------------------------------------------------------
-# Repository — find_all_paginated
-# ---------------------------------------------------------------------------
-
-
-def test_find_all_paginated_returns_page() -> None:
-    # find_all_paginated calls execute twice: paginated query + count query
-    session = _make_session([_empty_result(), _scalar_result(100)])
-    pageable = Pageable(page=0, size=25)
-    repo: Repository[RepoPerson] = Repository(session, RepoPerson)
-    page = repo.find_all_paginated(pageable)
-
-    assert isinstance(page, Page)
-    assert page.page_number == 0
-    assert page.total_elements == 100
-    assert page.total_pages == 4
-
-
-def test_find_all_paginated_uses_pageable() -> None:
-    session = _make_session([_empty_result(), _scalar_result(50)])
-    pageable = Pageable(page=2, size=10, sort_by="name", direction="ASC")
-    repo: Repository[RepoPerson] = Repository(session, RepoPerson)
-    repo.find_all_paginated(pageable)
-
-    session.mapper.build_paginated_query.assert_called_once_with(RepoPerson, pageable)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +289,35 @@ async def test_async_find_all_empty() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_find_all_with_skip_and_limit() -> None:
+    session = MagicMock()
+    session.mapper = MagicMock()
+    session.mapper.build_find_all_query.return_value = ("MATCH...", {})
+    session.rel_loader = MagicMock()
+    session.register_or_get.side_effect = lambda e: e
+    session.execute = AsyncMock(return_value=_empty_result())
+
+    repo: AsyncRepository[RepoPerson] = AsyncRepository(session, RepoPerson)
+    await repo.find_all(skip=10, limit=5)
+
+    session.mapper.build_find_all_query.assert_called_once_with(
+        RepoPerson, skip=10, limit=5
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_find_all_fetch_and_skip_raises_value_error() -> None:
+    session = MagicMock()
+    session.mapper = MagicMock()
+    session.rel_loader = MagicMock()
+    session.rel_loader.build_find_all_with_fetch_query.return_value = ("Q", {}, [])
+
+    repo: AsyncRepository[RepoPerson] = AsyncRepository(session, RepoPerson)
+    with pytest.raises(ValueError, match="fetch="):
+        await repo.find_all(fetch=["company"], skip=5)
+
+
+@pytest.mark.asyncio
 async def test_async_count() -> None:
     session = MagicMock()
     session.mapper = MagicMock()
@@ -335,23 +360,6 @@ async def test_async_cypher_raw() -> None:
     repo: AsyncRepository[RepoPerson] = AsyncRepository(session, RepoPerson)
     result = await repo.cypher_raw("MATCH (n) RETURN n")
     assert result is raw
-
-
-@pytest.mark.asyncio
-async def test_async_find_all_paginated() -> None:
-    session = MagicMock()
-    session.mapper = MagicMock()
-    session.mapper.build_paginated_query.return_value = ("PAGINATED...", {})
-    session.mapper.build_count_query.return_value = ("COUNT...", {})
-    session.register_or_get.side_effect = lambda e: e
-    session.execute = AsyncMock(side_effect=[_empty_result(), _scalar_result(50)])
-
-    repo: AsyncRepository[RepoPerson] = AsyncRepository(session, RepoPerson)
-    page = await repo.find_all_paginated(Pageable(page=1, size=10))
-
-    assert isinstance(page, Page)
-    assert page.page_number == 1
-    assert page.total_elements == 50
 
 
 @pytest.mark.asyncio

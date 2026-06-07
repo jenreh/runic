@@ -147,8 +147,8 @@ runic.orm.session — Session
 
 ----
 
-runic.orm.repository — Repository & Pagination
-------------------------------------------------
+runic.orm.repository — Repository
+---------------------------------
 
 .. autoclass:: runic.orm.repository.repository.Repository
    :members:
@@ -158,17 +158,9 @@ runic.orm.repository — Repository & Pagination
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.repository.pagination.Pageable
-   :members:
-   :show-inheritance:
-
-.. autoclass:: runic.orm.repository.pagination.Page
-   :members:
-   :show-inheritance:
-
 ----
 
-runic.orm.schema — Index & Schema Management
+runic.orm.schema — Index declarations
 ---------------------------------------------
 
 .. autoclass:: runic.orm.schema.index_manager.IndexSpec
@@ -177,17 +169,18 @@ runic.orm.schema — Index & Schema Management
 
 .. autofunction:: runic.orm.schema.index_manager.extract_declared_specs
 
-.. autofunction:: runic.orm.schema.index_manager.parse_existing_specs
+runic.migrate.schema — Index & Schema Management
+-------------------------------------------------
 
-.. autoclass:: runic.orm.schema.index_manager.IndexManager
+.. autoclass:: runic.migrate.schema.IndexManager
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.schema.schema_manager.ValidationResult
+.. autoclass:: runic.migrate.schema.ValidationResult
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.schema.schema_manager.SchemaManager
+.. autoclass:: runic.migrate.schema.SchemaManager
    :members:
    :show-inheritance:
 
@@ -223,22 +216,24 @@ runic.orm.exceptions
 runic.orm.query
 ---------------
 
+.. autofunction:: runic.orm.query.select
+
 .. autoclass:: runic.orm.query.builder.QueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.builder.AsyncQueryBuilder
+.. autoclass:: runic.orm.query.specialised.AsyncQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.builder.FulltextQueryBuilder
+.. autoclass:: runic.orm.query.specialised.FulltextQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.builder.VectorQueryBuilder
+.. autoclass:: runic.orm.query.specialised.VectorQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:

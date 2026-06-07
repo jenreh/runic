@@ -26,7 +26,7 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Node, Repository, Session  # noqa: E402
+from runic.orm import Node, Repository, Session, select  # noqa: E402
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -204,54 +204,47 @@ def run() -> None:
 
     # --- QueryBuilder: query Restaurant subtype ---
     with Session(driver) as session:
-        restaurants: list[Restaurant] = session.query(Restaurant).all()
+        restaurants: list[Restaurant] = session.scalars(select(Restaurant))
         log.info("Restaurants via QueryBuilder: %d", len(restaurants))
 
     # --- Query builder: filter Country by population threshold ---
     with Session(driver) as session:
-        large: list[Country] = (
-            session.query(Country)
+        large: list[Country] = session.scalars(
+            select(Country)
             .where(Country.population > 70_000_000)
             .order_by(Country.population, desc=True)
-            .all()
         )
         log.info("Countries population > 70M: %s", [c.iso_code for c in large])
 
     # --- Query builder: compound AND predicate ---
     with Session(driver) as session:
-        paris_area: list[City] = (
-            session.query(City)
-            .where(
+        paris_area: list[City] = session.scalars(
+            select(City).where(
                 (City.latitude > 48.0)  # type: ignore[operator]
                 & (City.longitude > 2.0)  # type: ignore[operator]
             )
-            .all()
         )
         log.info("Cities in Paris quadrant: %s", [c.title for c in paris_area])
 
     # --- Query builder: project() → scalar list ---
     with Session(driver) as session:
-        titles: list[str] = (
-            session.query(Location)
-            .order_by(Location.title)
-            .project(Location.title)
-            .scalars()
+        rows = session.all_rows(
+            select(Location).order_by(Location.title).project(Location.title)
         )
+        titles: list[str] = [r["n.title"] for r in rows]
         log.info("All location titles (projected): %s", titles)
 
     # --- Query builder: null check (locations without coordinates) ---
     with Session(driver) as session:
-        no_coords: int = (
-            session.query(Location)
-            .where(Location.latitude.is_null())  # type: ignore[attr-defined]
-            .count()
+        no_coords: int = session.count(
+            select(Location).where(Location.latitude.is_null())  # type: ignore[attr-defined]
         )
         log.info("Locations without latitude: %d", no_coords)
 
     # --- Query builder: one() on specific subtype ---
     with Session(driver) as session:
-        louvre: Museum | None = (
-            session.query(Museum).where(Museum.id == "LOUVRE").one()
+        louvre: Museum | None = session.scalar(
+            select(Museum).where(Museum.id == "LOUVRE")
         )
         log.info("Museum one(): %s", louvre and louvre.title)
 

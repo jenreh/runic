@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import weakref
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
 from runic.orm.core.metadata import metadata as _global_metadata
@@ -16,8 +16,11 @@ from runic.orm.mapper.relationship_writer import RelationshipWriter
 
 if TYPE_CHECKING:
     from runic.orm.driver import GraphDriver, GraphResult
+    from runic.orm.query.builder import QueryBuilder
 
 log = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class Session:
@@ -360,6 +363,109 @@ class Session:
     ) -> Any:
         """Execute raw Cypher; returns ``QueryResult``; no entity mapping."""
         return self._run_query(cypher, params or {})
+
+    # ------------------------------------------------------------------
+    # Statement-based execution (select() pattern)
+    # ------------------------------------------------------------------
+
+    def scalars(self, stmt: QueryBuilder[_T]) -> list[_T]:
+        """Execute a :func:`~runic.orm.query.select` statement; return decoded entities.
+
+        Type-safe: ``session.scalars(select(User).where(...))`` infers ``list[User]``.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
+            via :func:`~runic.orm.query.select`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalars() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_node_result(result)  # type: ignore[return-value]  # noqa: SLF001
+
+    def scalar(self, stmt: QueryBuilder[_T]) -> _T | None:
+        """Execute a :func:`~runic.orm.query.select` statement; return first entity or ``None``.
+
+        Adds ``LIMIT 1`` internally without permanently modifying the statement.
+        Type-safe: ``session.scalar(select(User).where(...))`` infers ``User | None``.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
+            via :func:`~runic.orm.query.select`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("scalar() expects a QueryBuilder created by select()")
+        old_limit = stmt._limit_val  # noqa: SLF001
+        stmt._limit_val = 1  # noqa: SLF001
+        try:
+            with stmt._bound_to(self) as bound:  # noqa: SLF001
+                cypher, params = bound.build()
+                result = self._run_query(cypher, params)
+                entities = bound._decode_node_result(result)  # noqa: SLF001
+                return entities[0] if entities else None  # type: ignore[return-value]
+        finally:
+            stmt._limit_val = old_limit  # noqa: SLF001
+
+    def all_rows(self, stmt: QueryBuilder[Any]) -> list[dict[str, Any]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return column-keyed dicts.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("all_rows() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_rows_as_dicts(result)  # noqa: SLF001
+
+    def all_with_edges(self, stmt: QueryBuilder[Any]) -> list[tuple[Any, ...]]:
+        """Execute a :func:`~runic.orm.query.select` statement; return ``(NodeA, Edge, NodeB)`` tuples.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder` with
+            ``return_nodes()`` and ``return_edge()`` configured.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError(
+                "all_with_edges() expects a QueryBuilder created by select()"
+            )
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            cypher, params = bound.build()
+            result = self._run_query(cypher, params)
+            return bound._decode_edge_result(result)  # noqa: SLF001
+
+    def count(self, stmt: QueryBuilder[Any]) -> int:
+        """Execute a :func:`~runic.orm.query.select` statement; return the row count.
+
+        Parameters
+        ----------
+        stmt:
+            An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
+        """
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError("count() expects a QueryBuilder created by select()")
+        with stmt._bound_to(self) as bound:  # noqa: SLF001
+            return bound.count()
 
     # ------------------------------------------------------------------
     # Query builder entry points

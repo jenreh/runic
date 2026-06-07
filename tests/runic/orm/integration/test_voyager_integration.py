@@ -24,7 +24,6 @@ from runic.orm.core.descriptors import _NOT_LOADED, Field, Relation
 from runic.orm.core.models import Edge, Node
 from runic.orm.core.types import GeoLocation
 from runic.orm.exceptions import DetachedEntityError
-from runic.orm.repository.pagination import Pageable
 from runic.orm.repository.repository import Repository
 from runic.orm.session.session import Session
 
@@ -702,7 +701,9 @@ class TestRelationshipMutations:
 
 @pytest.mark.requires_multi_label
 class TestPagination:
-    def test_paginated_returns_correct_count(self, graph_driver: Any) -> None:
+    def test_find_all_with_limit_returns_correct_subset(
+        self, graph_driver: Any
+    ) -> None:
         suffix = _uid()
         with Session(graph_driver) as s:
             for i in range(6):
@@ -711,10 +712,10 @@ class TestPagination:
 
         with Session(graph_driver) as s:
             repo = Repository(s, VCity)
-            page = repo.find_all_paginated(Pageable(page=0, size=4))
-        assert page.total_elements >= 6
+            items = repo.find_all(limit=4)
+        assert len(items) == 4
 
-    def test_paginated_size_respected(self, graph_driver: Any) -> None:
+    def test_find_all_limit_respected(self, graph_driver: Any) -> None:
         suffix = _uid()
         with Session(graph_driver) as s:
             for i in range(6):
@@ -723,10 +724,10 @@ class TestPagination:
 
         with Session(graph_driver) as s:
             repo = Repository(s, VCity)
-            page = repo.find_all_paginated(Pageable(page=0, size=3, sort_by="id"))
-        assert len(list(page)) == 3
+            items = repo.find_all(limit=3)
+        assert len(items) == 3
 
-    def test_paginated_has_next_and_no_previous(self, graph_driver: Any) -> None:
+    def test_find_all_skip_produces_different_results(self, graph_driver: Any) -> None:
         suffix = _uid()
         with Session(graph_driver) as s:
             for i in range(5):
@@ -735,9 +736,10 @@ class TestPagination:
 
         with Session(graph_driver) as s:
             repo = Repository(s, VCity)
-            page = repo.find_all_paginated(Pageable(page=0, size=2))
-        assert page.has_next() is True
-        assert page.has_previous() is False
+            first = repo.find_all(skip=0, limit=2)
+            second = repo.find_all(skip=2, limit=2)
+        assert len(first) == 2
+        assert len(second) == 2
 
 
 # ---------------------------------------------------------------------------

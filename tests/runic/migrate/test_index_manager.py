@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
+from runic.migrate.schema import IndexManager
 from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.models import Edge, Node
-from runic.orm.schema.index_manager import (
-    IndexManager,
-    IndexSpec,
-    extract_declared_specs,
-)
+from runic.orm.schema.index_manager import IndexSpec, extract_declared_specs
 
 # ---------------------------------------------------------------------------
 # Test entities
@@ -84,7 +81,6 @@ def test_extract_unique_constraint() -> None:
 
     specs = extract_declared_specs(UniqueNode)
     assert IndexSpec(label="UniqueNode", property="code", index_type="UNIQUE") in specs
-    # Backing RANGE must NOT be emitted — it's auto-created by FalkorDB.
     assert (
         IndexSpec(label="UniqueNode", property="code", index_type="RANGE") not in specs
     )
@@ -100,8 +96,6 @@ def test_extract_fulltext_index() -> None:
 
 
 def test_extract_unique_does_not_add_range() -> None:
-    """unique=True + index=True: only UNIQUE is declared (RANGE is auto-backed)."""
-
     class BothNode(Node, labels=["BothNode"]):
         id: str = Field()
         code: str = Field(unique=True, index=True)
@@ -139,14 +133,10 @@ def test_extract_uses_primary_label() -> None:
 
 def test_extract_combined_indexes() -> None:
     specs = extract_declared_specs(SchemaPersonNode)
-    # email: unique=True, index=True → only UNIQUE
     assert IndexSpec("SchemaPerson", "email", "UNIQUE") in specs
     assert IndexSpec("SchemaPerson", "email", "RANGE") not in specs
-    # age: index=True → RANGE
     assert IndexSpec("SchemaPerson", "age", "RANGE") in specs
-    # bio: fulltext
     assert IndexSpec("SchemaPerson", "bio", "FULLTEXT") in specs
-    # name: no index
     assert not any(s.property == "name" for s in specs)
 
 
@@ -179,7 +169,7 @@ class TestIndexManagerWithGenericAdapter:
     def test_auto_detection_wraps_falkordb_handle(self) -> None:
         from unittest.mock import MagicMock
 
-        from runic.orm.schema.index_manager import FalkorDBIndexAdapter
+        from runic.migrate.adapters.falkordb import FalkorDBIndexAdapter
 
         fake_graph = MagicMock()
         fake_graph.create_node_range_index = MagicMock()
@@ -219,7 +209,6 @@ class TestIndexManagerWithGenericAdapter:
 
         manager, adapter = self._make_manager()
         manager.create_indexes(FTEntity)
-        # Must be called exactly once, with both props
         assert adapter.create_fulltext_index.call_count == 1
         call_args = adapter.create_fulltext_index.call_args
         assert call_args[0][0] == "FTEnt"
@@ -313,7 +302,6 @@ class TestIndexManagerWithGenericAdapter:
         adapter.create_edge_type.assert_called_once_with("KNOWS")
 
     def test_vertex_type_called_before_index_ddl(self) -> None:
-        """create_vertex_type must be called before any index DDL on the same adapter."""
         from unittest.mock import MagicMock
 
         class OrderedNode(Node, labels=["OrderedNode"]):

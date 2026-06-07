@@ -120,6 +120,58 @@ Expunge
    session.expunge(entity)   # remove from session → detached; no DB action
    session.expunge_all()
 
+Composable statement execution
+------------------------------
+
+:func:`~runic.orm.query.select` creates a
+:class:`~runic.orm.query.builder.QueryBuilder` that is **not bound to a
+session**.  Build the statement freely — including conditional filters — then
+pass it to one of the session execution methods:
+
+.. code-block:: python
+
+   from runic.orm import select
+
+   stmt = select(Person).where(Person.active == True)
+   if min_age > 0:
+       stmt = stmt.where(Person.age >= min_age)
+
+   # All five execution methods accept a QueryBuilder
+   people: list[Person]  = session.scalars(stmt)
+   person: Person | None = session.scalar(stmt)
+   n:      int           = session.count(stmt)
+   rows:   list[dict]    = session.all_rows(stmt)
+
+   # Async sessions accept the same stmt
+   people = await async_session.scalars(stmt)
+
+The same ``stmt`` object is **reusable** — execute it multiple times, against
+different sessions if needed.  Each execution restores the session binding to
+``None`` afterwards.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Method
+     - Returns
+   * - ``scalars(stmt)``
+     - ``list[T]`` — decoded node entities; ``T`` inferred from ``QueryBuilder[T]``
+   * - ``scalar(stmt)``
+     - ``T | None`` — first entity, or ``None`` if the result set is empty
+   * - ``count(stmt)``
+     - ``int`` — total matching nodes
+   * - ``all_rows(stmt)``
+     - ``list[dict[str, Any]]`` — raw column-value dicts
+   * - ``all_with_edges(stmt)``
+     - ``list[tuple[Any, ...]]`` — tuples of ``(node, edge, node)``
+
+.. tip::
+
+   ``session.query(Person).where(...).all()`` is still fully supported.
+   Prefer ``select()`` when you need to compose the query across multiple
+   code paths before executing.
+
 Raw Cypher
 ----------
 
@@ -129,15 +181,16 @@ features not covered by the builder.
 
 .. code-block:: python
 
-   # Prefer the query builder for reads
-   friends = (
-       session.query(Person)
+   from runic.orm import select
+
+   # Prefer select() + session.scalars() for reads
+   stmt = (
+       select(Person)
        .where(Person.id == "alice")
        .alias("p")
        .traverse(Person.knows).alias("f")
-       .project(Person.name, on="f")
-       .scalars()
    )
+   friends: list[Person] = session.scalars(stmt)
 
    # Write mutations (SET, REMOVE, …) require session.execute(write=True)
    session.execute(
@@ -177,6 +230,16 @@ Session API summary
      - Remove from session (→ detached); no graph action
    * - ``expunge_all()``
      - Expunge all tracked entities
+   * - ``scalars(stmt)``
+     - Execute a :func:`~runic.orm.query.select` statement; return ``list[T]``
+   * - ``scalar(stmt)``
+     - Execute a statement; return first ``T`` or ``None``
+   * - ``count(stmt)``
+     - Execute a statement; return row count as ``int``
+   * - ``all_rows(stmt)``
+     - Execute a statement; return ``list[dict[str, Any]]``
+   * - ``all_with_edges(stmt)``
+     - Execute a statement; return ``list[tuple[Any, ...]]``
    * - ``execute(cypher, params, write)``
      - Raw Cypher; returns :class:`~runic.orm.driver.GraphResult` (``.rows``, ``.columns``)
    * - ``close()``

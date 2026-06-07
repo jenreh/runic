@@ -12,16 +12,17 @@ and know when to reach for something else.
 How the query builder works
 ----------------------------
 
-When you call :meth:`~runic.orm.session.session.Session.query`, you get back a
+:func:`~runic.orm.query.select` returns a
 :class:`~runic.orm.query.builder.QueryBuilder` that accumulates clauses as you
-chain method calls.  Nothing is sent to the database until you call a *terminal
-method* (``all()``, ``one()``, ``count()``, etc.).
+chain method calls.  Nothing is sent to the database until you pass the
+statement to a session execution method (``session.scalars()``,
+``session.scalar()``, ``session.count()``, etc.).
 
-At that point the builder:
+At that point the session:
 
 1. **Generates a Cypher string and a parameter dict** from the accumulated
    clauses.
-2. **Sends the query to the driver** via the underlying session's connection.
+2. **Sends the query to the driver** via the session's connection.
 3. **Decodes each result row** using the ORM mapper — the same code path used
    by ``session.get()`` and ``repo.find_all()``.
 4. **Registers returned entities in the session's identity map**, so change
@@ -32,11 +33,14 @@ builder queries and direct ``session.get()`` calls freely within the same
 session.
 
 To see the Cypher the builder *would* emit without executing it, call
-:meth:`~runic.orm.query.builder.QueryBuilder.build`::
+:meth:`~runic.orm.query.builder.QueryBuilder.build` — this works on an unbound
+statement (no session required)::
+
+    from runic.orm import select
 
     cypher: str
     params: dict[str, Any]
-    cypher, params = session.query(User).where(User.active == True).build()
+    cypher, params = select(User).where(User.active == True).build()
     print(cypher)
     # MATCH (n:User) WHERE (n.active = $p0) RETURN n
     print(params)
@@ -57,7 +61,7 @@ results.
 Entry points
 ------------
 
-There are three starting points for a query.  All three return a
+There are four starting points for a query.  All four return a
 :class:`~runic.orm.query.builder.QueryBuilder` whose chaining and terminal
 methods behave identically.
 
@@ -67,17 +71,70 @@ methods behave identically.
 
    * - Call
      - When to use
+   * - ``select(NodeCls)``
+     - **Preferred.** Session-independent statement; execute via
+       ``session.scalars(stmt)`` etc.  Enables dynamic query composition.
    * - ``session.query(NodeCls)``
-     - Standard node queries; the most common entry point.
+     - Session-bound query; terminal methods (``all()``, ``count()``, …) execute
+       immediately.  Equivalent to ``session.scalars(select(NodeCls)...)``.
    * - ``repo.query()``
      - Equivalent to ``session.query(T)``; useful when the repository type is
-       already in scope, keeps model type in one place.
+       already in scope.
    * - ``session.fulltext_search(Cls, query=...)``
      - Full-text search queries — wraps a backend-specific ``CALL`` procedure.
        See `Full-text search`_.
    * - ``session.vector_search(Cls, field=..., vector=..., k=...)``
      - Approximate nearest-neighbour vector queries.
        See `Vector KNN search`_.
+
+----
+
+Composable statements
+---------------------
+
+:func:`~runic.orm.query.select` creates a :class:`~runic.orm.query.builder.QueryBuilder`
+that is **not bound to a session**, making it easy to build dynamic queries from
+UI filters, request parameters, or any conditional logic — then hand the
+finished statement to a session for execution.
+
+.. code-block:: python
+
+   from runic.orm import select
+
+   # Build without touching the database
+   stmt = select(User).where(User.active == True)
+
+   if min_age > 0:
+       stmt = stmt.where(User.age >= min_age)
+   if name_filter:
+       stmt = stmt.where(User.name.contains(name_filter))
+
+   stmt = stmt.order_by(User.name).limit(page_size)
+
+   # Execute once you have a session
+   users: list[User]  = session.scalars(stmt)
+   user:  User | None = session.scalar(stmt)
+   n:     int         = session.count(stmt)
+   rows:  list[dict]  = session.all_rows(stmt)
+
+   # Async sessions work with the same stmt
+   users = await async_session.scalars(stmt)
+
+The same ``stmt`` object is **reusable** — execute it multiple times, against
+different sessions if needed.  Each call to ``session.scalars()`` etc. restores
+the statement's binding to ``None`` after execution.
+
+Calling terminal methods directly on an unbound statement raises a clear
+:exc:`RuntimeError`::
+
+    stmt = select(User)
+    stmt.all()   # RuntimeError: not bound to a session — use session.scalars(stmt)
+
+.. tip::
+
+   ``session.query(User).where(...).all()`` is still fully supported and
+   equivalent to ``session.scalars(select(User).where(...))``.  Prefer
+   ``select()`` when you need to compose the query across multiple code paths.
 
 ----
 
@@ -169,25 +226,25 @@ short-circuit and discard the filter objects:
 .. code-block:: python
 
     # AND — both conditions must match
-    session.query(User).where((User.age > 18) & (User.active == True))
+    select(User).where((User.age > 18) & (User.active == True))
     # WHERE (n.age > $p0) AND (n.active = $p1)
 
     # OR — either condition can match
-    session.query(User).where((User.role == "admin") | (User.role == "mod"))
+    select(User).where((User.role == "admin") | (User.role == "mod"))
     # WHERE (n.role = $p0) OR (n.role = $p1)
 
     # NOT — negate a predicate
-    session.query(User).where(~(User.banned == True))
+    select(User).where(~(User.banned == True))
     # WHERE NOT (n.banned = $p0)
 
 **Multiple ``.where()`` calls are always joined by AND.**  The following two
-queries are equivalent:
+statements are equivalent:
 
 .. code-block:: python
 
-    session.query(User).where((User.age > 18) & (User.active == True))
+    select(User).where((User.age > 18) & (User.active == True))
 
-    session.query(User).where(User.age > 18).where(User.active == True)
+    select(User).where(User.age > 18).where(User.active == True)
 
 Use chained ``.where()`` calls when your predicates are produced independently
 (e.g. optional filters in a search function) and ``&`` / ``|`` when you need
@@ -202,31 +259,32 @@ These clauses work exactly as their Cypher counterparts suggest:
 
 .. code-block:: python
 
-    users: list[User] = (
-        session.query(User)
+    stmt = (
+        select(User)
         .order_by(User.created_at, desc=True)   # ORDER BY n.created_at DESC
         .skip(40)                                # SKIP 40
         .limit(20)                               # LIMIT 20
-        .all()
     )
+    users: list[User] = session.scalars(stmt)
 
 ``skip`` and ``limit`` together implement offset-based pagination.  For
 cursor-based or keyset pagination, filter on an indexed field instead::
 
-    users: list[User] = (
-        session.query(User)
+    stmt = (
+        select(User)
         .where(User.created_at < last_seen_ts)
         .order_by(User.created_at, desc=True)
         .limit(20)
-        .all()
     )
+    users: list[User] = session.scalars(stmt)
 
 Use ``.distinct()`` to deduplicate the ``RETURN`` clause:
 
 .. code-block:: python
 
-    # Unique countries across all users
-    countries: list[str] = session.query(User).distinct().project(User.country).scalars()
+    # Unique countries across all users — project() + all_rows() for scalar columns
+    rows: list[dict] = session.all_rows(select(User).distinct().project(User.country))
+    countries: list[str] = [r["n.country"] for r in rows]
     # RETURN DISTINCT n.country
 
 ----
@@ -241,12 +299,13 @@ data transferred from the database.
 
 .. code-block:: python
 
-    # Single field → flat list via .scalars()
-    emails: list[str] = session.query(User).project(User.email).scalars()
+    # Single field → flat list via session.all_rows() then extract
+    rows = session.all_rows(select(User).project(User.email))
+    emails: list[str] = [r["n.email"] for r in rows]
     # RETURN n.email  →  ["alice@example.com", "bob@example.com", ...]
 
-    # Multiple fields → list of dicts via .all_rows()
-    rows: list[dict[str, Any]] = session.query(User).project(User.name, User.age).all_rows()
+    # Multiple fields → list of dicts via session.all_rows()
+    rows: list[dict[str, Any]] = session.all_rows(select(User).project(User.name, User.age))
     # RETURN n.name, n.age  →  [{"n.name": "Alice", "n.age": 30}, ...]
 
 When to use projection vs full node loading:
@@ -281,15 +340,17 @@ When there is no ``group_by``, the query collapses to a single row:
 .. code-block:: python
 
     # Total number of users
-    total: int = session.query(User).aggregate(count().as_("total")).scalar()
+    rows = session.all_rows(select(User).aggregate(count().as_("total")))
+    total: int = rows[0]["total"]
     # MATCH (n:User) RETURN count(*) AS total
 
     # Average score
-    avg_score: float = session.query(User).aggregate(avg(User.score).as_("avg")).scalar()
+    rows = session.all_rows(select(User).aggregate(avg(User.score).as_("avg")))
+    avg_score: float = rows[0]["avg"]
     # MATCH (n:User) RETURN avg(n.score) AS avg
 
-    # Convenience shortcut
-    n: int = session.query(User).where(User.active == True).count()
+    # Convenience shortcut — count via session.count()
+    n: int = session.count(select(User).where(User.active == True))
     # MATCH (n:User) WHERE n.active = $p0 RETURN count(*)
 
 Grouped aggregation
@@ -298,12 +359,12 @@ Grouped aggregation
 Pass ``group_by=`` to partition results.  The named alias must match an alias
 previously set with ``.alias()``::
 
-    rows: list[dict[str, Any]] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .traverse(User.posts).alias("p")
         .aggregate(count("*").as_("post_count"), group_by="u")
-        .all_rows()
     )
+    rows: list[dict[str, Any]] = session.all_rows(stmt)
     # OPTIONAL MATCH (u:User)-[:AUTHORED]->(p:Post)
     # RETURN u, count(*) AS post_count
 
@@ -318,12 +379,12 @@ Collecting values into a list
 ``collect`` maps to Cypher's ``collect()`` aggregate, which gathers values
 across rows into a list::
 
-    rows: list[dict[str, Any]] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .traverse(User.tags).alias("t")
         .aggregate(collect("t").as_("tags"), group_by="u")
-        .all_rows()
     )
+    rows: list[dict[str, Any]] = session.all_rows(stmt)
     # RETURN u, collect(t) AS tags
 
 .. seealso::
@@ -369,14 +430,14 @@ the builder chain:
 .. code-block:: python
 
     # Find all friends of a specific user, aged over 25
-    friends: list[User] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .where(User.id == user_id)
         .traverse(User.friends).alias("f")
         .where(User.age > 25, on="f")   # predicate scoped to "f", not "u"
         .return_target("f")
-        .all()
     )
+    friends: list[User] = session.scalars(stmt)
     # MATCH (u:User) WHERE u.id = $p0
     # OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
     # WHERE f.age > $p1
@@ -391,14 +452,14 @@ Multi-hop traversal
 Chain multiple ``.traverse()`` calls to follow a path through several
 relationships.  Each step names a new alias::
 
-    posts_by_friends: list[Post] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .traverse(User.friends).alias("f")
         .traverse(User.authored_posts).alias("p")
         .where(Post.title.contains("graph"), on="p")
         .return_target("p")
-        .all()
     )
+    posts_by_friends: list[Post] = session.scalars(stmt)
     # MATCH (u:User)
     # OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
     # OPTIONAL MATCH (f)-[:AUTHORED]->(p:Post)
@@ -416,22 +477,19 @@ dependency graphs):
 .. code-block:: python
 
     # Find all managers in the chain above an employee (1 to 5 hops)
-    ancestors: list[Employee] = (
-        session.query(Employee).alias("e")
+    stmt = (
+        select(Employee).alias("e")
         .where(Employee.id == emp_id)
         .repeat(Employee.reports_to, min_hops=1, max_hops=5).alias("anc")
-        .all()
     )
+    ancestors: list[Employee] = session.scalars(stmt)
     # MATCH (e:Employee) WHERE e.id = $p0
     # MATCH (e)-[:REPORTS_TO*1..5]->(anc:Employee)
     # RETURN anc
 
     # No upper bound — all reachable nodes
-    all_reachable: list[Station] = (
-        session.query(Station)
-        .repeat(Station.connected_to, min_hops=1).alias("s2")
-        .all()
-    )
+    stmt = select(Station).repeat(Station.connected_to, min_hops=1).alias("s2")
+    all_reachable: list[Station] = session.scalars(stmt)
     # MATCH (n:Station)-[:CONNECTED_TO*1..]->(s2:Station) RETURN s2
 
 .. warning::
@@ -462,7 +520,7 @@ defaults to ``n``; traversal targets default to a generated name.  Use
 
 .. code-block:: python
 
-    session.query(User).alias("u").where(User.name == "Alice", on="u")
+    select(User).alias("u").where(User.name == "Alice", on="u")
     # MATCH (u:User) WHERE u.name = $p0 RETURN u
 
 ----
@@ -488,13 +546,13 @@ or **return edge data alongside the nodes**, pass ``edge_alias=`` to
             edge_model=Rated,
         )
 
-    rows: list[tuple[User, Rated, Movie]] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .traverse(User.rated, edge_alias="r").alias("m")
         .where(Rated.score > 4.0, on="r")       # filter on edge property
         .return_nodes("u", "m").return_edge("r")
-        .all_with_edges()
     )
+    rows: list[tuple[User, Rated, Movie]] = session.all_with_edges(stmt)
     # OPTIONAL MATCH (u:User)-[r:RATED]->(m:Movie)
     # WHERE r.score > $p0
     # RETURN u, r, m
@@ -533,16 +591,16 @@ N users by score before expanding their relationships:
 
 .. code-block:: python
 
-    top_authors: list[Post] = (
-        session.query(User).alias("u")
+    stmt = (
+        select(User).alias("u")
         .where(User.active == True)
         .order_by(User.score, desc=True)
         .limit(10)
         .with_("u")                       # WITH u  — only u carries forward
         .traverse(User.authored_posts).alias("p")
         .return_target("p")
-        .all()
     )
+    top_authors: list[Post] = session.scalars(stmt)
     # MATCH (u:User) WHERE u.active = $p0
     # ORDER BY u.score DESC LIMIT 10
     # WITH u
@@ -623,7 +681,7 @@ The backend procedure invoked depends on which driver you are using:
      - Not supported; use PostgreSQL ``tsvector``/``tsquery`` via raw SQL
 
 A fulltext index on the target label must exist before querying.  Create it
-declaratively via :class:`~runic.orm.schema.schema_manager.SchemaManager` or a
+declaratively via :class:`~runic.migrate.schema.SchemaManager` or a
 migration ``op``:
 
 .. code-block:: python
@@ -642,7 +700,7 @@ migration ``op``:
 
 The generated Cypher for FalkorDB:
 
-.. code-block:: cypher
+.. code-block:: none
 
     CALL db.idx.fulltext.queryNodes('Post', $__fts_query) YIELD node AS n
     WHERE n.published = $p0
@@ -687,7 +745,7 @@ underlying procedure is backend-specific:
      - Not supported; use ``pgvector`` via raw SQL
 
 A vector index on the target field must exist.  Runic's
-:class:`~runic.orm.schema.index_manager.IndexManager` can create it, or you can
+:class:`~runic.migrate.schema.IndexManager` can create it, or you can
 use a migration op.
 
 .. code-block:: python
@@ -709,7 +767,7 @@ use a migration op.
 
 The generated Cypher for FalkorDB:
 
-.. code-block:: cypher
+.. code-block:: none
 
     MATCH (n:Document)
     WHERE n.active = $p0
@@ -740,21 +798,18 @@ only the terminal methods are ``async`` and must be awaited:
 
 .. code-block:: python
 
-    async with AsyncSession(driver) as session:
-        users: list[User] = await (
-            session.query(User)
-            .where(User.active == True)
-            .order_by(User.name)
-            .limit(50)
-            .all()
-        )
+    from runic.orm import select
 
-        friends: list[User] = await (
-            session.query(User).alias("u")
-            .traverse(User.friends).alias("f")
-            .where(User.age > 25, on="f")
-            .all()
-        )
+    stmt = select(User).where(User.active == True).order_by(User.name).limit(50)
+    stmt_friends = (
+        select(User).alias("u")
+        .traverse(User.friends).alias("f")
+        .where(User.age > 25, on="f")
+    )
+
+    async with AsyncSession(driver) as session:
+        users: list[User] = await session.scalars(stmt)
+        friends: list[User] = await session.scalars(stmt_friends)
 
 .. note::
 
@@ -778,10 +833,12 @@ tuple without executing it.  Use it to:
 
 .. code-block:: python
 
+    from runic.orm import select
+
     cypher: str
     params: dict[str, Any]
     cypher, params = (
-        session.query(User).alias("u")
+        select(User).alias("u")
         .where(User.age > 18)
         .traverse(User.friends).alias("f")
         .where(User.active == True, on="f")

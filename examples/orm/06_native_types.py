@@ -43,6 +43,7 @@ from runic.orm import (  # noqa: E402
     Node,
     Session,
     Vector,
+    select,
 )
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
@@ -247,47 +248,43 @@ def run() -> None:
 
     # --- Query builder: filter on interned string field ---
     with Session(driver) as session:
-        german: list[Article] = session.query(Article).where(Article.country == "Germany").all()
+        german: list[Article] = session.scalars(
+            select(Article).where(Article.country == "Germany")
+        )
         log.info("QueryBuilder interned country='Germany': %s", [a.id for a in german])
 
     # --- Query builder: filter on Enum field ---
     with Session(driver) as session:
-        published: list[Article] = (
-            session.query(Article)
+        published: list[Article] = session.scalars(
+            select(Article)
             .where(Article.status == ArticleStatus.PUBLISHED)
             .order_by(Article.id)
-            .all()
         )
         log.info("QueryBuilder Enum status=PUBLISHED: %s", [a.id for a in published])
 
     # --- Query builder: compound filter — country AND status ---
     with Session(driver) as session:
-        de_published: list[Article] = (
-            session.query(Article)
-            .where(
+        de_published: list[Article] = session.scalars(
+            select(Article).where(
                 (Article.country == "Germany")  # type: ignore[operator]
                 & (Article.status == ArticleStatus.PUBLISHED)
             )
-            .all()
         )
         log.info("QueryBuilder Germany + PUBLISHED: %s", [a.id for a in de_published])
 
     # --- Query builder: in_() on language field ---
     with Session(driver) as session:
-        multilang: list[Article] = (
-            session.query(Article)
+        multilang: list[Article] = session.scalars(
+            select(Article)
             .where(Article.language.in_(["en", "fr"]))  # type: ignore[attr-defined]  # noqa: E501
             .order_by(Article.id)
-            .all()
         )
         log.info("QueryBuilder language in [en, fr]: %s", [a.id for a in multilang])
 
     # --- Query builder: not_in_() + null check ---
     with Session(driver) as session:
-        without_pub_date: list[Article] = (
-            session.query(Article)
-            .where(Article.published_at.is_null())  # type: ignore[attr-defined]
-            .all()
+        without_pub_date: list[Article] = session.scalars(
+            select(Article).where(Article.published_at.is_null())  # type: ignore[attr-defined]
         )
         log.info(
             "QueryBuilder published_at IS NULL: %s",

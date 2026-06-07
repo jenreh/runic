@@ -2,6 +2,8 @@
 
 Demonstrates:
   - OUTGOING relationship from User to Trip
+  - INCOMING mirror: Trip.attendees reflects the same edge from the Trip side
+  - direction="BOTH": User.contacts for symmetric peer relationships
   - Edge model (InvitationEdge) with properties on the edge itself
   - Lazy loading (default) vs eager loading via fetch=
   - session.relate() / session.unrelate() for mutation without raw Cypher
@@ -27,7 +29,7 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Edge, Node, Relation, Repository, Session  # noqa: E402
+from runic.orm import Edge, Node, Relation, Repository, Session, select  # noqa: E402
 from runic.orm.driver import GraphDriver  # noqa: E402
 from runic.orm.driver.factory import create_driver  # noqa: E402
 from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -42,6 +44,15 @@ class Trip(Node, labels=["Trip"]):
     title: str
     status: str = "draft"
     destination: str | None = None
+    # Mirror of User.invited_trips — same INVITED_TO edge seen from the Trip side.
+    # User declares direction="OUTGOING"; Trip declares direction="INCOMING".
+    # Both sides refer to the identical edge in the graph; querying either
+    # attribute produces the correct traversal direction.
+    attendees: list[User] = Relation(
+        relationship="INVITED_TO",
+        direction="INCOMING",
+        target="User",
+    )
 
 
 class InvitationEdge(Edge, type="INVITED_TO"):
@@ -62,6 +73,15 @@ class User(Node, labels=["User"]):
         direction="OUTGOING",
         target="Trip",
         edge_model=InvitationEdge,
+    )
+    # Symmetric peer relationship — direction="BOTH" means the edge is
+    # traversed regardless of which node is the source or target.  Use this
+    # when the relationship has no inherent direction (friendship, co-authorship,
+    # contact networks).
+    contacts: list[User] = Relation(
+        relationship="KNOWS",
+        direction="BOTH",
+        target="User",
     )
 
 
@@ -259,28 +279,26 @@ def run() -> None:
 
     # --- Query builder: traverse User → Trip ---
     with Session(driver) as session:
-        alice_trips: list[Trip] = (
-            session.query(User)
+        alice_trips: list[Trip] = session.scalars(
+            select(User)
             .alias("u")
             .where(User.id == "alice")
             .traverse(User.invited_trips)
             .alias("t")
             .return_target("t")
-            .all()
         )
         log.info("QueryBuilder: Alice's trips: %s", [t.title for t in alice_trips])
 
     # --- Query builder: traverse with edge alias + filter on edge property ---
     with Session(driver) as session:
-        owner_trips: list[Trip] = (
-            session.query(User)
+        owner_trips: list[Trip] = session.scalars(
+            select(User)
             .alias("u")
             .where(User.id == "alice")
             .traverse(User.invited_trips, edge_alias="e")
             .alias("t")
             .where(InvitationEdge.role == "owner", on="e")
             .return_target("t")
-            .all()
         )
         log.info(
             "QueryBuilder: Alice owner-role trips: %s",
@@ -289,15 +307,14 @@ def run() -> None:
 
     # --- Query builder: all_with_edges() — returns (User, InvitationEdge, Trip) tuples ---
     with Session(driver) as session:
-        rows: list[tuple[User, InvitationEdge, Trip]] = (
-            session.query(User)
+        rows: list[tuple[User, InvitationEdge, Trip]] = session.all_with_edges(
+            select(User)
             .alias("u")
             .where(User.id == "alice")
             .traverse(User.invited_trips, edge_alias="e")
             .alias("t")
             .return_nodes("u", "t")
             .return_edge("e")
-            .all_with_edges()
         )
         for user, edge, trip in rows:
             user: User
@@ -309,6 +326,47 @@ def run() -> None:
                 edge.role if edge else "?",
                 trip.title,
             )
+
+    # --- Mirrored declaration: access the same edge from the Trip side ---
+    # User.invited_trips is OUTGOING; Trip.attendees is INCOMING.
+    # Both sides represent the same INVITED_TO edges in the graph.
+    with Session(driver) as session:
+        paris: Trip | None = session.get(Trip, "paris-2026")
+        assert paris is not None
+        attendees: list[User] = paris.attendees  # type: ignore[attr-defined]
+        log.info(
+            "Paris attendees (via INCOMING mirror): %s",
+            [u.name for u in attendees],
+        )
+
+    # --- direction="BOTH": symmetric peer relationship ---
+    # session.relate() with direction="BOTH" stores an undirected edge.
+    # Accessing .contacts from either end of the edge returns the peer.
+    with Session(driver) as session:
+        alice: User | None = session.get(User, "alice")
+        bob: User | None = session.get(User, "bob")
+        assert alice is not None
+        assert bob is not None
+        session.relate(alice, User.contacts, bob)
+        log.info("Created KNOWS edge between Alice and Bob (direction=BOTH)")
+
+    with Session(driver) as session:
+        alice = session.get(User, "alice")
+        bob = session.get(User, "bob")
+        assert alice is not None
+        assert bob is not None
+
+        alice_contacts: list[User] = alice.contacts  # type: ignore[attr-defined]
+        bob_contacts: list[User] = bob.contacts  # type: ignore[attr-defined]
+
+        log.info(
+            "Alice's contacts (BOTH): %s",
+            [u.name for u in alice_contacts],
+        )
+        log.info(
+            "Bob's contacts (BOTH): %s",
+            [u.name for u in bob_contacts],
+        )
 
     driver.close()
 

@@ -5,7 +5,7 @@ The dialect uses Memgraph's built-in ``text_search`` and ``vector_search``
 modules for fulltext and vector KNN queries respectively.
 
 Both fulltext and vector indexes must be **pre-created** with Cypher DDL before
-use — the runic ``IndexManager`` is FalkorDB-specific and will not create them.
+use — pass a ``MemgraphAdapter`` to ``runic.migrate.IndexManager`` to create them.
 
 Naming contract used by this dialect:
 

@@ -8,6 +8,7 @@ import pytest
 
 from runic.migrate.adapters.memgraph import MemgraphAdapter
 from runic.orm.driver.bolt import BoltDriver
+from runic.orm.schema.index_manager import IndexSpec
 from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
 from tests.runic.orm.unit.mock_helpers import row_result as _row_result
 
@@ -75,9 +76,93 @@ class TestReadLiveSchema:
         assert schema.range_indexes == []
         assert schema.fulltext_indexes == []
 
-    def test_get_existing_specs_empty(self) -> None:
+
+class TestGetExistingSpecs:
+    def test_empty_results_return_empty_set(self) -> None:
         adapter, _ = _make_adapter()
         assert adapter.get_existing_specs() == set()
+
+    def test_label_property_index_returned_as_range(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        index_row = ["label+property", "User", "email", 42]
+        mock_driver.execute.side_effect = [
+            _row_result(index_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+
+    def test_label_only_index_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        index_row = ["label", "User", None, 5]
+        mock_driver.execute.side_effect = [
+            _row_result(index_row),
+            _empty_result(),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_unique_constraint_returned(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["unique", "User", ["id"]]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+
+    def test_exists_constraint_returned_as_mandatory(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["exists", "Post", ["title"]]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert (
+            IndexSpec(label="Post", property="title", index_type="MANDATORY") in specs
+        )
+
+    def test_unknown_constraint_type_excluded(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["other", "User", ["id"]]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert specs == set()
+
+    def test_constraint_props_as_string_handled(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["unique", "User", "email"]
+        mock_driver.execute.side_effect = [
+            _empty_result(),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="UNIQUE") in specs
+
+    def test_index_query_failure_returns_partial_results(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        con_row = ["unique", "User", ["id"]]
+        mock_driver.execute.side_effect = [
+            RuntimeError("show index info unavailable"),
+            _row_result(con_row),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+
+    def test_constraint_query_failure_returns_partial_results(self) -> None:
+        adapter, mock_driver = _make_adapter()
+        index_row = ["label+property", "User", "email", 42]
+        mock_driver.execute.side_effect = [
+            _row_result(index_row),
+            RuntimeError("show constraint info unavailable"),
+        ]
+        specs = adapter.get_existing_specs()
+        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
 
 
 # ---------------------------------------------------------------------------

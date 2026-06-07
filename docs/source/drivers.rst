@@ -232,13 +232,13 @@ driver.
   DDL for all index/constraint types via ``IF NOT EXISTS`` for
   idempotency.
 - **IndexManager** — pass a ``Neo4jAdapter`` to
-  :class:`~runic.orm.schema.IndexManager` to create indexes from your
+  :class:`~runic.migrate.schema.IndexManager` to create indexes from your
   entity definitions:
 
   .. code-block:: python
 
      from runic.migrate.adapters import create_adapter
-     from runic.orm.schema.index_manager import IndexManager
+     from runic.migrate import IndexManager
 
      adapter = create_adapter("neo4j", database="neo4j", password="secret")
      manager = IndexManager(adapter)
@@ -295,12 +295,12 @@ Python driver, with Memgraph-specific ``text_search`` and
 - **Migrate adapter** (``create_adapter("memgraph", ...)``) — issues
   DDL for range, text, vector, and unique constraint creation.
 - **IndexManager** — pass a ``MemgraphAdapter`` to
-  :class:`~runic.orm.schema.IndexManager`:
+  :class:`~runic.migrate.schema.IndexManager`:
 
   .. code-block:: python
 
      from runic.migrate.adapters import create_adapter
-     from runic.orm.schema.index_manager import IndexManager
+     from runic.migrate import IndexManager
 
      adapter = create_adapter("memgraph", database="memgraph")
      manager = IndexManager(adapter)

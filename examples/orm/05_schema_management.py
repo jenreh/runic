@@ -6,25 +6,29 @@ Demonstrates:
   - SchemaManager.validate_schema() — diff between declared vs actual
   - SchemaManager.sync_schema() — create missing indexes
   - SchemaManager.get_schema_diff() — human-readable diff
+  - Using create_adapter() as the primary pattern (works for all backends)
 
-NOTE: IndexManager and SchemaManager are FalkorDB-specific.  This example
-      requires a live FalkorDB server (embedded redislite does not support
-      index introspection).
+Run against FalkorDB:
+    uv run python examples/orm/05_schema_management.py
 
-Run against FalkorDB (live server):
-    FALKORDB_HOST=localhost FALKORDB_PORT=6379 uv run python examples/orm/05_schema_management.py
+Run against Neo4j:
+    RUNIC_BACKEND=neo4j NEO4J_PASSWORD=secret uv run python examples/orm/05_schema_management.py
+
+Run against Memgraph:
+    RUNIC_BACKEND=memgraph uv run python examples/orm/05_schema_management.py
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, IndexManager, Node, SchemaManager  # noqa: E402
+from runic.migrate import IndexManager, SchemaManager  # noqa: E402
+from runic.migrate.adapters import GraphAdapter, create_adapter  # noqa: E402
+from runic.orm import Field, Node  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models with index declarations
@@ -48,21 +52,51 @@ class Event(Node, labels=["Event"]):
 
 
 # ---------------------------------------------------------------------------
-# Connection helper
+# Adapter factory
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> Any:
-    host = os.getenv("FALKORDB_HOST", "")
-    if host:
+def _make_adapter() -> GraphAdapter:
+    backend = os.getenv("RUNIC_BACKEND", "falkordb")
+    if backend == "falkordb":
+        host = os.getenv("FALKORDB_HOST", "")
+        if host:
+            return create_adapter(
+                "falkordb",
+                host=host,
+                port=int(os.getenv("FALKORDB_PORT", "6379")),
+                graph_name="example_schema",
+            )
+        # Embedded fallback via redislite
         from falkordb import FalkorDB
 
-        db = FalkorDB(host=host, port=int(os.getenv("FALKORDB_PORT", "6379")))
-    else:
-        from redislite import FalkorDB  # type: ignore[no-redef]
+        try:
+            from redislite import FalkorDB as _RedisFalkorDB  # type: ignore[no-redef]
 
-        db = FalkorDB(protocol=2)
-    return db.select_graph("example_schema")
+            _db = _RedisFalkorDB(protocol=2)
+        except ImportError:
+            _db = FalkorDB()
+        from runic.migrate.adapters.falkordb import FalkorDBAdapter
+
+        return FalkorDBAdapter(_db, _db.select_graph("example_schema"))
+    if backend == "neo4j":
+        return create_adapter(
+            "neo4j",
+            host=os.getenv("NEO4J_HOST", "localhost"),
+            port=int(os.getenv("NEO4J_PORT", "7687")),
+            database=os.getenv("NEO4J_DATABASE", "neo4j"),
+            username=os.getenv("NEO4J_USER", "neo4j"),
+            password=os.getenv("NEO4J_PASSWORD", ""),
+            encrypted=False,
+        )
+    if backend == "memgraph":
+        return create_adapter(
+            "memgraph",
+            host=os.getenv("MEMGRAPH_HOST", "localhost"),
+            port=int(os.getenv("MEMGRAPH_PORT", "7687")),
+            database=os.getenv("MEMGRAPH_DATABASE", "memgraph"),
+        )
+    raise ValueError(f"Unsupported RUNIC_BACKEND={backend!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -71,19 +105,13 @@ def _connect() -> Any:
 
 
 def run() -> None:
+    adapter = _make_adapter()
     backend = os.getenv("RUNIC_BACKEND", "falkordb")
-    if backend != "falkordb":
-        log.warning(
-            "IndexManager and SchemaManager are FalkorDB-only. Skipping (RUNIC_BACKEND=%s).",
-            backend,
-        )
-        return
-
-    graph = _connect()
+    log.info("Backend: %s", backend)
 
     # --- IndexManager: create indexes for individual classes ---
     log.info("=== IndexManager ===")
-    manager = IndexManager(graph)
+    manager = IndexManager(adapter)
 
     manager.create_indexes(Place, if_not_exists=True)
     log.info("Created Place indexes")
@@ -93,7 +121,7 @@ def run() -> None:
 
     # --- SchemaManager: validate ---
     log.info("=== SchemaManager — validate ===")
-    schema = SchemaManager(graph)
+    schema = SchemaManager(adapter)
 
     result = schema.validate_schema([Place, Event])
     log.info("is_valid: %s", result.is_valid)

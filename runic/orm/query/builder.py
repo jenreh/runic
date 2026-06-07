@@ -12,6 +12,8 @@ See :doc:`/query_builder` for the full API reference and examples.
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any, Generic, TypeVar
 
 from runic.orm.core.descriptors import FieldDescriptor, FieldInfo
@@ -83,10 +85,10 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         The root Node subclass to query.
     """
 
-    def __init__(self, session: Any, root_cls: type[T]) -> None:
+    def __init__(self, session: Any | None, root_cls: type[T]) -> None:
         from runic.orm.core.metadata import MetaData
 
-        self._session = session
+        self._session: Any = session  # None when unbound (created via select())
         self._root_cls: type[T] = root_cls
         _mapper = getattr(session, "mapper", None)
         self._meta: MetaData = getattr(_mapper, "meta", _global_metadata)
@@ -135,7 +137,38 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     @property
     def _dialect(self) -> Any:
+        if self._session is None:
+            return None
         return self._session.mapper.dialect
+
+    # ------------------------------------------------------------------
+    # Unbound-statement guard
+    # ------------------------------------------------------------------
+
+    def _check_bound(self) -> None:
+        if self._session is None:
+            raise RuntimeError(
+                "This statement is not bound to a session. "
+                "Use session.scalars(stmt), session.scalar(stmt), "
+                "session.all_rows(stmt), session.all_with_edges(stmt), "
+                "or session.count(stmt) to execute it."
+            )
+
+    @contextmanager
+    def _bound_to(self, session: Any) -> Generator[QueryBuilder[T]]:
+        """Temporarily bind this statement to *session* for execution.
+
+        Used by :class:`~runic.orm.session.session.Session` execution methods
+        so that :meth:`build` has access to the dialect and the identity map is
+        populated correctly.  The binding is restored after the ``with`` block,
+        leaving the statement reusable.
+        """
+        old = self._session
+        self._session = session
+        try:
+            yield self
+        finally:
+            self._session = old
 
     # ------------------------------------------------------------------
     # Alias management
@@ -645,6 +678,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             Decoded Node instances of the root type (or target type when
             ``return_target()`` was called).
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -689,6 +723,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             for user, rated_edge, movie in rows:
                 print(f"{user.name} rated {movie.title} with {rated_edge.score}")
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all_with_edges: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -703,6 +738,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
             rows = q.aggregate(count("*").as_("n"), group_by="u").all_rows()
             # [{"u": <User>, "n": 5}, ...]
         """
+        self._check_bound()
         cypher, params = self.build()
         log.debug("QueryBuilder.all_rows: %s", cypher)
         result = self._session.execute(cypher, params)
@@ -714,6 +750,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         Overrides any existing RETURN spec to emit ``RETURN count(*)``.
         Ignores :meth:`limit` and :meth:`skip`.
         """
+        self._check_bound()
         saved_agg = self._agg_exprs
         saved_group = self._group_by_alias
         saved_return = self._return_aliases
@@ -742,6 +779,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     def scalar(self) -> Any:
         """Execute and return the first column of the first row, or ``None``."""
+        self._check_bound()
         result = self._session.execute(*self.build())
         if result.rows and result.rows[0]:
             return result.rows[0][0]
@@ -749,6 +787,7 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
 
     def scalars(self) -> list[Any]:
         """Execute and return the first column of every row as a flat list."""
+        self._check_bound()
         result = self._session.execute(*self.build())
         return [row[0] for row in result.rows]
 
@@ -863,7 +902,10 @@ class QueryBuilder(Generic[T]):  # noqa: UP046
         param_name = self._next_param(param_value)
 
         # Wrap param ref with cypher_fn if needed (dialect-aware)
-        cypher_fn = self._dialect.cypher_fn_for_field(fi) if fi is not None else None
+        _d = self._dialect
+        cypher_fn = (
+            _d.cypher_fn_for_field(fi) if (fi is not None and _d is not None) else None
+        )
         param_ref = f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
 
         if expr.op in ("IN", "NOT IN"):

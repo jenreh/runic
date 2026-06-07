@@ -34,7 +34,7 @@
 
 - **Declarative Models** — `Node` and `Edge` subclasses with typed `Field` descriptors; no metaclass magic.
 - **Pluggable Driver Layer** — `GraphDriver` / `GraphDialect` protocols; built-in drivers for FalkorDB, ArcadeDB (via Bolt), and any Bolt-compatible DB. Switch backends without changing model code.
-- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and pagination.
+- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and offset reads.
 - **Relationships** — `Relation` field for INCOMING / OUTGOING edges; lazy and eager loading; edge property models.
 - **Schema Management** — `IndexManager` and `SchemaManager` to create, validate, and sync RANGE, FULLTEXT, and UNIQUE indexes.
 - **Native Graph Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
@@ -227,12 +227,12 @@ with Session(driver) as session:
 ### Pagination and custom queries
 
 ```python
-from runic.orm import Pageable, Repository
+from runic.orm import Repository
 
 with Session(driver) as session:
     repo = Repository(session, User)
-    page = repo.find_all_paginated(Pageable(page=0, size=20, sort_by="name"))
-    print(f"{len(list(page))} of {page.total_elements} total")
+    first_page = repo.find_all(skip=0, limit=20)
+    next_page = repo.find_all(skip=20, limit=20)
 ```
 
 Extend `Repository` to add typed Cypher helpers:
@@ -246,6 +246,28 @@ class UserRepository(Repository[User]):
             returns=User,
         )
 ```
+
+### Composable queries
+
+`select()` creates a query statement independently of any session, enabling
+dynamic query composition (e.g. conditional UI filters) before execution:
+
+```python
+from runic.orm import select
+
+stmt = select(User).where(User.active == True)
+if min_age > 0:
+    stmt = stmt.where(User.age >= min_age)
+
+with Session(driver) as session:
+    users: list[User]  = session.scalars(stmt)   # list[User]
+    user:  User | None = session.scalar(stmt)    # User | None
+    n:     int         = session.count(stmt)     # int
+```
+
+The same `stmt` is reusable — pass it to multiple sessions or execute it
+multiple times.  The older `session.query(User).where(...).all()` pattern is
+still fully supported.
 
 ### Schema management
 

@@ -90,19 +90,13 @@ Documentation for version: 0.2.2.
 
       Fluent filter, traversal, aggregation, fulltext and vector KNN API.
 
-   .. grid-item-card:: Schema management
-      :link: schema
-      :link-type: doc
-
-      IndexManager and SchemaManager — declare, validate, and sync indexes.
-
-.. grid:: 2
-
    .. grid-item-card:: Supported drivers
       :link: drivers
       :link-type: doc
 
       FalkorDB, ArcadeDB, and generic Bolt — feature matrix and limitations.
+
+.. grid:: 2
 
    .. grid-item-card:: ORM API reference
       :link: api
@@ -137,6 +131,14 @@ Documentation for version: 0.2.2.
 
       Full list of ``op.*`` calls available inside migration scripts.
 
+   .. grid-item-card:: Schema management
+      :link: migration/schema
+      :link-type: doc
+
+      IndexManager and SchemaManager — declare, validate, and sync indexes.
+
+.. grid:: 2
+
    .. grid-item-card:: Migration API reference
       :link: migration/api
       :link-type: doc
@@ -152,9 +154,8 @@ Documentation for version: 0.2.2.
    quickstart
    concepts
    relationships
-   session
    query_builder
-   schema
+   session
    drivers
    api
 

@@ -21,6 +21,12 @@ pytestmark = pytest.mark.integration
 class Department(Node, labels=["Department"]):
     id: str = Field()
     name: str = Field()
+    # Mirror of Employee.department — same BELONGS_TO edge from the Department side
+    staff: list[Employee] = Relation(
+        relationship="BELONGS_TO",
+        direction="INCOMING",
+        target="Employee",
+    )
 
 
 class Employee(Node, labels=["Employee"]):
@@ -36,6 +42,12 @@ class Employee(Node, labels=["Employee"]):
         direction="OUTGOING",
         target="Employee",
         lazy=True,
+    )
+    # Symmetric peer relationship — undirected WORKS_WITH edge
+    peers: list[Employee] = Relation(
+        relationship="WORKS_WITH",
+        direction="BOTH",
+        target="Employee",
     )
 
 
@@ -277,3 +289,134 @@ def test_lazy_loaded_entity_has_session_for_further_traversal(
         dept = emp.department
         assert dept is not None
         assert "_session" in dept.__dict__
+
+
+# ---------------------------------------------------------------------------
+# Mirrored declarations — same edge accessed from both sides
+# ---------------------------------------------------------------------------
+
+
+def test_incoming_mirror_reflects_outgoing_edge(graph_driver: Any) -> None:
+    # Employee.department is OUTGOING; Department.staff is INCOMING.
+    # Writing via the Employee side makes the edge visible from the
+    # Department side without any extra relate() call.
+    _create_department(graph_driver, "d20", "Backend")
+    _create_employee(graph_driver, "e20", "Sam")
+    _create_employee(graph_driver, "e21", "Tina")
+    _link_dept(graph_driver, "e20", "d20")
+    _link_dept(graph_driver, "e21", "d20")
+
+    with Session(graph_driver) as s:
+        dept = s.get(Department, "d20")
+        assert dept is not None
+        staff = dept.staff  # type: ignore[attr-defined]
+        assert isinstance(staff, list)
+        ids = {e.id for e in staff}
+        assert ids == {"e20", "e21"}
+
+
+def test_incoming_mirror_session_relate(graph_driver: Any) -> None:
+    # session.relate() via the OUTGOING side; read back via the INCOMING mirror.
+    _create_department(graph_driver, "d21", "Ops")
+    _create_employee(graph_driver, "e22", "Uma")
+
+    with Session(graph_driver) as s:
+        emp = s.get(Employee, "e22")
+        dept = s.get(Department, "d21")
+        assert emp is not None
+        assert dept is not None
+        s.relate(emp, Employee.department, dept)  # ty: ignore[invalid-argument-type]
+
+    with Session(graph_driver) as s:
+        dept = s.get(Department, "d21")
+        assert dept is not None
+        staff = dept.staff  # type: ignore[attr-defined]
+        assert len(staff) == 1
+        assert staff[0].id == "e22"
+
+
+# ---------------------------------------------------------------------------
+# direction="BOTH" — undirected peer relationship
+# ---------------------------------------------------------------------------
+
+
+def test_both_direction_lazy_load_from_source(graph_driver: Any) -> None:
+    # Writing the edge from Alice's side; Alice should see Bob as a peer.
+    _create_employee(graph_driver, "e30", "Alice")
+    _create_employee(graph_driver, "e31", "Bob")
+    graph_driver.execute(
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        {"a": "e30", "b": "e31"},
+    )
+
+    with Session(graph_driver) as s:
+        alice = s.get(Employee, "e30")
+        assert alice is not None
+        peers = alice.peers  # type: ignore[attr-defined]
+        assert isinstance(peers, list)
+        assert any(p.id == "e31" for p in peers)
+
+
+def test_both_direction_lazy_load_from_target(graph_driver: Any) -> None:
+    # Accessing .peers from the node that was the physical *target* of the edge.
+    _create_employee(graph_driver, "e32", "Carol")
+    _create_employee(graph_driver, "e33", "Dave")
+    graph_driver.execute(
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        {"a": "e32", "b": "e33"},
+    )
+
+    with Session(graph_driver) as s:
+        dave = s.get(Employee, "e33")
+        assert dave is not None
+        # Dave is the physical target; the BOTH pattern still finds the edge
+        peers = dave.peers  # type: ignore[attr-defined]
+        assert any(p.id == "e32" for p in peers)
+
+
+def test_both_direction_session_relate_and_read_both_sides(
+    graph_driver: Any,
+) -> None:
+    _create_employee(graph_driver, "e34", "Eve")
+    _create_employee(graph_driver, "e35", "Frank")
+
+    with Session(graph_driver) as s:
+        eve = s.get(Employee, "e34")
+        frank = s.get(Employee, "e35")
+        assert eve is not None
+        assert frank is not None
+        s.relate(eve, Employee.peers, frank)  # ty: ignore[invalid-argument-type]
+
+    with Session(graph_driver) as s:
+        eve = s.get(Employee, "e34")
+        frank = s.get(Employee, "e35")
+        assert eve is not None
+        assert frank is not None
+
+        # Both sides find the peer through the undirected pattern
+        eve_peers = eve.peers  # type: ignore[attr-defined]
+        frank_peers = frank.peers  # type: ignore[attr-defined]
+        assert any(p.id == "e35" for p in eve_peers)
+        assert any(p.id == "e34" for p in frank_peers)
+
+
+def test_both_direction_session_unrelate(graph_driver: Any) -> None:
+    _create_employee(graph_driver, "e36", "Grace")
+    _create_employee(graph_driver, "e37", "Hank")
+    graph_driver.execute(
+        "MATCH (a:Employee {id: $a}), (b:Employee {id: $b}) CREATE (a)-[:WORKS_WITH]-(b)",
+        {"a": "e36", "b": "e37"},
+    )
+
+    with Session(graph_driver) as s:
+        grace = s.get(Employee, "e36")
+        hank = s.get(Employee, "e37")
+        assert grace is not None
+        assert hank is not None
+        s.unrelate(grace, Employee.peers, hank)  # ty: ignore[invalid-argument-type]
+
+    with Session(graph_driver) as s:
+        grace = s.get(Employee, "e36")
+        assert grace is not None
+        peers = grace.peers  # type: ignore[attr-defined]
+        assert peers == []

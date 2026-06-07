@@ -148,13 +148,23 @@ class Mapper:
 
         return cypher, {"__pk": pk}
 
-    def build_find_all_query(self, cls: type) -> tuple[str, dict[str, Any]]:
+    def build_find_all_query(
+        self, cls: type, skip: int = 0, limit: int | None = None
+    ) -> tuple[str, dict[str, Any]]:
         """Return ``(cypher, params)`` to MATCH all entities of *cls*."""
         node_meta = self._require_node_meta(cls)
         labels_str = self.labels_clause(node_meta.labels)
         subtype_filter = self.subtype_where("n", node_meta.labels)
         where = f"WHERE {subtype_filter} " if subtype_filter else ""
-        return f"MATCH (n:{labels_str}) {where}RETURN n", {}
+        cypher = f"MATCH (n:{labels_str}) {where}RETURN n"
+        params: dict[str, Any] = {}
+        if skip > 0:
+            cypher += " SKIP $__skip"
+            params["__skip"] = skip
+        if limit is not None:
+            cypher += " LIMIT $__limit"
+            params["__limit"] = limit
+        return cypher, params
 
     def build_find_all_by_ids_query(
         self, cls: type, pks: list[Any]
@@ -206,29 +216,6 @@ class Mapper:
                 cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN count(n)"
 
         return cypher, {"__pk": pk}
-
-    def build_paginated_query(
-        self, cls: type, pageable: Any
-    ) -> tuple[str, dict[str, Any]]:
-        """Return ``(cypher, params)`` for a paginated MATCH with optional ORDER BY."""
-        node_meta = self._require_node_meta(cls)
-        labels_str = self.labels_clause(node_meta.labels)
-        subtype_filter = self.subtype_where("n", node_meta.labels)
-        where = f" WHERE {subtype_filter}" if subtype_filter else ""
-
-        order_clause = ""
-        if pageable.sort_by:
-            direction = "ASC" if str(pageable.direction).upper() == "ASC" else "DESC"
-            order_clause = f" ORDER BY n.{pageable.sort_by} {direction}"
-
-        cypher = (
-            f"MATCH (n:{labels_str}){where}"
-            f" RETURN n{order_clause} SKIP $__skip LIMIT $__limit"
-        )
-        return cypher, {
-            "__skip": pageable.page * pageable.size,
-            "__limit": pageable.size,
-        }
 
     # ------------------------------------------------------------------
     # Decoding
