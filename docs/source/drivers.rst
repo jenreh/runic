@@ -125,6 +125,24 @@ Feature matrix
      - ✓ — range / fulltext / vector / unique (``IF NOT EXISTS``)
      - ✓ — range / text / vector / unique
      - ✗ — log.warning only (PostgreSQL-level DDL required)
+   * - Multi-label nodes
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+     - ✗ — emulated via ``_labels`` property
+   * - GeoLocation in-place update
+     - ✓ — ``SET n.geo = toPoint($v)``
+     - ✗ — stored as ``{latitude, longitude}`` map
+     - ✓ — ``SET n.geo = point($v)``
+     - ✓ — ``SET n.geo = point($v)``
+     - ✗ — agtype point not supported via psycopg
+   * - Undirected ``MERGE`` (``direction="BOTH"``)
+     - ✗ — falls back to ``OUTGOING`` automatically
+     - ✓
+     - ✓
+     - ✓
+     - ✓
    * - Required Python package
      - ``falkordb``
      - ``neo4j``
@@ -199,6 +217,12 @@ Python driver (``encrypted=False``).
 - **Plaintext Bolt only.** ``create_arcadedb_driver`` forces ``bolt://``.
 - **No vector index DDL.** ``create_vector_index()`` logs a warning and
   directs you to the ArcadeDB HTTP management API.
+- **No GeoLocation in-place update.**  ``SET n.geo = point($v)`` is not
+  supported via ArcadeDB's Bolt interface.  :class:`~runic.orm.core.types.GeoLocation`
+  values are stored and returned as a plain map (``{"latitude": …,
+  "longitude": …}``).  Updating the geo field requires re-saving the whole
+  node.  Tests marked ``requires_geo_update`` are automatically skipped for
+  this backend (``ArcadeDBDialect.supports_geo_update = False``).
 
 .. code-block:: python
 
@@ -378,6 +402,18 @@ argument to ``cypher()``, making them available inside the Cypher query as
 
 - **No async driver.**  Async support requires an async psycopg3 connection
   which is not yet wired up.
+- **No multi-label nodes.**  AGE stores each vertex under exactly one
+  PostgreSQL table (one label).  The ORM emulates multi-label hierarchies by
+  injecting a ``_labels`` array property on ``CREATE`` and filtering with
+  ``WHERE "SubLabel" IN n._labels`` on queries.  Tests requiring true
+  multi-label behaviour (``@pytest.mark.requires_multi_label``) are
+  automatically skipped for this backend
+  (``AGEDriver.supports_multi_label = False``).
+- **No GeoLocation in-place update.**  AGE's agtype does not expose a
+  ``point()`` constructor via the psycopg3 interface.
+  :class:`~runic.orm.core.types.GeoLocation` values are stored as a plain
+  agtype map (``{"latitude": …, "longitude": …}``) and read back the same
+  way.  Re-saving the full node is required to update geo coordinates.
 - **No fulltext search** in Cypher.  Use PostgreSQL ``tsvector``/``tsquery``
   full-text search directly on the underlying tables.
 - **No vector KNN** in Cypher.  Use `pgvector

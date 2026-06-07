@@ -20,7 +20,7 @@ Graph ORM and Schema Migrations for FalkorDB, Apache AGE, and more
    :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
    :alt: License
 
-Documentation for version: 0.2.2.
+Documentation for version: 0.3.0.
 
 -----
 
