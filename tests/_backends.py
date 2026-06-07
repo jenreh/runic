@@ -90,7 +90,7 @@ def _make_falkordb(graph_name: str) -> tuple[Any, Callable[[], None]]:
     return driver, cleanup
 
 
-def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:
+def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:  # noqa: ARG001
     import pytest
 
     try:
@@ -99,6 +99,9 @@ def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:
         pytest.skip("neo4j driver not installed")
 
     uri = os.environ.get("RUNIC_NEO4J_URI", "bolt://localhost:7687")
+    host = uri.replace("bolt://", "").split(":")[0]
+    port = int(uri.rsplit(":", 1)[-1])
+
     try:
         neo4j_driver = GraphDatabase.driver(uri, auth=None)
         neo4j_driver.verify_connectivity()
@@ -107,10 +110,12 @@ def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:
 
     from runic.orm.driver.neo4j import create_neo4j_driver
 
+    # Neo4j Community Edition only supports one database; use the default.
+    # Per-test isolation is achieved by DETACH DELETE + index/constraint cleanup.
     driver = create_neo4j_driver(
-        host=uri.replace("bolt://", "").split(":")[0],
-        port=int(uri.rsplit(":", 1)[-1]),
-        database=graph_name,
+        host=host,
+        port=port,
+        database="neo4j",
         username="",
         password="",
         encrypted=False,
@@ -118,9 +123,7 @@ def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:
 
     def cleanup() -> None:
         with contextlib.suppress(Exception):
-            neo4j_driver.execute_query(
-                "DROP DATABASE $name IF EXISTS", {"name": graph_name}
-            )
+            neo4j_driver.execute_query("MATCH (n) DETACH DELETE n")
         with contextlib.suppress(Exception):
             neo4j_driver.close()
 
@@ -137,8 +140,11 @@ def _make_memgraph(graph_name: str) -> tuple[Any, Callable[[], None]]:
     try:
         from runic.orm.driver.memgraph import create_memgraph_driver
 
+        # Memgraph does not support arbitrary named databases in the same way
+        # as Neo4j — use the default database ("") and rely on DETACH DELETE
+        # for per-test isolation.
         driver = create_memgraph_driver(
-            host=host, port=port, database=graph_name, username="", password=""
+            host=host, port=port, database="", username="", password=""
         )
         driver.execute("RETURN 1", {})
     except Exception as exc:

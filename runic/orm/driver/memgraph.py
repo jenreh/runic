@@ -50,7 +50,11 @@ class MemgraphDialect:
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
-    def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:  # noqa: ARG002
+    def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:
+        from runic.orm.core.types import GeoLocationConverter
+
+        if isinstance(getattr(fi.field, "converter", None), GeoLocationConverter):
+            return "point"
         return None
 
     def fulltext_call(self, label: str, alias: str, query_param: str) -> str:

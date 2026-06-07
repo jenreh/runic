@@ -63,7 +63,13 @@ def _edge_props(graph_driver: Any, rel_type: str) -> dict[str, Any] | None:
     if not result.rows:
         return None
     rel_node = result.rows[0][0]
-    return dict(rel_node.properties) if hasattr(rel_node, "properties") else {}
+    if hasattr(rel_node, "properties"):
+        return dict(rel_node.properties)
+    # neo4j.graph.Relationship is a Mapping itself (no .properties attr)
+    try:
+        return dict(rel_node)
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
