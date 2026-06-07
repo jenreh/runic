@@ -26,6 +26,11 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+try:
+    from redis.exceptions import ResponseError as _RedisResponseError
+except ImportError:
+    _RedisResponseError = Exception  # type: ignore[assignment,misc]
+
 from runic.migrate import IndexManager, SchemaManager  # noqa: E402
 from runic.migrate.adapters import GraphAdapter, create_adapter  # noqa: E402
 from runic.orm import Field, Node  # noqa: E402
@@ -113,11 +118,23 @@ def run() -> None:
     log.info("=== IndexManager ===")
     manager = IndexManager(adapter)
 
-    manager.create_indexes(Place, if_not_exists=True)
-    log.info("Created Place indexes")
+    try:
+        manager.create_indexes(Place, if_not_exists=True)
+        log.info("Created Place indexes")
+    except _RedisResponseError as exc:
+        log.warning(
+            "Place indexes partially created (UNIQUE constraints require live FalkorDB v4+): %s",
+            exc,
+        )
 
-    manager.ensure_indexes(Event)
-    log.info("Ensured Event indexes")
+    try:
+        manager.ensure_indexes(Event)
+        log.info("Ensured Event indexes")
+    except _RedisResponseError as exc:
+        log.warning(
+            "Event indexes partially created (UNIQUE constraints require live FalkorDB v4+): %s",
+            exc,
+        )
 
     # --- SchemaManager: validate ---
     log.info("=== SchemaManager — validate ===")
@@ -132,7 +149,13 @@ def run() -> None:
 
     # --- SchemaManager: sync (create missing only) ---
     log.info("=== SchemaManager — sync ===")
-    schema.sync_schema([Place, Event], drop_extra=False)
+    try:
+        schema.sync_schema([Place, Event], drop_extra=False)
+    except _RedisResponseError as exc:
+        log.warning(
+            "sync_schema partially applied (UNIQUE constraints require live FalkorDB v4+): %s",
+            exc,
+        )
 
     result2 = schema.validate_schema([Place, Event])
     log.info("After sync — is_valid: %s", result2.is_valid)
