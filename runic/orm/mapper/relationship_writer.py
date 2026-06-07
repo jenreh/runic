@@ -148,9 +148,12 @@ def _rel_clause(
 ) -> str:
     """Return a ``MERGE`` or ``MATCH`` clause for a directed or undirected relationship."""
     effective = direction
-    if direction == "BOTH" and verb == "MERGE":
-        if not getattr(dialect, "supports_undirected_merge", True):
-            effective = "OUTGOING"
+    if (
+        direction == "BOTH"
+        and verb == "MERGE"
+        and not getattr(dialect, "supports_undirected_merge", True)
+    ):
+        effective = "OUTGOING"
     if effective == "OUTGOING":
         return f"{verb} ({src})-[{alias}:{rel_type}]->({tgt})"
     if effective == "INCOMING":
