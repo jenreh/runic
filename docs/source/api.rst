@@ -108,9 +108,19 @@ runic.orm.driver — Drivers & Dialects
    :members:
    :show-inheritance:
 
+.. autoclass:: runic.orm.driver.age.AGEDriver
+   :members:
+   :show-inheritance:
+
+.. autoclass:: runic.orm.driver.age.AGEDialect
+   :members:
+   :show-inheritance:
+
 .. autofunction:: runic.orm.driver.falkordb.create_falkordb_driver
 
 .. autofunction:: runic.orm.driver.arcadedb.create_arcadedb_driver
+
+.. autofunction:: runic.orm.driver.age.create_age_driver
 
 .. autofunction:: runic.orm.driver.factory.create_driver
 

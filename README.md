@@ -25,10 +25,10 @@
 ### Migration CLI
 
 - **Alembic-Style Workflow** — Familiar CLI verbs: `init`, `revision`, `upgrade`, `downgrade`, `current`, `baseline`.
-- **Graph-Native** — Migration state stored inside dedicated graph nodes (`:_FalkorMigrateVersion`).
+- **Graph-Native** — Migration state stored inside dedicated graph nodes; no external state table needed.
 - **Idempotent Cypher** — Explicit, guarded migration steps; safe to replay on an empty graph.
 - **Offline & Dry Run** — Review generated Cypher scripts before running them in production.
-- **Rollback Snapshots** — Uses `GRAPH.COPY` for high-risk, non-reversible migrations.
+- **Rollback Snapshots** — Optional snapshot-based rollback for high-risk, non-reversible migrations.
 
 ### Graph ORM
 
@@ -72,7 +72,7 @@ uv add "runic-py[all]"
 ```
 
 > [!NOTE]
-> Runic requires Python 3.14+. The core package has no graph-driver dependency — install only the extras you need.
+> Runic requires Python 3.14+. The core package has no graph-driver dependency — install only the extra for your backend.
 
 ---
 
@@ -110,7 +110,7 @@ runic downgrade 1975e    # roll back to a specific revision (prefix is enough)
 
 ### Baselining an existing graph
 
-Bring an unmanaged FalkorDB graph under runic control without re-running anything:
+Bring an existing graph under runic control without re-running anything:
 
 ```bash
 runic baseline -m "baseline"   # introspect, generate root revision, stamp it
@@ -132,9 +132,12 @@ from runic.migrate.adapters import create_adapter
 
 init(Path("runic/"))
 
+# Any supported backend — swap the adapter name and kwargs
 adapter = create_adapter(
     "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
 )
+# adapter = create_adapter("neo4j", host="localhost", port=7687, database="neo4j", username="neo4j", password="secret")
+
 runic = Runic(adapter, script_location=Path("runic/"))
 runic.migrate.upgrade("head")
 
@@ -180,15 +183,13 @@ class Author(Node, labels=["Author"]):
 
 ### Session-based CRUD
 
-`Session` accepts a `GraphDriver`.  Use the built-in helpers or `create_driver()`:
+`Session` accepts any `GraphDriver`. Use `create_driver()` to build one for your backend:
 
 ```python
-from falkordb import FalkorDB
-from runic.orm import FalkorDBDriver, Session, Repository
+from runic.orm import Session, Repository, create_driver
 
-db = FalkorDB(host="localhost", port=6379)
-graph = db.select_graph("myapp")
-driver = FalkorDBDriver(graph)
+# Pick your backend — the rest of the code is identical
+driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
 
 with Session(driver) as session:
     session.add_all([
@@ -207,19 +208,6 @@ with Session(driver) as session:
     user = session.get(User, "bob")
     session.delete(user)
     session.commit()
-```
-
-**ArcadeDB** (via Bolt) uses the same session API — only the driver changes:
-
-```python
-from runic.orm import create_arcadedb_driver, Session
-
-driver = create_arcadedb_driver(
-    host="localhost", port=7687, database="mydb",
-    username="root", password="playwithdata",
-)
-with Session(driver) as session:
-    ...
 ```
 
 ### Relationships
@@ -282,7 +270,7 @@ result = schema.validate_schema([Place])
 print("valid:", result.is_valid)
 ```
 
-### Native FalkorDB types
+### Native graph types
 
 `Vector`, `GeoLocation`, `datetime`, and `Enum` fields get their converters assigned automatically — no `converter=` argument needed:
 

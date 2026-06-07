@@ -2,10 +2,11 @@ Quickstart
 ==========
 
 This page takes you from a fresh install to a working migration in about
-five minutes.
+five minutes.  The example uses FalkorDB; swap the adapter name and
+connection kwargs for any other supported backend (see :doc:`../installation`).
 
-Prerequisites: runic installed (:doc:`../installation`) and a FalkorDB instance
-reachable at ``falkor://localhost:6379``.
+Prerequisites: runic installed (:doc:`../installation`) and a graph database
+reachable — e.g. FalkorDB at ``falkor://localhost:6379``.
 
 Step 1 — Initialise the migration directory
 --------------------------------------------
@@ -97,8 +98,9 @@ you may want to enable:
        # track_installed_by=True,          # set False to skip OS-user attribution
    )
 
-Set ``FALKORDB_URL`` and ``FALKORDB_GRAPH`` in your environment (or a
-``.env`` file loaded by your shell).
+Set connection environment variables (here ``FALKORDB_URL`` and ``FALKORDB_GRAPH``)
+in your environment or a ``.env`` file loaded by your shell.  For other backends,
+replace the adapter name and kwargs — see :doc:`../installation`.
 
 Step 3 — Create your first revision
 --------------------------------------

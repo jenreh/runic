@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -190,7 +191,7 @@ def run() -> None:
 
     # --- Basic all_with_edges(): (User, Rated, Movie) tuples ---
     with Session(driver) as session:
-        rows = (
+        rows: list[tuple[User, Rated, Movie]] = (
             session.query(User)
             .alias("u")
             .where(User.id == "alice")
@@ -202,6 +203,9 @@ def run() -> None:
         )
         log.info("Alice's ratings:")
         for user, edge, movie in rows:
+            user: User
+            edge: Rated
+            movie: Movie
             log.info(
                 "  %s rated '%s' → %.1f (recommended=%s)",
                 user.name,
@@ -212,7 +216,7 @@ def run() -> None:
 
     # --- Filter on edge property: only high scores ---
     with Session(driver) as session:
-        high_rated = (
+        high_rated: list[tuple[User, Rated, Movie]] = (
             session.query(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
@@ -228,7 +232,7 @@ def run() -> None:
 
     # --- Filter on edge property: recommended only ---
     with Session(driver) as session:
-        recommended = (
+        recommended: list[Movie] = (
             session.query(User)
             .alias("u")
             .where(User.id == "alice")
@@ -242,7 +246,7 @@ def run() -> None:
 
     # --- Combine node + edge filters ---
     with Session(driver) as session:
-        sci_fi_recommended = (
+        sci_fi_recommended: list[tuple[User, Rated, Movie]] = (
             session.query(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
@@ -265,7 +269,7 @@ def run() -> None:
 
     # --- return_target("m"): only movies (discard user/edge from result) ---
     with Session(driver) as session:
-        bobs_movies = (
+        bobs_movies: list[Movie] = (
             session.query(User)
             .alias("u")
             .where(User.id == "bob")
@@ -281,7 +285,7 @@ def run() -> None:
         # Use optional=False (required MATCH) when filtering on traversal edge
         # properties — OPTIONAL MATCH + WHERE nullifies non-matching rows rather
         # than removing them, which would yield None movies for non-matching users.
-        completed = (
+        completed: list[tuple[User, Watched, Movie]] = (
             session.query(User)
             .alias("u")
             .traverse(User.watched_movies, edge_alias="w", optional=False)
@@ -302,7 +306,7 @@ def run() -> None:
 
     # --- Filter on both edge AND node simultaneously ---
     with Session(driver) as session:
-        recent_high = (
+        recent_high: list[Movie] = (
             session.query(User)
             .alias("u")
             .traverse(User.rated_movies, edge_alias="r")
@@ -320,6 +324,8 @@ def run() -> None:
 
     # --- build(): inspect Cypher for edge query ---
     with Session(driver) as session:
+        cypher: str
+        params: dict[str, Any]
         cypher, params = (
             session.query(User)
             .alias("u")

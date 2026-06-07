@@ -130,7 +130,7 @@ def run() -> None:
 
     # --- Seed ---
     with Session(driver) as session:
-        orders = [
+        orders: list[Order] = [
             Order(id="o1", amount=120.0, status="completed", region="EU"),
             Order(id="o2", amount=85.5, status="completed", region="EU"),
             Order(id="o3", amount=340.0, status="completed", region="US"),
@@ -148,17 +148,17 @@ def run() -> None:
 
     # --- count(*) — total rows ---
     with Session(driver) as session:
-        total = session.query(Order).count()
+        total: int = session.query(Order).count()
         log.info("count(*): %d", total)
 
     # --- count(*) with filter ---
     with Session(driver) as session:
-        completed = session.query(Order).where(Order.status == "completed").count()
+        completed: int = session.query(Order).where(Order.status == "completed").count()
         log.info("count completed: %d", completed)
 
     # --- count(DISTINCT field) ---
     with Session(driver) as session:
-        distinct_regions = (
+        distinct_regions: int | None = (
             session.query(Order)
             .aggregate(count(Order.region, distinct=True).as_("regions"))
             .scalar()
@@ -167,7 +167,7 @@ def run() -> None:
 
     # --- avg() ---
     with Session(driver) as session:
-        avg_amount = (
+        avg_amount: float | None = (
             session.query(Order)
             .where(Order.status == "completed")
             .aggregate(avg(Order.amount).as_("avg_amount"))
@@ -177,7 +177,7 @@ def run() -> None:
 
     # --- sum_() ---
     with Session(driver) as session:
-        total_revenue = (
+        total_revenue: float | None = (
             session.query(Order)
             .where(Order.status == "completed")
             .aggregate(sum_(Order.amount).as_("revenue"))
@@ -187,12 +187,12 @@ def run() -> None:
 
     # --- min_() and max_() ---
     with Session(driver) as session:
-        min_amount = (
+        min_amount: float | None = (
             session.query(Order)
             .aggregate(min_(Order.amount).as_("min_amount"))
             .scalar()
         )
-        max_amount = (
+        max_amount: float | None = (
             session.query(Order)
             .aggregate(max_(Order.amount).as_("max_amount"))
             .scalar()
@@ -201,7 +201,7 @@ def run() -> None:
 
     # --- Multiple aggregations in one query via all_rows() ---
     with Session(driver) as session:
-        summary = (
+        summary: list[dict[str, Any]] = (
             session.query(Order)
             .where(Order.status == "completed")
             .aggregate(
@@ -217,7 +217,7 @@ def run() -> None:
 
     # --- Grouped aggregation: totals per region ---
     with Session(driver) as session:
-        by_region = (
+        by_region: list[dict[str, Any]] = (
             session.query(Order)
             .alias("o")
             .aggregate(
@@ -234,7 +234,7 @@ def run() -> None:
 
     # --- collect() — gather values into a list ---
     with Session(driver) as session:
-        ids_by_status = (
+        ids_by_status: list[dict[str, Any]] = (
             session.query(Order)
             .alias("o")
             .aggregate(
@@ -247,7 +247,7 @@ def run() -> None:
 
     # --- collect(distinct=True) ---
     with Session(driver) as session:
-        unique_statuses = (
+        unique_statuses: list[str] | None = (
             session.query(Order)
             .aggregate(collect(Order.status, distinct=True).as_("statuses"))
             .scalar()
@@ -256,12 +256,12 @@ def run() -> None:
 
     # --- distinct() on RETURN clause ---
     with Session(driver) as session:
-        regions = session.query(Order).project(Order.region).distinct().scalars()
+        regions: list[str] = session.query(Order).project(Order.region).distinct().scalars()
         log.info("DISTINCT regions via project+distinct: %s", sorted(regions))
 
     # --- scalar(): single aggregation value ---
     with Session(driver) as session:
-        pending_total = (
+        pending_total: float | None = (
             session.query(Order)
             .where(Order.status == "pending")
             .aggregate(sum_(Order.amount).as_("pending_total"))
@@ -271,6 +271,8 @@ def run() -> None:
 
     # --- build() — inspect aggregation Cypher ---
     with Session(driver) as session:
+        cypher: str
+        params: dict[str, Any]
         cypher, params = (
             session.query(Order)
             .alias("o")

@@ -94,7 +94,7 @@ Documentation for version: 0.2.2.
       :link: schema
       :link-type: doc
 
-      IndexManager and SchemaManager — sync indexes to FalkorDB.
+      IndexManager and SchemaManager — declare, validate, and sync indexes.
 
 .. grid:: 2
 

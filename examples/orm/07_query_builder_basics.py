@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -95,7 +96,7 @@ def run() -> None:
 
     # --- Seed ---
     with Session(driver) as session:
-        products = [
+        products: list[Product] = [
             Product(
                 id="p1",
                 name="Graph Database Book",
@@ -147,17 +148,17 @@ def run() -> None:
 
     # --- Equality filter ---
     with Session(driver) as session:
-        books = session.query(Product).where(Product.category == "books").all()
+        books: list[Product] = session.query(Product).where(Product.category == "books").all()
         log.info("category == 'books': %s", [p.name for p in books])
 
     # --- Inequality filter ---
     with Session(driver) as session:
-        not_books = session.query(Product).where(Product.category != "books").all()
+        not_books: list[Product] = session.query(Product).where(Product.category != "books").all()
         log.info("category != 'books': %s", [p.name for p in not_books])
 
     # --- Numeric comparison: greater-than ---
     with Session(driver) as session:
-        expensive = (
+        expensive: list[Product] = (
             session.query(Product)
             .where(Product.price > 100.0)
             .order_by(Product.price, desc=True)
@@ -167,12 +168,12 @@ def run() -> None:
 
     # --- Numeric comparison: less-than-or-equal ---
     with Session(driver) as session:
-        cheap = session.query(Product).where(Product.price <= 40.0).all()
+        cheap: list[Product] = session.query(Product).where(Product.price <= 40.0).all()
         log.info("price <= 40: %s", [p.name for p in cheap])
 
     # --- String predicate: contains() ---
     with Session(driver) as session:
-        graph_products = (
+        graph_products: list[Product] = (
             session.query(Product)
             .where(Product.name.contains("Graph"))  # type: ignore[attr-defined]
             .all()
@@ -181,7 +182,7 @@ def run() -> None:
 
     # --- String predicate: startswith() ---
     with Session(driver) as session:
-        adv = (
+        adv: list[Product] = (
             session.query(Product)
             .where(Product.name.startswith("Advanced"))  # type: ignore[attr-defined]
             .all()
@@ -190,7 +191,7 @@ def run() -> None:
 
     # --- String predicate: endswith() ---
     with Session(driver) as session:
-        kits = (
+        kits: list[Product] = (
             session.query(Product)
             .where(Product.name.endswith("Kit"))  # type: ignore[attr-defined]
             .all()
@@ -210,7 +211,7 @@ def run() -> None:
 
     # --- Null check: is_null() ---
     with Session(driver) as session:
-        no_sku = (
+        no_sku: list[Product] = (
             session.query(Product)
             .where(Product.sku.is_null())  # type: ignore[attr-defined]
             .all()
@@ -219,7 +220,7 @@ def run() -> None:
 
     # --- Null check: is_not_null() ---
     with Session(driver) as session:
-        has_sku = (
+        has_sku: list[Product] = (
             session.query(Product)
             .where(Product.sku.is_not_null())  # type: ignore[attr-defined]
             .all()
@@ -228,7 +229,7 @@ def run() -> None:
 
     # --- Membership: in_() ---
     with Session(driver) as session:
-        selected = (
+        selected: list[Product] = (
             session.query(Product)
             .where(Product.id.in_(["p1", "p3", "p5"]))  # type: ignore[attr-defined]
             .order_by(Product.id)
@@ -238,7 +239,7 @@ def run() -> None:
 
     # --- Membership: not_in_() ---
     with Session(driver) as session:
-        excluded = (
+        excluded: list[Product] = (
             session.query(Product)
             .where(Product.category.not_in_(["hardware"]))  # type: ignore[attr-defined]
             .order_by(Product.id)
@@ -248,7 +249,7 @@ def run() -> None:
 
     # --- Boolean AND: & operator ---
     with Session(driver) as session:
-        active_books = (
+        active_books: list[Product] = (
             session.query(Product)
             .where(
                 (Product.category == "books")  # type: ignore[operator]
@@ -260,7 +261,7 @@ def run() -> None:
 
     # --- Boolean OR: | operator ---
     with Session(driver) as session:
-        books_or_courses = (
+        books_or_courses: list[Product] = (
             session.query(Product)
             .where(
                 (Product.category == "books")  # type: ignore[operator]
@@ -274,7 +275,7 @@ def run() -> None:
 
     # --- Boolean NOT: ~ operator ---
     with Session(driver) as session:
-        not_active = (
+        not_active: list[Product] = (
             session.query(Product)
             .where(~(Product.active == True))  # noqa: E712
             .all()
@@ -283,7 +284,7 @@ def run() -> None:
 
     # --- Three-condition compound: & chained ---
     with Session(driver) as session:
-        in_stock_books = (
+        in_stock_books: list[Product] = (
             session.query(Product)
             .where(
                 (Product.category == "books")  # type: ignore[operator]
@@ -296,37 +297,37 @@ def run() -> None:
 
     # --- order_by ASC (default) ---
     with Session(driver) as session:
-        by_price_asc = session.query(Product).order_by(Product.price).all()
+        by_price_asc: list[Product] = session.query(Product).order_by(Product.price).all()
         log.info("ORDER BY price ASC: %s", [p.price for p in by_price_asc])
 
     # --- order_by DESC ---
     with Session(driver) as session:
-        by_price_desc = session.query(Product).order_by(Product.price, desc=True).all()
+        by_price_desc: list[Product] = session.query(Product).order_by(Product.price, desc=True).all()
         log.info("ORDER BY price DESC: %s", [p.price for p in by_price_desc])
 
     # --- limit() ---
     with Session(driver) as session:
-        top2 = session.query(Product).order_by(Product.price, desc=True).limit(2).all()
+        top2: list[Product] = session.query(Product).order_by(Product.price, desc=True).limit(2).all()
         log.info("LIMIT 2 by price desc: %s", [p.name for p in top2])
 
     # --- skip() + limit() (manual pagination) ---
     with Session(driver) as session:
-        page2 = session.query(Product).order_by(Product.id).skip(2).limit(2).all()
+        page2: list[Product] = session.query(Product).order_by(Product.id).skip(2).limit(2).all()
         log.info("SKIP 2 LIMIT 2: %s", [p.id for p in page2])
 
     # --- distinct() ---
     with Session(driver) as session:
-        cats = session.query(Product).project(Product.category).distinct().scalars()
+        cats: list[str] = session.query(Product).project(Product.category).distinct().scalars()
         log.info("DISTINCT categories: %s", sorted(cats))
 
     # --- Terminal: count() ---
     with Session(driver) as session:
-        total = session.query(Product).count()
+        total: int = session.query(Product).count()
         log.info("count(*): %d", total)
 
     # --- Terminal: count() with filter ---
     with Session(driver) as session:
-        active_count = (
+        active_count: int = (
             session.query(Product)
             .where(Product.active == True)  # noqa: E712
             .count()
@@ -335,17 +336,17 @@ def run() -> None:
 
     # --- Terminal: one() ---
     with Session(driver) as session:
-        p = session.query(Product).where(Product.id == "p1").one()
+        p: Product | None = session.query(Product).where(Product.id == "p1").one()
         log.info("one() p1: %s", p and p.name)
 
     # --- Terminal: one() — no match returns None ---
     with Session(driver) as session:
-        missing = session.query(Product).where(Product.id == "NOPE").one()
+        missing: Product | None = session.query(Product).where(Product.id == "NOPE").one()
         log.info("one() no match: %s", missing)
 
     # --- Terminal: scalar() — first column of first row ---
     with Session(driver) as session:
-        lowest_price = (
+        lowest_price: float | None = (
             session.query(Product)
             .aggregate(min_(Product.price).as_("min_price"))
             .scalar()
@@ -354,14 +355,14 @@ def run() -> None:
 
     # --- Terminal: scalars() — first column of every row ---
     with Session(driver) as session:
-        all_ids = (
+        all_ids: list[str] = (
             session.query(Product).order_by(Product.id).project(Product.id).scalars()
         )
         log.info("scalars() all ids: %s", all_ids)
 
     # --- project() → all_rows() — multi-field projection as dicts ---
     with Session(driver) as session:
-        rows = (
+        rows: list[dict[str, Any]] = (
             session.query(Product)
             .where(Product.active == True)  # noqa: E712
             .order_by(Product.price)
@@ -372,6 +373,8 @@ def run() -> None:
 
     # --- build() — inspect generated Cypher without executing ---
     with Session(driver) as session:
+        cypher: str
+        params: dict[str, Any]
         cypher, params = (
             session.query(Product)
             .where(
@@ -386,7 +389,7 @@ def run() -> None:
 
     # --- Multiple .where() calls are AND-combined ---
     with Session(driver) as session:
-        multi_where = (
+        multi_where: list[Product] = (
             session.query(Product)
             .where(Product.category == "books")
             .where(Product.active == True)  # noqa: E712
@@ -400,17 +403,17 @@ def run() -> None:
 
     # --- Aggregation: avg, sum, max ---
     with Session(driver) as session:
-        avg_price = (
+        avg_price: float | None = (
             session.query(Product)
             .aggregate(avg(Product.price).as_("avg_price"))
             .scalar()
         )
-        total_stock = (
+        total_stock: int | None = (
             session.query(Product)
             .aggregate(sum_(Product.stock).as_("total_stock"))
             .scalar()
         )
-        max_price = (
+        max_price: float | None = (
             session.query(Product)
             .aggregate(max_(Product.price).as_("max_price"))
             .scalar()
@@ -424,7 +427,7 @@ def run() -> None:
 
     # --- count(DISTINCT field) ---
     with Session(driver) as session:
-        distinct_cats = (
+        distinct_cats: int | None = (
             session.query(Product)
             .aggregate(count(Product.category, distinct=True).as_("n"))
             .scalar()

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -103,7 +104,7 @@ def run() -> None:
 
     # --- CREATE ---
     with Session(driver) as session:
-        languages = [
+        languages: list[Language] = [
             Language(id="en", title="English", code="en"),
             Language(id="de", title="German", code="de"),
             Language(id="fr", title="French", code="fr"),
@@ -115,14 +116,14 @@ def run() -> None:
     # --- READ ALL ---
     with Session(driver) as session:
         repo = Repository(session, Language)
-        all_langs = repo.find_all()
+        all_langs: list[Language] = repo.find_all()
         log.info("Total languages: %d", len(all_langs))
         for lang in all_langs:
             log.info("  %s — %s (%s)", lang.id, lang.title, lang.code)
 
     # --- READ ONE ---
     with Session(driver) as session:
-        en = session.get(Language, "en")
+        en: Language | None = session.get(Language, "en")
         assert en is not None
         log.info("Got by PK: %s", en.title)
 
@@ -136,7 +137,7 @@ def run() -> None:
 
     # --- DELETE ---
     with Session(driver) as session:
-        fr = session.get(Language, "fr")
+        fr: Language | None = session.get(Language, "fr")
         assert fr is not None
         session.delete(fr)
         session.commit()
@@ -157,27 +158,33 @@ def run() -> None:
 
     # --- Query builder: filter by field ---
     with Session(driver) as session:
-        results = session.query(Language).where(Language.code == "en").all()
+        results: list[Language] = (
+            session.query(Language).where(Language.code == "en").all()
+        )
         log.info("QueryBuilder filter by code='en': %s", [r.title for r in results])
 
     # --- Query builder: count ---
     with Session(driver) as session:
-        total = session.query(Language).count()
+        total: int = session.query(Language).count()
         log.info("QueryBuilder count: %d", total)
 
     # --- Query builder: one() ---
     with Session(driver) as session:
-        lang = session.query(Language).where(Language.code == "de").one()
+        lang: Language | None = (
+            session.query(Language).where(Language.code == "de").one()
+        )
         log.info("QueryBuilder one() German: %s", lang and lang.title)
 
     # --- Query builder: order_by + limit ---
     with Session(driver) as session:
-        ordered = session.query(Language).order_by(Language.code).limit(2).all()
+        ordered: list[Language] = (
+            session.query(Language).order_by(Language.code).limit(2).all()
+        )
         log.info("QueryBuilder ordered codes: %s", [r.code for r in ordered])
 
     # --- Query builder: project() — scalar projection ---
     with Session(driver) as session:
-        codes = (
+        codes: list[str] = (
             session.query(Language)
             .order_by(Language.code)
             .project(Language.code)
@@ -187,6 +194,8 @@ def run() -> None:
 
     # --- Query builder: build() — inspect generated Cypher ---
     with Session(driver) as session:
+        cypher: str
+        params: dict[str, Any]
         cypher, params = (
             session.query(Language)
             .where(Language.title.contains("German"))  # type: ignore[attr-defined]
