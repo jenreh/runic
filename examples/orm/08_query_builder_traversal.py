@@ -126,13 +126,13 @@ def run() -> None:
         log.info("Created persons and posts")
 
     with Session(driver) as session:
-        alice = session.get(Person, "alice")
-        bob = session.get(Person, "bob")
-        carol = session.get(Person, "carol")
-        dan = session.get(Person, "dan")
-        p1 = session.get(Post, "post1")
-        p2 = session.get(Post, "post2")
-        p3 = session.get(Post, "post3")
+        alice: Person | None = session.get(Person, "alice")
+        bob: Person | None = session.get(Person, "bob")
+        carol: Person | None = session.get(Person, "carol")
+        dan: Person | None = session.get(Person, "dan")
+        p1: Post | None = session.get(Post, "post1")
+        p2: Post | None = session.get(Post, "post2")
+        p3: Post | None = session.get(Post, "post3")
         assert all([alice, bob, carol, dan, p1, p2, p3])
 
         # Alice ← friends → Bob, Carol; Bob ← friends → Dan
@@ -153,7 +153,7 @@ def run() -> None:
 
     # --- Single-hop traverse: Alice's friends (OPTIONAL MATCH — left join) ---
     with Session(driver) as session:
-        friends = (
+        friends: list[Person] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "alice")
@@ -166,7 +166,7 @@ def run() -> None:
 
     # --- Single-hop traverse: filter targets with where(on="alias") ---
     with Session(driver) as session:
-        active_friends = (
+        active_friends: list[Person] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "alice")
@@ -181,7 +181,7 @@ def run() -> None:
     # --- Required traverse (optional=False) — inner join, drops unmatched ---
     with Session(driver) as session:
         # Only persons who have at least one authored post
-        authors = (
+        authors: list[Person] = (
             session.query(Person)
             .alias("p")
             .traverse(Person.authored, optional=False)
@@ -197,7 +197,7 @@ def run() -> None:
 
     # --- Multi-hop: friends of friends ---
     with Session(driver) as session:
-        fof = (
+        fof: list[Person] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "alice")
@@ -212,7 +212,7 @@ def run() -> None:
 
     # --- Multi-hop with filter on intermediate node ---
     with Session(driver) as session:
-        posts_via_friends = (
+        posts_via_friends: list[Post] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "alice")
@@ -230,7 +230,7 @@ def run() -> None:
 
     # --- repeat(): variable-length path — manager chain up to depth 3 ---
     with Session(driver) as session:
-        managers = (
+        managers: list[Person] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "dan")
@@ -246,7 +246,7 @@ def run() -> None:
 
     # --- repeat(): unbounded (min_hops only) ---
     with Session(driver) as session:
-        all_above = (
+        all_above: list[Person] = (
             session.query(Person)
             .alias("p")
             .where(Person.id == "dan")
@@ -263,7 +263,7 @@ def run() -> None:
     # --- with_() — multi-stage pipeline: filter, then traverse ---
     with Session(driver) as session:
         # Stage 1: find active persons; stage 2: find their posts
-        posts = (
+        posts: list[Post] = (
             session.query(Person)
             .alias("p")
             .where(Person.active == True)  # noqa: E712
@@ -280,7 +280,7 @@ def run() -> None:
 
     # --- Traverse then filter the target by a field value ---
     with Session(driver) as session:
-        cypher_posts = (
+        cypher_posts: list[Post] = (
             session.query(Person)
             .alias("p")
             .traverse(Person.authored)
@@ -293,6 +293,8 @@ def run() -> None:
 
     # --- build() for traversal — inspect generated Cypher ---
     with Session(driver) as session:
+        cypher: str
+        params: dict[str, Any]
         cypher, params = (
             session.query(Person)
             .alias("p")

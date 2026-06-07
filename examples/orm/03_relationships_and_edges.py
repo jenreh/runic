@@ -5,7 +5,7 @@ Demonstrates:
   - Edge model (InvitationEdge) with properties on the edge itself
   - Lazy loading (default) vs eager loading via fetch=
   - session.relate() / session.unrelate() for mutation without raw Cypher
-  - Custom repository methods for reading edge properties
+  - Custom repository methods for reading edge properties via QueryBuilder
   - QueryBuilder: .traverse(), .all_with_edges(), edge property filtering via .where(on=)
 
 Run against FalkorDB (embedded):
@@ -71,27 +71,35 @@ class User(Node, labels=["User"]):
 
 
 class UserRepository(Repository[User]):
-    """Typed repository with custom Cypher helpers."""
+    """Typed repository with query-builder helpers."""
 
-    def get_invitation(self, user_id: str, trip_id: str) -> dict | None:
-        return self.cypher_one(
-            """
-            MATCH (u:User {id: $uid})-[e:INVITED_TO]->(t:Trip {id: $tid})
-            RETURN e.role AS role, e.status AS status,
-                   e.invited_at AS invited_at, e.accepted_at AS accepted_at
-            """,
-            {"uid": user_id, "tid": trip_id},
-            returns=dict,
+    def get_invitation(self, user_id: str, trip_id: str) -> InvitationEdge | None:
+        rows: list[tuple[User, InvitationEdge, Trip]] = (
+            self.query()
+            .where(User.id == user_id)
+            .alias("u")
+            .traverse(User.invited_trips, edge_alias="e", optional=False)
+            .alias("t")
+            .where(Trip.id == trip_id, on="t")
+            .return_nodes("u", "t")
+            .return_edge("e")
+            .all_with_edges()
         )
+        if not rows:
+            return None
+        _, edge, _ = rows[0]
+        return edge
 
     def find_pending_invitations(self, user_id: str) -> list[Trip]:
-        return self.cypher(
-            """
-            MATCH (u:User {id: $uid})-[e:INVITED_TO {status: 'pending'}]->(t:Trip)
-            RETURN t
-            """,
-            {"uid": user_id},
-            returns=Trip,
+        return (
+            self.query()
+            .where(User.id == user_id)
+            .alias("u")
+            .traverse(User.invited_trips, edge_alias="e", optional=False)
+            .alias("t")
+            .where(InvitationEdge.status == "pending", on="e")
+            .return_target("t")
+            .all()
         )
 
     def accept_invitation(self, user_id: str, trip_id: str) -> None:
@@ -153,11 +161,11 @@ def run() -> None:
 
     # --- Seed ---
     with Session(driver) as session:
-        users = [
+        users: list[User] = [
             User(id="alice", name="Alice", email="alice@example.com"),
             User(id="bob", name="Bob", email="bob@example.com"),
         ]
-        trips = [
+        trips: list[Trip] = [
             Trip(
                 id="paris-2026",
                 title="Paris 2026",
@@ -178,10 +186,10 @@ def run() -> None:
 
     # --- Create invitation edges via session.relate() ---
     with Session(driver) as session:
-        alice = session.get(User, "alice")
-        bob = session.get(User, "bob")
-        paris = session.get(Trip, "paris-2026")
-        tokyo = session.get(Trip, "tokyo-2026")
+        alice: User | None = session.get(User, "alice")
+        bob: User | None = session.get(User, "bob")
+        paris: Trip | None = session.get(Trip, "paris-2026")
+        tokyo: Trip | None = session.get(Trip, "tokyo-2026")
         assert alice is not None
         assert bob is not None
         assert paris is not None
@@ -220,38 +228,38 @@ def run() -> None:
     with Session(driver) as session:
         alice = session.get(User, "alice")
         assert alice is not None
-        trips_lazy = alice.invited_trips  # type: ignore[attr-defined]  # triggers query
+        trips_lazy: list[Trip] = alice.invited_trips  # type: ignore[attr-defined]  # triggers query
         log.info("Alice's trips (lazy): %s", [t.title for t in trips_lazy])
 
     # --- Eager loading ---
     with Session(driver) as session:
         alice = session.get(User, "alice", fetch=["invited_trips"])
         assert alice is not None
-        trips_eager = alice.invited_trips  # type: ignore[attr-defined]  # no extra query
+        trips_eager: list[Trip] = alice.invited_trips  # type: ignore[attr-defined]  # no extra query
         log.info("Alice's trips (eager): %s", [t.title for t in trips_eager])
 
     # --- Custom repository: read edge properties ---
     with Session(driver) as session:
         repo = UserRepository(session, User)
 
-        inv = repo.get_invitation("bob", "paris-2026")
+        inv: InvitationEdge | None = repo.get_invitation("bob", "paris-2026")
         log.info(
             "Bob's invitation: role=%s status=%s",
-            inv and inv.get("role"),
-            inv and inv.get("status"),
+            inv and inv.role,
+            inv and inv.status,
         )
 
-        pending = repo.find_pending_invitations("bob")
+        pending: list[Trip] = repo.find_pending_invitations("bob")
         log.info("Bob's pending invitations: %d", len(pending))
 
         # Accept the invitation
         repo.accept_invitation("bob", "paris-2026")
-        inv_after = repo.get_invitation("bob", "paris-2026")
-        log.info("After accept: status=%s", inv_after and inv_after.get("status"))
+        inv_after: InvitationEdge | None = repo.get_invitation("bob", "paris-2026")
+        log.info("After accept: status=%s", inv_after and inv_after.status)
 
     # --- Query builder: traverse User → Trip ---
     with Session(driver) as session:
-        alice_trips = (
+        alice_trips: list[Trip] = (
             session.query(User)
             .alias("u")
             .where(User.id == "alice")
@@ -264,7 +272,7 @@ def run() -> None:
 
     # --- Query builder: traverse with edge alias + filter on edge property ---
     with Session(driver) as session:
-        owner_trips = (
+        owner_trips: list[Trip] = (
             session.query(User)
             .alias("u")
             .where(User.id == "alice")
@@ -281,7 +289,7 @@ def run() -> None:
 
     # --- Query builder: all_with_edges() — returns (User, InvitationEdge, Trip) tuples ---
     with Session(driver) as session:
-        rows = (
+        rows: list[tuple[User, InvitationEdge, Trip]] = (
             session.query(User)
             .alias("u")
             .where(User.id == "alice")
@@ -292,6 +300,9 @@ def run() -> None:
             .all_with_edges()
         )
         for user, edge, trip in rows:
+            user: User
+            edge: InvitationEdge
+            trip: Trip
             log.info(
                 "QueryBuilder all_with_edges: %s -[%s]-> %s",
                 user.name,

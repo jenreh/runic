@@ -135,7 +135,7 @@ def run() -> None:
 
     # --- CREATE ---
     with Session(driver) as session:
-        articles = [
+        articles: list[Article] = [
             Article(
                 id="art1",
                 title="FalkorDB Graph Databases",
@@ -175,7 +175,7 @@ def run() -> None:
 
     # --- READ BACK — verify all types round-trip correctly ---
     with Session(driver) as session:
-        art = session.get(Article, "art1")
+        art: Article | None = session.get(Article, "art1")
         assert art is not None
 
         # Interned string reads back as plain str
@@ -247,12 +247,12 @@ def run() -> None:
 
     # --- Query builder: filter on interned string field ---
     with Session(driver) as session:
-        german = session.query(Article).where(Article.country == "Germany").all()
+        german: list[Article] = session.query(Article).where(Article.country == "Germany").all()
         log.info("QueryBuilder interned country='Germany': %s", [a.id for a in german])
 
     # --- Query builder: filter on Enum field ---
     with Session(driver) as session:
-        published = (
+        published: list[Article] = (
             session.query(Article)
             .where(Article.status == ArticleStatus.PUBLISHED)
             .order_by(Article.id)
@@ -262,7 +262,7 @@ def run() -> None:
 
     # --- Query builder: compound filter — country AND status ---
     with Session(driver) as session:
-        de_published = (
+        de_published: list[Article] = (
             session.query(Article)
             .where(
                 (Article.country == "Germany")  # type: ignore[operator]
@@ -274,7 +274,7 @@ def run() -> None:
 
     # --- Query builder: in_() on language field ---
     with Session(driver) as session:
-        multilang = (
+        multilang: list[Article] = (
             session.query(Article)
             .where(Article.language.in_(["en", "fr"]))  # type: ignore[attr-defined]  # noqa: E501
             .order_by(Article.id)
@@ -284,7 +284,7 @@ def run() -> None:
 
     # --- Query builder: not_in_() + null check ---
     with Session(driver) as session:
-        without_pub_date = (
+        without_pub_date: list[Article] = (
             session.query(Article)
             .where(Article.published_at.is_null())  # type: ignore[attr-defined]
             .all()

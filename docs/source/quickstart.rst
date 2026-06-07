@@ -1,17 +1,18 @@
 Quickstart
 ==========
 
-Install runic, connect to FalkorDB, define a model, and persist it — all
-on this page.
+Install runic, connect to a graph database, define a model, and persist it — all
+on this page.  The example uses FalkorDB; swap ``create_driver`` arguments for
+any other supported backend — see :doc:`drivers` and :doc:`installation`.
 
 Installation
 ------------
 
 .. code-block:: bash
 
-   uv add runic-py    # or: pip install runic-py
+   uv add "runic-py[falkordb]"   # or: pip install "runic-py[falkordb]"
 
-FalkorDB must be running.  The simplest way for local development:
+Start a local FalkorDB instance for this example:
 
 .. code-block:: bash
 

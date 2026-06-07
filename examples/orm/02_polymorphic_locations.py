@@ -167,7 +167,7 @@ def run() -> None:
     # --- Query all via parent class ---
     with Session(driver) as session:
         repo = Repository(session, Location)
-        all_locs = repo.find_all()
+        all_locs: list[Location] = repo.find_all()
         log.info("All locations (%d):", len(all_locs))
         for loc in all_locs:
             log.info("  [%s] %s — %s", type(loc).__name__, loc.id, loc.title)
@@ -175,14 +175,14 @@ def run() -> None:
     # --- Query only countries ---
     with Session(driver) as session:
         repo = Repository(session, Country)
-        countries = repo.find_all()
+        countries: list[Country] = repo.find_all()
         log.info("Countries (%d):", len(countries))
         for c in countries:
             log.info("  %s: pop=%s, capital=%s", c.iso_code, c.population, c.capital)
 
     # --- Update an inherited field on a subtype ---
     with Session(driver) as session:
-        france = session.get(Country, "FR")
+        france: Country | None = session.get(Country, "FR")
         assert france is not None
         france.population = 68_000_000  # type: ignore[attr-defined]
         session.commit()
@@ -202,19 +202,14 @@ def run() -> None:
         assert type_counts.get("Restaurant", 0) == 1
         assert type_counts.get("Museum", 0) == 1
 
-    # --- Custom Cypher on parent-class repository ---
+    # --- QueryBuilder: query Restaurant subtype ---
     with Session(driver) as session:
-        repo_loc: Repository[Location] = Repository(session, Location)
-        restaurants = repo_loc.cypher(
-            "MATCH (n:Location:Restaurant) RETURN n",
-            {},
-            returns=Restaurant,
-        )
-        log.info("Restaurants via Cypher: %d", len(restaurants))
+        restaurants: list[Restaurant] = session.query(Restaurant).all()
+        log.info("Restaurants via QueryBuilder: %d", len(restaurants))
 
     # --- Query builder: filter Country by population threshold ---
     with Session(driver) as session:
-        large = (
+        large: list[Country] = (
             session.query(Country)
             .where(Country.population > 70_000_000)
             .order_by(Country.population, desc=True)
@@ -224,7 +219,7 @@ def run() -> None:
 
     # --- Query builder: compound AND predicate ---
     with Session(driver) as session:
-        paris_area = (
+        paris_area: list[City] = (
             session.query(City)
             .where(
                 (City.latitude > 48.0)  # type: ignore[operator]
@@ -236,7 +231,7 @@ def run() -> None:
 
     # --- Query builder: project() → scalar list ---
     with Session(driver) as session:
-        titles = (
+        titles: list[str] = (
             session.query(Location)
             .order_by(Location.title)
             .project(Location.title)
@@ -246,7 +241,7 @@ def run() -> None:
 
     # --- Query builder: null check (locations without coordinates) ---
     with Session(driver) as session:
-        no_coords = (
+        no_coords: int = (
             session.query(Location)
             .where(Location.latitude.is_null())  # type: ignore[attr-defined]
             .count()
@@ -255,7 +250,9 @@ def run() -> None:
 
     # --- Query builder: one() on specific subtype ---
     with Session(driver) as session:
-        louvre = session.query(Museum).where(Museum.id == "LOUVRE").one()
+        louvre: Museum | None = (
+            session.query(Museum).where(Museum.id == "LOUVRE").one()
+        )
         log.info("Museum one(): %s", louvre and louvre.title)
 
     driver.close()

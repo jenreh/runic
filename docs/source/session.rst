@@ -123,19 +123,23 @@ Expunge
 Raw Cypher
 ----------
 
-``session.execute()`` runs a Cypher query and returns a raw
-``QueryResult``.  No entity mapping is applied.
+For the common cases prefer the :doc:`query builder <query_builder>`.
+``session.execute()`` is the escape hatch for write mutations and Cypher
+features not covered by the builder.
 
 .. code-block:: python
 
-   result = session.execute(
-       "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE p.id = $id RETURN f.name",
-       {"id": "alice"},
+   # Prefer the query builder for reads
+   friends = (
+       session.query(Person)
+       .where(Person.id == "alice")
+       .alias("p")
+       .traverse(Person.knows).alias("f")
+       .project(Person.name, on="f")
+       .scalars()
    )
-   for row in result.rows:
-       print(row[0])
 
-   # Write queries require write=True
+   # Write mutations (SET, REMOVE, …) require session.execute(write=True)
    session.execute(
        "MATCH (t:Trip {status: $old}) SET t.status = $new",
        {"old": "draft", "new": "archived"},

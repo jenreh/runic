@@ -79,7 +79,7 @@ def run() -> None:
 
     # --- CREATE ---
     with Session(driver) as session:
-        languages = [
+        languages: list[Language] = [
             Language(id="en", title="English", code="en"),
             Language(id="de", title="German", code="de"),
             Language(id="fr", title="French", code="fr"),
@@ -91,14 +91,14 @@ def run() -> None:
     # --- READ ALL ---
     with Session(driver) as session:
         repo = Repository(session, Language)
-        all_langs = repo.find_all()
+        all_langs: list[Language] = repo.find_all()
         log.info("Total languages: %d", len(all_langs))
         for lang in all_langs:
             log.info("  %s — %s (%s)", lang.id, lang.title, lang.code)
 
     # --- READ ONE ---
     with Session(driver) as session:
-        en = session.get(Language, "en")
+        en: Language | None = session.get(Language, "en")
         assert en is not None
         log.info("Got by PK: %s", en.title)
 
@@ -112,7 +112,7 @@ def run() -> None:
 
     # --- DELETE ---
     with Session(driver) as session:
-        fr = session.get(Language, "fr")
+        fr: Language | None = session.get(Language, "fr")
         assert fr is not None
         session.delete(fr)
         session.commit()
@@ -125,22 +125,22 @@ def run() -> None:
 
     # --- QueryBuilder: filter by field ---
     with Session(driver) as session:
-        results = session.query(Language).where(Language.code == "en").all()
+        results: list[Language] = session.query(Language).where(Language.code == "en").all()
         log.info("QueryBuilder filter code='en': %s", [r.title for r in results])
 
     # --- QueryBuilder: count ---
     with Session(driver) as session:
-        total = session.query(Language).count()
+        total: int = session.query(Language).count()
         log.info("QueryBuilder count: %d", total)
 
     # --- QueryBuilder: one() ---
     with Session(driver) as session:
-        lang = session.query(Language).where(Language.code == "de").one()
+        lang: Language | None = session.query(Language).where(Language.code == "de").one()
         log.info("QueryBuilder one() German: %s", lang and lang.title)
 
     # --- QueryBuilder: order_by + limit ---
     with Session(driver) as session:
-        ordered = session.query(Language).order_by(Language.code).limit(2).all()
+        ordered: list[Language] = session.query(Language).order_by(Language.code).limit(2).all()
         log.info("QueryBuilder ordered codes: %s", [r.code for r in ordered])
 
     driver.close()

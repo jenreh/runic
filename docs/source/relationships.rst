@@ -131,10 +131,10 @@ remove relationships without writing Cypher:
        company = session.get(Company, "acme")
 
        # Create (or update) the relationship — MERGE semantics
-       session.relate(alice, "company", company)
+       session.relate(alice, User.company, company)
 
        # Remove the relationship
-       session.unrelate(alice, "company", company)
+       session.unrelate(alice, User.company, company)
 
 ``relate()`` is idempotent: calling it a second time does not duplicate the
 edge.  The cached field value on the source entity is invalidated after each
@@ -147,7 +147,7 @@ For async sessions the same methods are available as coroutines:
    async with AsyncSession(driver) as session:
        alice = await session.get(User, "alice")
        company = await session.get(Company, "acme")
-       await session.relate(alice, "company", company)
+       await session.relate(alice, User.company, company)
 
 Edge properties
 ---------------
@@ -188,7 +188,7 @@ updated values will overwrite the existing properties:
        # Create — or update if the edge already exists
        session.relate(
            user,
-           "invited_trips",
+           User.invited_trips,
            trip,
            edge=InvitationEdge(
                role="owner",
@@ -197,23 +197,28 @@ updated values will overwrite the existing properties:
            ),
        )
 
-Read edge properties back with a custom Cypher query in your Repository:
+Read edge properties back via the query builder:
 
 .. code-block:: python
 
    from runic.orm import Repository
 
    class UserRepository(Repository[User]):
-       def get_invitation(self, user_id: str, trip_id: str) -> dict | None:
-           return self.cypher_one(
-               """
-               MATCH (u:User {id: $uid})-[e:INVITED_TO]->(t:Trip {id: $tid})
-               RETURN e.role AS role, e.status AS status,
-                      e.invited_at AS invited_at, e.accepted_at AS accepted_at
-               """,
-               {"uid": user_id, "tid": trip_id},
-               returns=dict,
+       def get_invitation(self, user_id: str, trip_id: str) -> InvitationEdge | None:
+           rows = (
+               self.query()
+               .where(User.id == user_id)
+               .alias("u")
+               .traverse(User.invited_trips, edge_alias="e", optional=False)
+               .alias("t")
+               .where(Trip.id == trip_id, on="t")
+               .return_nodes("u", "t").return_edge("e")
+               .all_with_edges()
            )
+           if not rows:
+               return None
+           _, edge, _ = rows[0]
+           return edge
 
 Cascade saves
 -------------

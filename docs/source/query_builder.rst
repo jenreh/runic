@@ -1,162 +1,397 @@
 Query Builder
 =============
 
-The runic query builder provides a fluent, type-safe API for constructing
-Cypher queries from your ORM model declarations — without writing raw Cypher
-strings for the common cases.
+The query builder lets you construct Cypher queries from your ORM model
+declarations using a fluent Python API — without writing raw Cypher strings for
+the common cases.  This page explains *how* the builder works, *what Cypher it
+emits*, and *when* to use each feature so you can read the result confidently
+and know when to reach for something else.
 
-Overview
---------
+----
 
-All queries start from :meth:`~runic.orm.session.session.Session.query`,
-which returns a :class:`~runic.orm.query.builder.QueryBuilder` bound to the
-session::
+How the query builder works
+----------------------------
 
-    from runic.orm import Session, QueryBuilder
+When you call :meth:`~runic.orm.session.session.Session.query`, you get back a
+:class:`~runic.orm.query.builder.QueryBuilder` that accumulates clauses as you
+chain method calls.  Nothing is sent to the database until you call a *terminal
+method* (``all()``, ``one()``, ``count()``, etc.).
 
-    with Session(driver) as session:
-        users = (
-            session.query(User)
-            .where(User.active == True)
-            .order_by(User.name)
-            .limit(20)
-            .all()
-        )
+At that point the builder:
 
-The builder generates Cypher and delegates execution / result decoding to the
-existing ``Mapper`` and identity-map machinery — so entities returned by the
-builder are tracked in the session exactly like entities returned by
-``session.get()`` or ``repo.find_all()``.
+1. **Generates a Cypher string and a parameter dict** from the accumulated
+   clauses.
+2. **Sends the query to the driver** via the underlying session's connection.
+3. **Decodes each result row** using the ORM mapper — the same code path used
+   by ``session.get()`` and ``repo.find_all()``.
+4. **Registers returned entities in the session's identity map**, so change
+   tracking works on them exactly as if you had loaded them any other way.
 
-Entry points
-------------
+Because the builder goes through the same mapper and identity map, you can mix
+builder queries and direct ``session.get()`` calls freely within the same
+session.
 
-+---------------------------------------------+----------------------------------------------+
-| Method                                      | Returns                                      |
-+=============================================+==============================================+
-| ``session.query(NodeCls)``                  | ``QueryBuilder[NodeCls]``                    |
-+---------------------------------------------+----------------------------------------------+
-| ``session.fulltext_search(Cls, query=...)`` | ``FulltextQueryBuilder[Cls]``                |
-+---------------------------------------------+----------------------------------------------+
-| ``session.vector_search(Cls, field=..., …)``| ``VectorQueryBuilder[Cls]``                  |
-+---------------------------------------------+----------------------------------------------+
-| ``repo.query()``                            | ``QueryBuilder[T]`` (bound to repo's type)   |
-+---------------------------------------------+----------------------------------------------+
+To see the Cypher the builder *would* emit without executing it, call
+:meth:`~runic.orm.query.builder.QueryBuilder.build`::
+
+    cypher: str
+    params: dict[str, Any]
+    cypher, params = session.query(User).where(User.active == True).build()
+    print(cypher)
+    # MATCH (n:User) WHERE (n.active = $p0) RETURN n
+    print(params)
+    # {'p0': True}
+
+Use ``.build()`` freely while learning the builder or debugging unexpected
+results.
 
 .. seealso::
 
    `examples/orm/07_query_builder_basics.py <https://github.com/jenreh/runic/blob/main/examples/orm/07_query_builder_basics.py>`_
-      Covers every foundational feature: comparisons, string predicates, null checks, membership, boolean composition,
-      ordering, pagination, projection, and all terminal methods.
+      Covers every foundational feature: comparisons, string predicates, null
+      checks, membership, boolean composition, ordering, pagination, projection,
+      and all terminal methods.
+
+----
+
+Entry points
+------------
+
+There are three starting points for a query.  All three return a
+:class:`~runic.orm.query.builder.QueryBuilder` whose chaining and terminal
+methods behave identically.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Call
+     - When to use
+   * - ``session.query(NodeCls)``
+     - Standard node queries; the most common entry point.
+   * - ``repo.query()``
+     - Equivalent to ``session.query(T)``; useful when the repository type is
+       already in scope, keeps model type in one place.
+   * - ``session.fulltext_search(Cls, query=...)``
+     - Full-text search queries — wraps a backend-specific ``CALL`` procedure.
+       See `Full-text search`_.
+   * - ``session.vector_search(Cls, field=..., vector=..., k=...)``
+     - Approximate nearest-neighbour vector queries.
+       See `Vector KNN search`_.
+
+----
 
 Filtering
 ---------
 
-Filters are created by using Python comparison operators on **class-level
+Predicates are built by applying Python comparison operators to **class-level
 field accesses**.  The operator overloads on
-:class:`~runic.orm.core.descriptors.FieldDescriptor` return
-:class:`~runic.orm.query.expressions.FilterExpr` objects, not Python booleans.
+:class:`~runic.orm.core.descriptors.FieldDescriptor` return lightweight
+:class:`~runic.orm.query.expressions.FilterExpr` objects that the builder
+serialises into parameterised Cypher ``WHERE`` clauses.
+
+Two important points before you start:
+
+* **No Python evaluation happens.** ``User.age > 18`` does not evaluate to a
+  Python boolean; it returns a :class:`~runic.orm.query.expressions.FilterExpr`
+  object.  This means you cannot use it inside a Python ``if`` statement — only
+  inside ``.where()``.
+* **Parameters are always bound.** The builder never interpolates values
+  directly into the Cypher string.  Every value becomes a ``$pN`` parameter,
+  which prevents Cypher injection and enables query-plan caching.
+
+Comparison operators
+~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
     # Equality / inequality
     User.name == "Alice"          # WHERE n.name = $p0
     User.status != "banned"       # WHERE n.status <> $p0
-    User.deleted_at == None       # WHERE n.deleted_at IS NULL  (alias for .is_null())
-    User.email != None            # WHERE n.email IS NOT NULL   (alias for .is_not_null())
+
+    # None comparisons map to IS NULL / IS NOT NULL
+    User.deleted_at == None       # WHERE n.deleted_at IS NULL
+    User.email != None            # WHERE n.email IS NOT NULL
 
     # Numeric comparison
-    User.age > 18
-    User.score >= 4.5
-    User.age < 65
-    User.credit <= 0
+    User.age > 18                 # WHERE n.age > $p0
+    User.score >= 4.5             # WHERE n.score >= $p0
+    User.age < 65                 # WHERE n.age < $p0
+    User.credit <= 0              # WHERE n.credit <= $p0
 
-    # String predicates
+String predicates
+~~~~~~~~~~~~~~~~~
+
+String predicates map directly to Cypher string operators:
+
+.. code-block:: python
+
     User.name.contains("ali")          # WHERE n.name CONTAINS $p0
     User.email.startswith("admin@")    # WHERE n.email STARTS WITH $p0
     User.url.endswith(".org")          # WHERE n.url ENDS WITH $p0
     User.bio.matches(r".*graph.*")     # WHERE n.bio =~ $p0  (regex)
 
-    # Null checks (explicit, more readable than == None)
+.. note::
+
+   Cypher regular expressions follow the Java ``java.util.regex`` syntax.
+   Anchoring (``^``, ``$``) and case-insensitive flags (``(?i)``) are
+   supported; look-aheads are not.
+
+Null checks
+~~~~~~~~~~~
+
+The ``== None`` / ``!= None`` shorthand works, but explicit null-check methods
+are clearer in code review::
+
     User.deleted_at.is_null()          # WHERE n.deleted_at IS NULL
     User.email.is_not_null()           # WHERE n.email IS NOT NULL
 
-    # List membership
+List membership
+~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    # IN list
     User.role.in_(["admin", "mod"])    # WHERE n.role IN $p0
+
+    # NOT IN list
     Post.tag.not_in_(["spam"])         # WHERE NOT n.tag IN $p0
+
+The list is passed as a single bound parameter, not expanded inline.
 
 Boolean composition
 ~~~~~~~~~~~~~~~~~~~
 
-Use ``&`` (AND), ``|`` (OR), and ``~`` (NOT) to compose predicates::
+Use the bitwise operators ``&`` (AND), ``|`` (OR), and ``~`` (NOT) to compose
+predicates.  These are *not* Python ``and`` / ``or`` / ``not`` — those would
+short-circuit and discard the filter objects:
 
-    # AND
+.. code-block:: python
+
+    # AND — both conditions must match
     session.query(User).where((User.age > 18) & (User.active == True))
-
-    # OR
-    session.query(User).where((User.role == "admin") | (User.role == "mod"))
-
-    # NOT
-    session.query(User).where(~(User.banned == True))
-
-Multiple ``.where()`` calls are always joined by AND::
-
-    session.query(User)
-        .where(User.age > 18)
-        .where(User.active == True)
     # WHERE (n.age > $p0) AND (n.active = $p1)
 
-Aliases
--------
+    # OR — either condition can match
+    session.query(User).where((User.role == "admin") | (User.role == "mod"))
+    # WHERE (n.role = $p0) OR (n.role = $p1)
 
-Give a Cypher variable name to the root node with ``.alias()``::
+    # NOT — negate a predicate
+    session.query(User).where(~(User.banned == True))
+    # WHERE NOT (n.banned = $p0)
 
-    session.query(User).alias("u").where(User.name == "Alice", on="u")
+**Multiple ``.where()`` calls are always joined by AND.**  The following two
+queries are equivalent:
 
-The ``on=`` parameter of ``.where()`` overrides which alias a predicate is
-applied to.  This is especially useful with traversals (see below) and with
-edge property filtering.
+.. code-block:: python
+
+    session.query(User).where((User.age > 18) & (User.active == True))
+
+    session.query(User).where(User.age > 18).where(User.active == True)
+
+Use chained ``.where()`` calls when your predicates are produced independently
+(e.g. optional filters in a search function) and ``&`` / ``|`` when you need
+explicit OR or complex nesting.
+
+----
+
+Ordering, pagination, and DISTINCT
+------------------------------------
+
+These clauses work exactly as their Cypher counterparts suggest:
+
+.. code-block:: python
+
+    users: list[User] = (
+        session.query(User)
+        .order_by(User.created_at, desc=True)   # ORDER BY n.created_at DESC
+        .skip(40)                                # SKIP 40
+        .limit(20)                               # LIMIT 20
+        .all()
+    )
+
+``skip`` and ``limit`` together implement offset-based pagination.  For
+cursor-based or keyset pagination, filter on an indexed field instead::
+
+    users: list[User] = (
+        session.query(User)
+        .where(User.created_at < last_seen_ts)
+        .order_by(User.created_at, desc=True)
+        .limit(20)
+        .all()
+    )
+
+Use ``.distinct()`` to deduplicate the ``RETURN`` clause:
+
+.. code-block:: python
+
+    # Unique countries across all users
+    countries: list[str] = session.query(User).distinct().project(User.country).scalars()
+    # RETURN DISTINCT n.country
+
+----
+
+Projection — returning scalar values
+--------------------------------------
+
+By default, the query returns fully decoded node instances.  Use
+:meth:`~runic.orm.query.builder.QueryBuilder.project` when you only need a
+subset of properties — this avoids loading full node objects and reduces the
+data transferred from the database.
+
+.. code-block:: python
+
+    # Single field → flat list via .scalars()
+    emails: list[str] = session.query(User).project(User.email).scalars()
+    # RETURN n.email  →  ["alice@example.com", "bob@example.com", ...]
+
+    # Multiple fields → list of dicts via .all_rows()
+    rows: list[dict[str, Any]] = session.query(User).project(User.name, User.age).all_rows()
+    # RETURN n.name, n.age  →  [{"n.name": "Alice", "n.age": 30}, ...]
+
+When to use projection vs full node loading:
+
+* Use **full node loading** (``all()``, ``one()``) when you need tracked objects
+  with full change-tracking, relationship loading, or type-converted fields.
+* Use **projection** when you are reading a single denormalised view for display
+  or export and do not need to mutate or traverse the result.
+
+----
+
+Aggregation
+-----------
+
+The query builder ships aggregation helpers that map to Cypher's built-in
+aggregate functions.  Import them from :mod:`runic.orm.query`:
+
+.. code-block:: python
+
+    from runic.orm.query import count, avg, sum_, min_, max_, collect
+
+Use :meth:`~runic.orm.query.builder.QueryBuilder.aggregate` to add one or more
+aggregation expressions to the ``RETURN`` clause.  The ``.as_("name")`` call
+sets the Cypher alias for that column, which you use to retrieve the value from
+the result dict returned by ``.all_rows()``.
+
+Simple aggregation (no grouping)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When there is no ``group_by``, the query collapses to a single row:
+
+.. code-block:: python
+
+    # Total number of users
+    total: int = session.query(User).aggregate(count().as_("total")).scalar()
+    # MATCH (n:User) RETURN count(*) AS total
+
+    # Average score
+    avg_score: float = session.query(User).aggregate(avg(User.score).as_("avg")).scalar()
+    # MATCH (n:User) RETURN avg(n.score) AS avg
+
+    # Convenience shortcut
+    n: int = session.query(User).where(User.active == True).count()
+    # MATCH (n:User) WHERE n.active = $p0 RETURN count(*)
+
+Grouped aggregation
+~~~~~~~~~~~~~~~~~~~
+
+Pass ``group_by=`` to partition results.  The named alias must match an alias
+previously set with ``.alias()``::
+
+    rows: list[dict[str, Any]] = (
+        session.query(User).alias("u")
+        .traverse(User.posts).alias("p")
+        .aggregate(count("*").as_("post_count"), group_by="u")
+        .all_rows()
+    )
+    # OPTIONAL MATCH (u:User)-[:AUTHORED]->(p:Post)
+    # RETURN u, count(*) AS post_count
+
+    for row in rows:
+        user: User = row["u"]
+        post_count: int = row["post_count"]
+        print(user.name, "has", post_count, "posts")
+
+Collecting values into a list
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``collect`` maps to Cypher's ``collect()`` aggregate, which gathers values
+across rows into a list::
+
+    rows: list[dict[str, Any]] = (
+        session.query(User).alias("u")
+        .traverse(User.tags).alias("t")
+        .aggregate(collect("t").as_("tags"), group_by="u")
+        .all_rows()
+    )
+    # RETURN u, collect(t) AS tags
 
 .. seealso::
 
-   `examples/orm/08_query_builder_traversal.py <https://github.com/jenreh/runic/blob/main/examples/orm/08_query_builder_traversal.py>`_
-      Single-hop and multi-hop traversal, ``optional=False`` inner-join, ``repeat()`` variable-length paths,
-      ``return_target()``, ``with_()``, and alias-scoped ``where(on=)``.
+   `examples/orm/10_query_builder_aggregation.py <https://github.com/jenreh/runic/blob/main/examples/orm/10_query_builder_aggregation.py>`_
+      ``count``, ``avg``, ``sum_``, ``min_``, ``max_``, ``collect``; grouped
+      aggregation with ``group_by``; ``.scalar()`` and ``.all_rows()``.
+
+----
 
 Traversals
 ----------
 
-Single-hop
-~~~~~~~~~~
+The traversal API lets you follow relationship patterns declared on your models
+using :func:`~runic.orm.core.descriptors.Relation` fields — without writing
+``MATCH (a)-[:TYPE]->(b)`` by hand.
 
-:meth:`~runic.orm.query.builder.QueryBuilder.traverse` follows a
-:func:`~runic.orm.core.descriptors.Relation` field declaration.  It returns a
-:class:`~runic.orm.query.traversal.TraversalStep`; call ``.alias()`` on the
-step to name the target node and resume the builder chain::
+Understanding OPTIONAL MATCH vs MATCH
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # Default: OPTIONAL MATCH (left-join — keeps users with no friends)
-    friends = (
+By default, ``.traverse()`` generates an ``OPTIONAL MATCH`` clause.  This is a
+**left join**: nodes that have no matching relationship are still returned, with
+``None`` for the related node.
+
+Pass ``optional=False`` to get an inner join (``MATCH``), which excludes root
+nodes that have no matching relationship:
+
+.. code-block:: text
+
+    OPTIONAL MATCH (u)-[:FRIENDS]->(f)    # all users, friends may be None
+    MATCH (u)-[:WORKS_FOR]->(c)           # only users with a company
+
+Choose based on whether missing relationships are valid data or an error.
+
+Single-hop traversal
+~~~~~~~~~~~~~~~~~~~~
+
+:meth:`~runic.orm.query.builder.QueryBuilder.traverse` takes a
+:func:`~runic.orm.core.descriptors.Relation` field reference.  Call
+``.alias()`` on the returned step to name the target node variable and continue
+the builder chain:
+
+.. code-block:: python
+
+    # Find all friends of a specific user, aged over 25
+    friends: list[User] = (
         session.query(User).alias("u")
-        .where(User.id == uid)
+        .where(User.id == user_id)
         .traverse(User.friends).alias("f")
-        .where(User.age > 25, on="f")
+        .where(User.age > 25, on="f")   # predicate scoped to "f", not "u"
         .return_target("f")
         .all()
     )
+    # MATCH (u:User) WHERE u.id = $p0
+    # OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
+    # WHERE f.age > $p1
+    # RETURN f
 
-    # Inner join (MATCH) — drops users without a company
-    employed = (
-        session.query(User).alias("u")
-        .traverse(User.works_for, optional=False).alias("c")
-        .all()
-    )
+The ``on=`` argument on ``.where()`` scopes a predicate to a specific alias.
+Without it, predicates are applied to the root node.
 
-Multi-hop
-~~~~~~~~~
+Multi-hop traversal
+~~~~~~~~~~~~~~~~~~~
 
-Chain multiple ``.traverse()`` calls::
+Chain multiple ``.traverse()`` calls to follow a path through several
+relationships.  Each step names a new alias::
 
-    posts_by_friends = (
+    posts_by_friends: list[Post] = (
         session.query(User).alias("u")
         .traverse(User.friends).alias("f")
         .traverse(User.authored_posts).alias("p")
@@ -164,40 +399,83 @@ Chain multiple ``.traverse()`` calls::
         .return_target("p")
         .all()
     )
+    # MATCH (u:User)
+    # OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
+    # OPTIONAL MATCH (f)-[:AUTHORED]->(p:Post)
+    # WHERE p.title CONTAINS $p0
+    # RETURN p
 
 Variable-length paths
 ~~~~~~~~~~~~~~~~~~~~~
 
-Use :meth:`~runic.orm.query.builder.QueryBuilder.repeat` to generate
-``*min..max`` path quantifiers::
+Use :meth:`~runic.orm.query.builder.QueryBuilder.repeat` when you need to
+traverse an unknown number of hops — equivalent to Cypher's ``*min..max``
+quantifier.  This is useful for hierarchies (org charts, category trees,
+dependency graphs):
 
-    ancestors = (
+.. code-block:: python
+
+    # Find all managers in the chain above an employee (1 to 5 hops)
+    ancestors: list[Employee] = (
         session.query(Employee).alias("e")
         .where(Employee.id == emp_id)
         .repeat(Employee.reports_to, min_hops=1, max_hops=5).alias("anc")
         .all()
     )
+    # MATCH (e:Employee) WHERE e.id = $p0
     # MATCH (e)-[:REPORTS_TO*1..5]->(anc:Employee)
+    # RETURN anc
 
-    # Unbounded (no max)
-    all_reachable = (
+    # No upper bound — all reachable nodes
+    all_reachable: list[Station] = (
         session.query(Station)
         .repeat(Station.connected_to, min_hops=1).alias("s2")
         .all()
     )
+    # MATCH (n:Station)-[:CONNECTED_TO*1..]->(s2:Station) RETURN s2
+
+.. warning::
+
+   Variable-length paths with no upper bound (``*1..``) can be extremely
+   expensive on dense graphs.  Always set ``max_hops`` unless you are certain
+   the graph has bounded depth.
 
 .. seealso::
 
-   `examples/orm/09_query_builder_edges.py <https://github.com/jenreh/runic/blob/main/examples/orm/09_query_builder_edges.py>`_
-      ``traverse(edge_alias=)``, ``return_nodes()`` + ``return_edge()``, ``all_with_edges()``,
-      and filtering on edge properties via ``where(on=)``.
+   `examples/orm/08_query_builder_traversal.py <https://github.com/jenreh/runic/blob/main/examples/orm/08_query_builder_traversal.py>`_
+      Single-hop and multi-hop traversal, ``optional=False`` inner-join,
+      ``repeat()``, ``return_target()``, ``with_()``, and alias-scoped
+      ``where(on=)``.
+
+----
+
+Aliases
+-------
+
+Every node variable in a generated Cypher query has a name.  The root node
+defaults to ``n``; traversal targets default to a generated name.  Use
+``.alias()`` to assign readable names — this is important when:
+
+* You need to scope a ``.where()`` to a specific node (via ``on=``).
+* You need to reference a node in a ``.with_()`` clause.
+* You read the generated Cypher via ``.build()`` and want it to be legible.
+
+.. code-block:: python
+
+    session.query(User).alias("u").where(User.name == "Alice", on="u")
+    # MATCH (u:User) WHERE u.name = $p0 RETURN u
+
+----
 
 Edge properties
 ---------------
 
-By default, relationship patterns are anonymous: ``(a)-[:TYPE]->(b)``.
-Pass ``edge_alias=`` to :meth:`~runic.orm.query.builder.QueryBuilder.traverse`
-to name the relationship variable, enabling edge property access::
+By default, relationship patterns are anonymous: ``(a)-[:TYPE]->(b)``.  This is
+sufficient for most traversals.  When you need to **filter on edge properties**
+or **return edge data alongside the nodes**, pass ``edge_alias=`` to
+``.traverse()`` to name the relationship variable:
+
+.. code-block:: python
 
     class Rated(Edge, type="RATED"):
         score: float = Field()
@@ -207,136 +485,154 @@ to name the relationship variable, enabling edge property access::
             relationship="RATED",
             direction="OUTGOING",
             target="Movie",
-            edge_model=Rated,       # link the Edge class
+            edge_model=Rated,
         )
 
-    rows = (
+    rows: list[tuple[User, Rated, Movie]] = (
         session.query(User).alias("u")
-        .traverse(User.rated, edge_alias="r").alias("m")  # (u)-[r:RATED]->(m)
-        .where(Rated.score > 4.0, on="r")
+        .traverse(User.rated, edge_alias="r").alias("m")
+        .where(Rated.score > 4.0, on="r")       # filter on edge property
         .return_nodes("u", "m").return_edge("r")
-        .all_with_edges()           # list[tuple[User, Rated, Movie]]
+        .all_with_edges()
     )
+    # OPTIONAL MATCH (u:User)-[r:RATED]->(m:Movie)
+    # WHERE r.score > $p0
+    # RETURN u, r, m
 
     for user, edge, movie in rows:
-        print(f"{user.name} rated {movie.title}: {edge.score}")
+        user: User
+        edge: Rated
+        movie: Movie
+        print(f"{user.name} rated {movie.title}: {edge.score}/5")
+
+Note that ``return_nodes()`` and ``return_edge()`` explicitly select which
+variables appear in ``RETURN``.  ``all_with_edges()`` then unpacks the result
+rows into typed tuples.
 
 .. note::
-   The existing lazy/eager relationship loading paths (``session.get(..., fetch=[...])``)
-   remain unchanged and still use anonymous patterns.  Named relationship
-   variables are only emitted by the query builder when ``edge_alias=`` is given.
 
-WITH clause (multi-stage pipelining)
--------------------------------------
-
-Use :meth:`~runic.orm.query.builder.QueryBuilder.with_` to insert a Cypher
-``WITH`` clause between query stages::
-
-    (
-        session.query(User).alias("u")
-        .where(User.active == True)
-        .with_("u")                   # WITH u
-        .traverse(User.posts).alias("p")
-        .return_target("p")
-        .all()
-    )
-
-Ordering, pagination, DISTINCT
--------------------------------
-
-.. code-block:: python
-
-    session.query(User)
-        .order_by(User.age, desc=True)  # ORDER BY n.age DESC
-        .skip(20)                        # SKIP 20
-        .limit(10)                       # LIMIT 10
-        .all()
-
-    session.query(User).distinct().project(User.country).scalars()
-    # RETURN DISTINCT n.country
+   The existing lazy/eager loading paths (``session.get(..., fetch=[...])``)
+   continue to use anonymous relationship patterns.  Named edge variables are
+   only emitted by the query builder when ``edge_alias=`` is given.
 
 .. seealso::
 
-   `examples/orm/10_query_builder_aggregation.py <https://github.com/jenreh/runic/blob/main/examples/orm/10_query_builder_aggregation.py>`_
-      ``count``, ``avg``, ``sum_``, ``min_``, ``max_``, ``collect``; grouped aggregation with ``group_by``; ``.scalar()`` and ``.all_rows()``.
+   `examples/orm/09_query_builder_edges.py <https://github.com/jenreh/runic/blob/main/examples/orm/09_query_builder_edges.py>`_
+      ``traverse(edge_alias=)``, ``return_nodes()`` + ``return_edge()``,
+      ``all_with_edges()``, and filtering on edge properties.
 
-Aggregation
------------
+----
 
-Import and use the aggregation helpers::
+WITH clause — multi-stage pipelining
+--------------------------------------
 
-    from runic.orm.query import count, avg, sum_, min_, max_, collect
+Cypher's ``WITH`` clause ends one query stage and begins the next, carrying
+forward only the named variables.  This is useful when you need to filter an
+intermediate result before continuing a traversal — for example, taking the top
+N users by score before expanding their relationships:
 
-    # Count all users
-    total = session.query(User).aggregate(count().as_("total")).scalar()
+.. code-block:: python
 
-    # Average age
-    avg_age = session.query(User).aggregate(avg(User.age).as_("avg")).scalar()
-
-    # Friends per user (GROUP BY u)
-    rows = (
+    top_authors: list[Post] = (
         session.query(User).alias("u")
-        .traverse(User.friends)
-        .aggregate(count("*").as_("friends"), group_by="u")
-        .all_rows()   # list[dict] → [{"u": <User>, "friends": 5}, ...]
+        .where(User.active == True)
+        .order_by(User.score, desc=True)
+        .limit(10)
+        .with_("u")                       # WITH u  — only u carries forward
+        .traverse(User.authored_posts).alias("p")
+        .return_target("p")
+        .all()
     )
+    # MATCH (u:User) WHERE u.active = $p0
+    # ORDER BY u.score DESC LIMIT 10
+    # WITH u
+    # OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
+    # RETURN p
 
-    # Via .count() terminal shortcut
-    n = session.query(User).where(User.active == True).count()
+Without ``WITH``, ``LIMIT`` applies to the final result, not to the
+intermediate set of users.  The stage boundary created by ``WITH`` ensures the
+limit is applied before the traversal.
 
-Projection (scalar results)
-----------------------------
-
-Use :meth:`~runic.orm.query.builder.QueryBuilder.project` to return only
-specific field values::
-
-    # Single-field flat list
-    names = session.query(User).project(User.name).scalars()
-
-    # Multi-field dicts
-    rows = session.query(User).project(User.name, User.age).all_rows()
-    # [{"n.name": "Alice", "n.age": 30}, ...]
+----
 
 Terminal methods
 ----------------
 
-+---------------------+--------------------------------------------------+
-| Method              | Returns                                          |
-+=====================+==================================================+
-| ``.all()``          | ``list[T]`` — decoded Node instances             |
-+---------------------+--------------------------------------------------+
-| ``.one()``          | ``T | None`` — first result (LIMIT 1)            |
-+---------------------+--------------------------------------------------+
-| ``.all_with_edges`` | ``list[tuple]`` — (NodeA, Edge, NodeB) tuples    |
-+---------------------+--------------------------------------------------+
-| ``.all_rows()``     | ``list[dict]`` — column-keyed dicts              |
-+---------------------+--------------------------------------------------+
-| ``.count()``        | ``int`` — ``count(*)``                           |
-+---------------------+--------------------------------------------------+
-| ``.scalar()``       | ``Any`` — first column of first row              |
-+---------------------+--------------------------------------------------+
-| ``.scalars()``      | ``list[Any]`` — first column of every row        |
-+---------------------+--------------------------------------------------+
-| ``.build()``        | ``(str, dict)`` — raw Cypher + params (debug)    |
-+---------------------+--------------------------------------------------+
+Terminal methods execute the query and return results.  Calling any of them
+closes the builder chain.
 
-.. seealso::
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
 
-   `examples/orm/11_query_builder_search.py <https://github.com/jenreh/runic/blob/main/examples/orm/11_query_builder_search.py>`_
-      ``fulltext_search()`` and ``vector_search()`` combined with ``where()``, ``order_by()``, ``limit()``,
-      index creation via ``IndexManager``, and ``build()`` to inspect generated Cypher.
+   * - Method
+     - Returns
+   * - ``.all()``
+     - ``list[T]`` — fully decoded, session-tracked node instances
+   * - ``.one()``
+     - ``T | None`` — first result (adds ``LIMIT 1``); ``None`` if empty
+   * - ``.all_with_edges()``
+     - ``list[tuple]`` — ``(NodeA, Edge, NodeB)`` tuples (requires ``return_nodes`` + ``return_edge``)
+   * - ``.all_rows()``
+     - ``list[dict]`` — raw column-keyed dicts; used with ``project()`` and ``aggregate()``
+   * - ``.count()``
+     - ``int`` — adds ``count(*)`` to ``RETURN``; no node decoding
+   * - ``.scalar()``
+     - ``Any`` — first column of the first row; convenient for single-value aggregates
+   * - ``.scalars()``
+     - ``list[Any]`` — first column of every row; convenient with ``project()``
+   * - ``.build()``
+     - ``(str, dict)`` — the Cypher string and parameter dict; does **not** execute the query
 
-FalkorDB fulltext search
-------------------------
+**Choosing the right terminal method:**
 
-Requires a fulltext index on the node label (created via
-:class:`~runic.orm.schema.schema_manager.SchemaManager` or migration ops)::
+* Default to ``.all()`` when you need trackable entities.
+* Use ``.one()`` for lookups where you expect zero or one result.
+* Use ``.count()`` or ``.scalar()`` for aggregates to avoid decoding overhead.
+* Use ``.all_rows()`` for multi-column projections and aggregations.
+* Use ``.build()`` to inspect, log, or test the generated Cypher.
+
+----
+
+Full-text search
+----------------
+
+Full-text search uses a backend-specific ``CALL`` procedure instead of a
+``MATCH`` clause.  The entry point is
+:meth:`~runic.orm.session.session.Session.fulltext_search`, which returns a
+specialised builder that has the same chaining and terminal methods as
+:class:`~runic.orm.query.builder.QueryBuilder`.
+
+The backend procedure invoked depends on which driver you are using:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Backend
+     - Procedure
+   * - FalkorDB
+     - ``CALL db.idx.fulltext.queryNodes('Label', $query) YIELD node AS n``
+   * - Neo4j
+     - ``CALL db.index.fulltext.queryNodes('Label', $query) YIELD node AS n``
+   * - Memgraph
+     - ``CALL text_search.search_all('label', $query) YIELD node``
+   * - ArcadeDB
+     - Not supported
+   * - Apache AGE
+     - Not supported; use PostgreSQL ``tsvector``/``tsquery`` via raw SQL
+
+A fulltext index on the target label must exist before querying.  Create it
+declaratively via :class:`~runic.orm.schema.schema_manager.SchemaManager` or a
+migration ``op``:
+
+.. code-block:: python
 
     class Post(Node, labels=["Post"]):
         title: str = Field(index_type="FULLTEXT")
         body: str = Field(index_type="FULLTEXT")
 
-    posts = (
+    posts: list[Post] = (
         session.fulltext_search(Post, query="graph databases")
         .where(Post.published == True)
         .order_by(Post.created_at, desc=True)
@@ -344,7 +640,9 @@ Requires a fulltext index on the node label (created via
         .all()
     )
 
-Cypher emitted::
+The generated Cypher for FalkorDB:
+
+.. code-block:: cypher
 
     CALL db.idx.fulltext.queryNodes('Post', $__fts_query) YIELD node AS n
     WHERE n.published = $p0
@@ -352,16 +650,53 @@ Cypher emitted::
     ORDER BY n.created_at DESC
     LIMIT 20
 
-FalkorDB vector KNN search
---------------------------
+Additional ``.where()``, ``.order_by()``, and ``.limit()`` clauses are appended
+after the ``CALL`` block and apply to the nodes yielded by the procedure.
 
-Requires a vector (HNSW) index on the field::
+.. seealso::
+
+   `examples/orm/11_query_builder_search.py <https://github.com/jenreh/runic/blob/main/examples/orm/11_query_builder_search.py>`_
+      Full-text and vector search combined with ``where()``, ``order_by()``,
+      ``limit()``, index creation via ``IndexManager``, and ``build()`` to
+      inspect generated Cypher.
+
+----
+
+Vector KNN search
+-----------------
+
+Vector KNN search finds the ``k`` nearest nodes to a query vector, using
+approximate nearest-neighbour index procedures.  Like full-text search, the
+underlying procedure is backend-specific:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Backend
+     - Procedure
+   * - FalkorDB
+     - ``vecf32(n.field) <-> vecf32($vec)`` inline distance expression
+   * - Neo4j
+     - ``CALL db.index.vector.queryNodes('label_field', $k, $vec) YIELD node, score``
+   * - Memgraph
+     - ``CALL vector_search.search('label_field', $k, $vec) YIELD node, distance``
+   * - ArcadeDB
+     - ``CALL vector.neighbors('Type[field]', $vec, $k) YIELD node, distance``
+   * - Apache AGE
+     - Not supported; use ``pgvector`` via raw SQL
+
+A vector index on the target field must exist.  Runic's
+:class:`~runic.orm.schema.index_manager.IndexManager` can create it, or you can
+use a migration op.
+
+.. code-block:: python
 
     class Document(Node, labels=["Document"]):
         id: str = Field(primary_key=True)
         embedding: Vector = Field(index_type="VECTOR")
 
-    similar = (
+    similar: list[Document] = (
         session.vector_search(
             Document,
             field=Document.embedding,
@@ -372,7 +707,9 @@ Requires a vector (HNSW) index on the field::
         .all()
     )
 
-Cypher emitted::
+The generated Cypher for FalkorDB:
+
+.. code-block:: cypher
 
     MATCH (n:Document)
     WHERE n.active = $p0
@@ -380,21 +717,31 @@ Cypher emitted::
     ORDER BY __score ASC
     LIMIT 10
 
+Results are ordered by ascending distance (closest first).  You can override
+the ordering with ``.order_by()`` after the call — but be aware that this
+changes the ``ORDER BY`` clause, which may return non-nearest results.
+
 .. note::
-   The exact vector KNN syntax may vary by FalkorDB version.  If the emitted
-   pattern does not work, fall back to ``repo.cypher()`` with a hand-written
-   query.
+
+   Vector index creation requires a ``dimension`` parameter not stored in
+   ``Field()`` metadata.  Pass it explicitly when calling
+   ``IndexManager.create_vector_index()``, or pre-create the index via a
+   migration op or direct DDL.
+
+----
 
 Async usage
 -----------
 
 :class:`~runic.orm.session.async_session.AsyncSession` returns an
-:class:`~runic.orm.query.builder.AsyncQueryBuilder` from ``.query()``.
-The intermediate/chaining methods are identical; only the terminal methods are
-``async``::
+:class:`~runic.orm.query.builder.AsyncQueryBuilder` from ``.query()``.  The
+chaining methods (``where``, ``order_by``, ``traverse``, etc.) are identical;
+only the terminal methods are ``async`` and must be awaited:
+
+.. code-block:: python
 
     async with AsyncSession(driver) as session:
-        users = await (
+        users: list[User] = await (
             session.query(User)
             .where(User.active == True)
             .order_by(User.name)
@@ -402,7 +749,7 @@ The intermediate/chaining methods are identical; only the terminal methods are
             .all()
         )
 
-        friends = await (
+        friends: list[User] = await (
             session.query(User).alias("u")
             .traverse(User.friends).alias("f")
             .where(User.age > 25, on="f")
@@ -410,81 +757,166 @@ The intermediate/chaining methods are identical; only the terminal methods are
         )
 
 .. note::
-   Lazy relationship loading is not supported in async context.  Use
-   ``fetch=[...]`` on ``session.get()`` or call
-   :meth:`~runic.orm.query.builder.QueryBuilder.traverse` in the query builder
-   instead.
 
-Raw Cypher escape hatch
+   Lazy relationship loading (accessing a ``Relation`` field outside a query)
+   is not supported in async context.  Use ``fetch=[...]`` on
+   ``session.get()`` or model the relationship as a ``.traverse()`` in the
+   query builder instead.
+
+----
+
+Understanding and debugging generated Cypher
+--------------------------------------------
+
+The ``.build()`` terminal method returns the query as a ``(cypher, params)``
+tuple without executing it.  Use it to:
+
+* Understand what the builder emits before running a query in production.
+* Log slow queries with their actual parameter values.
+* Write unit tests that assert on generated Cypher rather than on live data.
+* Diagnose unexpected results by reading the exact query sent to the database.
+
+.. code-block:: python
+
+    cypher: str
+    params: dict[str, Any]
+    cypher, params = (
+        session.query(User).alias("u")
+        .where(User.age > 18)
+        .traverse(User.friends).alias("f")
+        .where(User.active == True, on="f")
+        .return_target("f")
+        .build()
+    )
+
+    print(cypher)
+    # MATCH (u:User) WHERE (u.age > $p0)
+    # OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
+    # WHERE (f.active = $p1)
+    # RETURN f
+
+    print(params)
+    # {'p0': 18, 'p1': True}
+
+Parameters are always positional (``$p0``, ``$p1``, …) and listed in the order
+they appear in the generated Cypher.
+
+----
+
+When to use raw Cypher
 -----------------------
 
-For Cypher features not covered by the builder (``UNION``, ``CASE``,
-``EXISTS { subquery }``, custom procedures), use the existing escape hatch::
+The query builder covers the most common patterns, but some Cypher features are
+not yet supported.  For these, use the escape hatches directly:
 
-    # Via Repository
-    results = repo.cypher(
-        "MATCH (n:User)-[:FRIEND*2]-(m:User) "
-        "WHERE n.id = $id RETURN m",
+.. code-block:: python
+
+    # Via Repository — result rows decoded to the repo's type
+    results: list[User] = repo.cypher(
+        "MATCH (n:User)-[:FRIEND*2]-(m:User) WHERE n.id = $id RETURN m",
         {"id": user_id},
         returns=User,
     )
 
-    # Via Session
+    # Via Session — raw GraphResult
     result = session.execute(cypher, params)
 
-Cypher features coverage
+Use raw Cypher when you need:
+
+* ``UNION`` / ``UNION ALL`` across multiple patterns.
+* ``CASE`` expressions in ``RETURN``.
+* ``EXISTS { ... }`` subqueries.
+* ``CALL { ... }`` subqueries (correlated or uncorrelated).
+* Pattern comprehensions (``[(a)-[:T]->(b) | b.prop]``).
+* Procedure calls not wrapped by the builder (e.g. graph algorithms).
+
+For everything else, prefer the builder — it handles parameter binding,
+alias generation, and result decoding automatically.
+
+----
+
+Cypher feature coverage
 ------------------------
 
-+----------------------------------+---------+-----------------------------+
-| Feature                          | Support | Notes                       |
-+==================================+=========+=============================+
-| MATCH                            | ✓       | root node pattern           |
-+----------------------------------+---------+-----------------------------+
-| OPTIONAL MATCH                   | ✓       | default for ``.traverse()`` |
-+----------------------------------+---------+-----------------------------+
-| WHERE (comparison)               | ✓       | ``==``, ``!=``, ``>``, …    |
-+----------------------------------+---------+-----------------------------+
-| WHERE (string)                   | ✓       | ``.contains()``, etc.       |
-+----------------------------------+---------+-----------------------------+
-| WHERE (null)                     | ✓       | ``.is_null()``, etc.        |
-+----------------------------------+---------+-----------------------------+
-| WHERE (list)                     | ✓       | ``.in_()``, ``.not_in_()``  |
-+----------------------------------+---------+-----------------------------+
-| WHERE (boolean logic)            | ✓       | ``&``, ``|``, ``~``         |
-+----------------------------------+---------+-----------------------------+
-| RETURN                           | ✓       |                             |
-+----------------------------------+---------+-----------------------------+
-| ORDER BY                         | ✓       | ``.order_by()``             |
-+----------------------------------+---------+-----------------------------+
-| SKIP / LIMIT                     | ✓       |                             |
-+----------------------------------+---------+-----------------------------+
-| DISTINCT                         | ✓       | ``.distinct()``             |
-+----------------------------------+---------+-----------------------------+
-| WITH                             | ✓       | ``.with_()``                |
-+----------------------------------+---------+-----------------------------+
-| Aggregation (count/avg/sum/…)    | ✓       | ``.aggregate()``            |
-+----------------------------------+---------+-----------------------------+
-| Edge property filter             | ✓       | ``edge_alias=`` + ``on=``   |
-+----------------------------------+---------+-----------------------------+
-| Relationship traversal (1-hop)   | ✓       | ``.traverse()``             |
-+----------------------------------+---------+-----------------------------+
-| Multi-hop traversal              | ✓       | chained ``.traverse()``     |
-+----------------------------------+---------+-----------------------------+
-| Variable-length paths ``*n..m``  | ✓       | ``.repeat()``               |
-+----------------------------------+---------+-----------------------------+
-| Fulltext search (CALL)           | ✓       | ``.fulltext_search()``      |
-+----------------------------------+---------+-----------------------------+
-| Vector KNN                       | ✓       | ``.vector_search()``        |
-+----------------------------------+---------+-----------------------------+
-| TypeConverter in WHERE           | ✓       | auto-applied                |
-+----------------------------------+---------+-----------------------------+
-| UNION                            | ✗       | use ``repo.cypher()``       |
-+----------------------------------+---------+-----------------------------+
-| CASE expressions                 | ✗       | use ``repo.cypher()``       |
-+----------------------------------+---------+-----------------------------+
-| EXISTS { subpattern }            | ✗       | use ``repo.cypher()``       |
-+----------------------------------+---------+-----------------------------+
-| Subqueries ``CALL { ... }``      | ✗       | use ``repo.cypher()``       |
-+----------------------------------+---------+-----------------------------+
-| Pattern comprehensions           | ✗       | use ``repo.cypher()``       |
-+----------------------------------+---------+-----------------------------+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 14 44
+
+   * - Feature
+     - Support
+     - How to use
+   * - MATCH
+     - ✓
+     - Root of every ``session.query()`` call
+   * - OPTIONAL MATCH
+     - ✓
+     - Default for ``.traverse()``
+   * - WHERE (comparison)
+     - ✓
+     - ``==``, ``!=``, ``>``, ``>=``, ``<``, ``<=``
+   * - WHERE (string)
+     - ✓
+     - ``.contains()``, ``.startswith()``, ``.endswith()``, ``.matches()``
+   * - WHERE (null)
+     - ✓
+     - ``.is_null()``, ``.is_not_null()``, ``== None``
+   * - WHERE (list)
+     - ✓
+     - ``.in_()``, ``.not_in_()``
+   * - WHERE (boolean logic)
+     - ✓
+     - ``&``, ``|``, ``~``
+   * - RETURN
+     - ✓
+     - Automatic; customised by ``return_target()``, ``project()``
+   * - ORDER BY
+     - ✓
+     - ``.order_by(field, desc=False)``
+   * - SKIP / LIMIT
+     - ✓
+     - ``.skip(n)``, ``.limit(n)``
+   * - DISTINCT
+     - ✓
+     - ``.distinct()``
+   * - WITH
+     - ✓
+     - ``.with_("alias")``
+   * - Aggregation (count/avg/sum/…)
+     - ✓
+     - ``.aggregate(...)`` + helpers from ``runic.orm.query``
+   * - Edge property filter
+     - ✓
+     - ``traverse(edge_alias=)`` + ``where(on=)``
+   * - Relationship traversal (1-hop)
+     - ✓
+     - ``.traverse(Cls.relation)``
+   * - Multi-hop traversal
+     - ✓
+     - Chained ``.traverse()`` calls
+   * - Variable-length paths (``*n..m``)
+     - ✓
+     - ``.repeat(Cls.relation, min_hops=, max_hops=)``
+   * - Full-text search (CALL)
+     - ✓
+     - ``session.fulltext_search()``
+   * - Vector KNN
+     - ✓
+     - ``session.vector_search()``
+   * - TypeConverter in WHERE
+     - ✓
+     - Auto-applied for ``datetime``, ``Enum``, ``Vector``, ``GeoLocation``
+   * - UNION / UNION ALL
+     - ✗
+     - Use ``repo.cypher()``
+   * - CASE expressions
+     - ✗
+     - Use ``repo.cypher()``
+   * - EXISTS { subpattern }
+     - ✗
+     - Use ``repo.cypher()``
+   * - CALL { ... } subqueries
+     - ✗
+     - Use ``repo.cypher()``
+   * - Pattern comprehensions
+     - ✗
+     - Use ``repo.cypher()``

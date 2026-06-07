@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -124,7 +125,7 @@ def run() -> None:
 
     # --- Seed 30 articles ---
     with Session(driver) as session:
-        articles = [
+        articles: list[Article] = [
             Article(
                 id=f"alice-{i:03d}",
                 title=f"Alice's Post #{i:03d}",
@@ -177,13 +178,13 @@ def run() -> None:
     with Session(driver) as session:
         repo = ArticleRepository(session, Article)
 
-        alice_articles = repo.find_by_author("alice")
+        alice_articles: list[Article] = repo.find_by_author("alice")
         log.info("Alice's articles: %d", len(alice_articles))
 
-        published_count = repo.count_by_status("published")
+        published_count: int = repo.count_by_status("published")
         log.info("Published count: %d", published_count)
 
-        top5 = repo.top_by_views(5)
+        top5: list[Article] = repo.top_by_views(5)
         log.info("Top 5 by views:")
         for a in top5:
             log.info("  %s (%d views)", a.title, a.views or 0)
@@ -211,7 +212,7 @@ def run() -> None:
     # --- Query builder: manual skip/limit pagination ---
     with Session(driver) as session:
         page_size = 10
-        page_0 = (
+        page_0: list[Article] = (
             session.query(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
@@ -219,7 +220,7 @@ def run() -> None:
             .limit(page_size)
             .all()
         )
-        page_1 = (
+        page_1: list[Article] = (
             session.query(Article)
             .where(Article.status == "published")
             .order_by(Article.id)
@@ -235,7 +236,7 @@ def run() -> None:
 
     # --- Query builder: OR predicate — articles by alice or bob ---
     with Session(driver) as session:
-        results = (
+        results: list[Article] = (
             session.query(Article)
             .where((Article.author == "alice") | (Article.author == "bob"))
             .order_by(Article.views, desc=True)
@@ -249,7 +250,7 @@ def run() -> None:
 
     # --- Query builder: in_() membership filter ---
     with Session(driver) as session:
-        selected = (
+        selected: list[Article] = (
             session.query(Article)
             .where(Article.id.in_(["alice-000", "alice-005", "bob-003"]))  # type: ignore[attr-defined]
             .all()
@@ -258,15 +259,15 @@ def run() -> None:
 
     # --- Query builder: count() per status ---
     with Session(driver) as session:
-        pub_count = session.query(Article).where(Article.status == "published").count()
-        arc_count = session.query(Article).where(Article.status == "archived").count()
+        pub_count: int = session.query(Article).where(Article.status == "published").count()
+        arc_count: int = session.query(Article).where(Article.status == "archived").count()
         log.info("QueryBuilder count: published=%d archived=%d", pub_count, arc_count)
 
     # --- Query builder: project() → author names only ---
     with Session(driver) as session:
         from runic.orm import avg, count, sum_
 
-        rows = (
+        rows: list[dict[str, Any]] = (
             session.query(Article)
             .alias("a")
             .aggregate(
