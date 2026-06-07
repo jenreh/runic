@@ -1,0 +1,76 @@
+name: Ralph Loop Task
+description: A well-scoped, automatable task for the Ralph Loop autonomous development system
+labels: ["ralph"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for tasks you want to run through `/ralph-loop --next`.
+        Good Ralph tasks have **clear, verifiable acceptance criteria** and require no manual steps (no account creation, API keys, or external dashboard configuration).
+
+  - type: input
+    id: title
+    attributes:
+      label: Task title
+      description: One-line description used as the prd.json `title` field.
+      placeholder: "Add X to Y so that Z"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: |
+        Bullet list of verifiable conditions Ralph will check. Each item should be independently confirmable by running code (tests, lint, typecheck, etc.).
+      placeholder: |
+        - `task lint && task typecheck && task test` all pass
+        - New function `foo()` is exported from `runic/bar.py`
+        - Coverage stays at or above 80%
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / motivation
+      description: Why is this needed? Include relevant file paths, linked issues, or design decisions that Ralph should know about.
+      placeholder: |
+        Currently `runic/session.py` does not support X. This causes Y when users do Z.
+        Related: #42
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Implementation notes (optional)
+      description: |
+        Optional hints for Ralph — approach to take, files to touch, patterns to follow. If detailed, create a `plans/F-XXX-plan.md` file and reference it here.
+      placeholder: |
+        - Follow the Adapter pattern in `runic/migrate/adapters/`
+        - Add unit tests in `tests/unit/`
+        - No new dependencies unless unavoidable
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Maps to the `priority` field in prd.json.
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: automatable
+    attributes:
+      label: Automatable checklist
+      description: Confirm this task is suitable for Ralph Loop automation.
+      options:
+        - label: No manual account creation, API key setup, or external dashboard configuration required
+          required: true
+        - label: Success can be verified by running `task lint && task typecheck && task test`
+          required: true
+        - label: No waiting on external services or human approvals
+          required: true
