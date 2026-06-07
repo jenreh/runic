@@ -222,9 +222,7 @@ def test_snapshot_auto_restore_on_failure(falkordb_graph: Any, tmp_path: Path) -
 
 
 @_integration
-def test_snapshot_downgrade_uses_snapshot(
-    falkordb_graph: Any, tmp_path: Path
-) -> None:
+def test_snapshot_downgrade_uses_snapshot(falkordb_graph: Any, tmp_path: Path) -> None:
     pytest.importorskip("redislite", reason="falkordblite (redislite) not installed")
     db, graph = falkordb_graph
     vd = _versions_dir(tmp_path)

@@ -226,7 +226,15 @@ def test_revision_with_branch_label(tmp_path: Path) -> None:
     config = target / "env.py"
     result = runner.invoke(
         app,
-        ["revision", "-m", "feature", "--branch-label", "feature_x", "--config", str(config)],
+        [
+            "revision",
+            "-m",
+            "feature",
+            "--branch-label",
+            "feature_x",
+            "--config",
+            str(config),
+        ],
     )
     assert result.exit_code == 0, result.output
     files = list((target / "versions").glob("*.py"))
@@ -240,7 +248,15 @@ def test_revision_with_depends_on(tmp_path: Path) -> None:
     config = target / "env.py"
     result = runner.invoke(
         app,
-        ["revision", "-m", "depends", "--depends-on", "aabbccddee00", "--config", str(config)],
+        [
+            "revision",
+            "-m",
+            "depends",
+            "--depends-on",
+            "aabbccddee00",
+            "--config",
+            str(config),
+        ],
     )
     assert result.exit_code == 0, result.output
     files = list((target / "versions").glob("*.py"))
@@ -253,7 +269,15 @@ def test_revision_with_rev_id(tmp_path: Path) -> None:
     config = target / "env.py"
     result = runner.invoke(
         app,
-        ["revision", "-m", "custom id", "--rev-id", "deadbeef0001", "--config", str(config)],
+        [
+            "revision",
+            "-m",
+            "custom id",
+            "--rev-id",
+            "deadbeef0001",
+            "--config",
+            str(config),
+        ],
     )
     assert result.exit_code == 0, result.output
     files = list((target / "versions").glob("*.py"))
@@ -336,7 +360,14 @@ def test_revision_autogenerate_with_diff_creates_file(tmp_path: Path) -> None:
     ):
         result = runner.invoke(
             app,
-            ["revision", "-m", "add email index", "--autogenerate", "--config", str(config)],
+            [
+                "revision",
+                "-m",
+                "add email index",
+                "--autogenerate",
+                "--config",
+                str(config),
+            ],
         )
 
     assert result.exit_code == 0, result.output
@@ -651,7 +682,15 @@ def test_merge_warns_when_not_heads(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["merge", rev_a, rev_b, "-m", "splice merge", "--config", str(target / "env.py")],
+        [
+            "merge",
+            rev_a,
+            rev_b,
+            "-m",
+            "splice merge",
+            "--config",
+            str(target / "env.py"),
+        ],
     )
     assert "Warning" in result.output or result.exit_code == 0
 
@@ -660,7 +699,17 @@ def test_merge_with_branch_label(tmp_path: Path) -> None:
     config, rev_a, rev_b = _setup_two_branches(tmp_path)
     result = runner.invoke(
         app,
-        ["merge", rev_a, rev_b, "-m", "merge", "--branch-label", "main", "--config", str(config)],
+        [
+            "merge",
+            rev_a,
+            rev_b,
+            "-m",
+            "merge",
+            "--branch-label",
+            "main",
+            "--config",
+            str(config),
+        ],
     )
     assert result.exit_code == 0
 

@@ -1,26 +1,23 @@
-"""Tests for SchemaManager: validate_schema, sync_schema, get_schema_diff, get_schema_info."""
+"""Integration tests for IndexManager and SchemaManager against a live FalkorDB graph."""
 
 from __future__ import annotations
 
 import contextlib
 import secrets
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from runic.orm.core.descriptors import Field
-from runic.orm.core.models import Edge, Node
-from runic.orm.schema.index_manager import IndexSpec, parse_existing_specs
-from runic.orm.schema.schema_manager import SchemaManager, ValidationResult
+from runic.orm.core.models import Node
+from runic.orm.schema.index_manager import (
+    IndexManager,
+    IndexSpec,
+    parse_existing_specs,
+)
+from runic.orm.schema.schema_manager import SchemaManager
 
-try:
-    from redislite import FalkorDB as _FalkorDB  # noqa: F401
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
-
+_integration = pytest.mark.integration
 
 # ---------------------------------------------------------------------------
 # Test entities
@@ -44,46 +41,132 @@ class SMPlain(Node, labels=["SMPlain"]):
     value: str = Field()
 
 
+class _IntNoIdx(Node, labels=["IntNoIdx"]):
+    """Node with no indexed fields — used to assert create_indexes is a no-op."""
+
+    id: str
+    value: str
+
+
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixture
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def graph(falkordb_server: Any) -> Any:
     db = falkordb_server
-    g = db.select_graph(f"test_sm_{secrets.token_hex(6)}")
+    g = db.select_graph(f"test_schema_{secrets.token_hex(6)}")
     yield g
     with contextlib.suppress(Exception):
         g.delete()
 
 
 # ---------------------------------------------------------------------------
-# ValidationResult — unit tests (no graph)
+# parse_existing_specs — integration tests
 # ---------------------------------------------------------------------------
 
 
-def test_validation_result_valid() -> None:
-    r = ValidationResult(is_valid=True)
-    assert r.is_valid
-    assert r.missing_indexes == []
-    assert r.extra_indexes == []
-    assert r.errors == []
+@_integration
+def test_parse_empty_graph_returns_empty(graph: Any) -> None:
+    specs = parse_existing_specs(graph)
+    assert specs == set()
 
 
-def test_validation_result_invalid() -> None:
-    missing = [IndexSpec("L", "p", "RANGE")]
-    r = ValidationResult(is_valid=False, missing_indexes=missing)
-    assert not r.is_valid
-    assert r.missing_indexes == missing
+@_integration
+def test_parse_range_index(graph: Any) -> None:
+    graph.create_node_range_index("ParseLabel", "score")
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("ParseLabel", "score", "RANGE") in specs
+
+
+@_integration
+def test_parse_fulltext_index(graph: Any) -> None:
+    graph.create_node_fulltext_index("ParseLabel", "bio")
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("ParseLabel", "bio", "FULLTEXT") in specs
+
+
+@_integration
+def test_parse_unique_constraint(graph: Any) -> None:
+    graph.create_node_unique_constraint("ParseLabel", "code")
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("ParseLabel", "code", "UNIQUE") in specs
+
+
+@_integration
+def test_unique_backing_range_not_reported_as_extra(graph: Any) -> None:
+    """The RANGE index auto-created for a UNIQUE constraint must not appear in parsed specs."""
+    graph.create_node_unique_constraint("ParseLabel", "code")
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("ParseLabel", "code", "RANGE") not in specs
+    assert IndexSpec("ParseLabel", "code", "UNIQUE") in specs
 
 
 # ---------------------------------------------------------------------------
-# validate_schema — integration tests
+# IndexManager.create_indexes — integration tests
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
+@_integration
+def test_create_indexes_creates_all_declared(graph: Any) -> None:
+    class CreateNode(Node, labels=["CreateNode"]):
+        id: str = Field()
+        email: str = Field(unique=True)
+        score: int = Field(index=True)
+        bio: str = Field(index_type="FULLTEXT")
+
+    manager = IndexManager(graph)
+    manager.create_indexes(CreateNode)
+
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("CreateNode", "email", "UNIQUE") in specs
+    assert IndexSpec("CreateNode", "score", "RANGE") in specs
+    assert IndexSpec("CreateNode", "bio", "FULLTEXT") in specs
+
+
+@_integration
+def test_create_indexes_idempotent(graph: Any) -> None:
+    class IdempNode(Node, labels=["IdempNode"]):
+        id: str = Field()
+        val: int = Field(index=True)
+
+    manager = IndexManager(graph)
+    manager.create_indexes(IdempNode)
+    # Second call must not raise even though indexes already exist.
+    manager.create_indexes(IdempNode)
+
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("IdempNode", "val", "RANGE") in specs
+
+
+@_integration
+def test_ensure_indexes_is_idempotent(graph: Any) -> None:
+    class EnsureNode(Node, labels=["EnsureNode"]):
+        id: str = Field()
+        tag: str = Field(index=True)
+
+    manager = IndexManager(graph)
+    manager.ensure_indexes(EnsureNode)
+    manager.ensure_indexes(EnsureNode)
+
+    specs = parse_existing_specs(graph)
+    assert IndexSpec("EnsureNode", "tag", "RANGE") in specs
+
+
+@_integration
+def test_create_indexes_no_index_fields_is_noop(graph: Any) -> None:
+    manager = IndexManager(graph)
+    manager.create_indexes(_IntNoIdx)
+    assert parse_existing_specs(graph) == set()
+
+
+# ---------------------------------------------------------------------------
+# SchemaManager.validate_schema — integration tests
+# ---------------------------------------------------------------------------
+
+
+@_integration
 def test_validate_empty_entity_no_indexes_is_valid(graph: Any) -> None:
     schema = SchemaManager(graph)
     result = schema.validate_schema([SMPlain])
@@ -92,7 +175,7 @@ def test_validate_empty_entity_no_indexes_is_valid(graph: Any) -> None:
     assert result.extra_indexes == []
 
 
-@pytest.mark.integration
+@_integration
 def test_validate_detects_missing_indexes(graph: Any) -> None:
     schema = SchemaManager(graph)
     result = schema.validate_schema([SMPerson])
@@ -103,7 +186,7 @@ def test_validate_detects_missing_indexes(graph: Any) -> None:
     assert ("bio", "FULLTEXT") in missing_types
 
 
-@pytest.mark.integration
+@_integration
 def test_validate_valid_after_sync(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
@@ -113,7 +196,7 @@ def test_validate_valid_after_sync(graph: Any) -> None:
     assert result.extra_indexes == []
 
 
-@pytest.mark.integration
+@_integration
 def test_validate_detects_extra_indexes(graph: Any) -> None:
     # Create an index not declared by any entity we pass to validate_schema.
     graph.create_node_range_index("SMPerson", "not_declared")
@@ -123,20 +206,19 @@ def test_validate_detects_extra_indexes(graph: Any) -> None:
     assert "not_declared" in extra_props
 
 
-@pytest.mark.integration
+@_integration
 def test_validate_unique_backing_range_not_extra(graph: Any) -> None:
     """A UNIQUE constraint's auto-backing RANGE must not be reported as extra."""
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
     result = schema.validate_schema([SMPerson])
     extra_props = {s.property for s in result.extra_indexes}
-    # 'email' has unique=True; FalkorDB auto-creates RANGE — should not be "extra"
     assert "email" not in extra_props or not any(
         s.property == "email" and s.index_type == "RANGE" for s in result.extra_indexes
     )
 
 
-@pytest.mark.integration
+@_integration
 def test_validate_multiple_entity_classes(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson, SMLocation])
@@ -145,11 +227,11 @@ def test_validate_multiple_entity_classes(graph: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# sync_schema — integration tests
+# SchemaManager.sync_schema — integration tests
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
+@_integration
 def test_sync_creates_missing_indexes(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
@@ -159,7 +241,7 @@ def test_sync_creates_missing_indexes(graph: Any) -> None:
     assert IndexSpec("SMPerson", "bio", "FULLTEXT") in specs
 
 
-@pytest.mark.integration
+@_integration
 def test_sync_is_idempotent(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
@@ -169,11 +251,10 @@ def test_sync_is_idempotent(graph: Any) -> None:
     assert result.is_valid
 
 
-@pytest.mark.integration
+@_integration
 def test_sync_drops_extra_when_requested(graph: Any) -> None:
     graph.create_node_range_index("SMPerson", "stray_field")
     schema = SchemaManager(graph)
-    # Ensure base indexes are present first.
     schema.sync_schema([SMPerson])
     result_before = schema.validate_schema([SMPerson])
     assert any(s.property == "stray_field" for s in result_before.extra_indexes)
@@ -183,22 +264,21 @@ def test_sync_drops_extra_when_requested(graph: Any) -> None:
     assert IndexSpec("SMPerson", "stray_field", "RANGE") not in specs
 
 
-@pytest.mark.integration
+@_integration
 def test_sync_does_not_drop_extra_by_default(graph: Any) -> None:
     graph.create_node_range_index("SMPlain", "extra_prop")
     schema = SchemaManager(graph)
     schema.sync_schema([SMPlain])  # drop_extra=False by default
     specs = parse_existing_specs(graph)
-    # Extra index must still be there.
     assert IndexSpec("SMPlain", "extra_prop", "RANGE") in specs
 
 
 # ---------------------------------------------------------------------------
-# get_schema_diff — integration tests
+# SchemaManager.get_schema_diff — integration tests
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_diff_in_sync(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPlain])
@@ -206,7 +286,7 @@ def test_get_schema_diff_in_sync(graph: Any) -> None:
     assert "in sync" in diff.lower()
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_diff_shows_missing(graph: Any) -> None:
     schema = SchemaManager(graph)
     diff = schema.get_schema_diff([SMPerson])
@@ -214,7 +294,7 @@ def test_get_schema_diff_shows_missing(graph: Any) -> None:
     assert "email" in diff
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_diff_shows_extra(graph: Any) -> None:
     graph.create_node_range_index("SMPlain", "ghost")
     schema = SchemaManager(graph)
@@ -224,11 +304,11 @@ def test_get_schema_diff_shows_extra(graph: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_schema_info — integration tests
+# SchemaManager.get_schema_info — integration tests
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_info_structure(graph: Any) -> None:
     schema = SchemaManager(graph)
     info = schema.get_schema_info([SMPerson])
@@ -242,7 +322,7 @@ def test_get_schema_info_structure(graph: Any) -> None:
     assert hasattr(info, "errors")
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_info_after_sync(graph: Any) -> None:
     schema = SchemaManager(graph)
     schema.sync_schema([SMPerson])
@@ -252,97 +332,9 @@ def test_get_schema_info_after_sync(graph: Any) -> None:
     assert info.extra_count == 0
 
 
-@pytest.mark.integration
+@_integration
 def test_get_schema_info_missing_count(graph: Any) -> None:
     schema = SchemaManager(graph)
     info = schema.get_schema_info([SMPerson])
     assert info.missing_count > 0
     assert info.declared_count > 0
-
-
-# ---------------------------------------------------------------------------
-# Unit tests with mock adapter (non-FalkorDB path)
-# ---------------------------------------------------------------------------
-
-
-class _MockSchemaAdapter:
-    """Minimal adapter stub for SchemaManager unit tests."""
-
-    def __init__(self) -> None:
-        self.create_vertex_type = MagicMock()
-        self.create_edge_type = MagicMock()
-        self.create_range_index = MagicMock()
-        self.drop_range_index = MagicMock()
-        self.create_fulltext_index = MagicMock()
-        self.drop_fulltext_index = MagicMock()
-        self.create_vector_index = MagicMock()
-        self.drop_vector_index = MagicMock()
-        self.create_constraint = MagicMock()
-        self.drop_constraint = MagicMock()
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        return set()
-
-
-class SMPersonMock(Node, labels=["SMPersonMock"]):
-    id: str = Field()
-    email: str = Field(unique=True)
-    score: int = Field(index=True)
-
-
-class SMKnowsEdge(Edge, type="SM_KNOWS"):
-    weight: float = Field()
-
-
-class TestSchemaManagerWithMockAdapter:
-    def _make_schema(self) -> tuple[SchemaManager, _MockSchemaAdapter]:
-        adapter = _MockSchemaAdapter()
-        schema = SchemaManager(adapter)
-        return schema, adapter
-
-    def test_generic_adapter_stored_directly(self) -> None:
-        schema, adapter = self._make_schema()
-        assert schema._adapter is adapter  # noqa: SLF001
-
-    def test_sync_schema_calls_ensure_entity_types_for_node(self) -> None:
-        schema, adapter = self._make_schema()
-        schema.sync_schema([SMPersonMock])
-        adapter.create_vertex_type.assert_called_with("SMPersonMock")
-
-    def test_sync_schema_calls_create_vertex_type_before_index_ddl(self) -> None:
-        parent = MagicMock()
-        adapter = _MockSchemaAdapter()
-        parent.attach_mock(adapter.create_vertex_type, "create_vertex_type")
-        parent.attach_mock(adapter.create_range_index, "create_range_index")
-
-        schema = SchemaManager(adapter)
-        schema.sync_schema([SMPersonMock])
-
-        calls = [c[0] for c in parent.mock_calls]
-        assert calls.index("create_vertex_type") < calls.index("create_range_index")
-
-    def test_ensure_entity_types_node_dispatches_create_vertex_type(self) -> None:
-        schema, adapter = self._make_schema()
-        schema.ensure_entity_types([SMPersonMock])
-        adapter.create_vertex_type.assert_called_once_with("SMPersonMock")
-        adapter.create_edge_type.assert_not_called()
-
-    def test_ensure_entity_types_edge_dispatches_create_edge_type(self) -> None:
-        schema, adapter = self._make_schema()
-        schema.ensure_entity_types([SMKnowsEdge])
-        adapter.create_edge_type.assert_called_once_with("SM_KNOWS")
-        adapter.create_vertex_type.assert_not_called()
-
-    def test_ensure_entity_types_mixed(self) -> None:
-        schema, adapter = self._make_schema()
-        schema.ensure_entity_types([SMPersonMock, SMKnowsEdge])
-        adapter.create_vertex_type.assert_called_once_with("SMPersonMock")
-        adapter.create_edge_type.assert_called_once_with("SM_KNOWS")
-
-    def test_validate_schema_returns_all_declared_as_missing(self) -> None:
-        schema, _ = self._make_schema()
-        result = schema.validate_schema([SMPersonMock])
-        assert not result.is_valid
-        missing_types = {(s.property, s.index_type) for s in result.missing_indexes}
-        assert ("email", "UNIQUE") in missing_types
-        assert ("score", "RANGE") in missing_types
