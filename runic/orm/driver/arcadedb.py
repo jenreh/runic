@@ -39,7 +39,7 @@ class ArcadeDBDialect:
     - ``SET n.prop = point()`` is not supported via Bolt; GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
     """
 
-    supports_geo_update: bool = True
+    supports_geo_update: bool = False
 
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"

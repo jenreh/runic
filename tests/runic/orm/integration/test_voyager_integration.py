@@ -451,6 +451,7 @@ class TestRepositoryCrud:
 
 class TestRelationshipLoading:
     @pytest.mark.requires_multi_label
+    @pytest.mark.requires_multi_label
     def test_user_home_lazy_load(self, graph_driver: Any) -> None:
         city_id = f"C_{_uid()}"
         user_id = f"U_{_uid()}"

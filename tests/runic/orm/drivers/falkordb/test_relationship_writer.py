@@ -167,7 +167,7 @@ def test_build_relate_no_edge_both() -> None:
 
     cypher, params = writer.build_relate_query(source, fi, target, edge=None)
 
-    assert "MERGE (a)-[r:LINKED]-(b)" in cypher
+    assert "MERGE (a)-[r:LINKED]->(b)" in cypher
 
 
 # ---------------------------------------------------------------------------

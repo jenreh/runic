@@ -37,8 +37,8 @@ class TestArcadeDBDialectCypherFnForField:
 
 
 class TestArcadeDBDialectSupportsGeoUpdate:
-    def test_supports_geo_update_true(self) -> None:
-        assert ArcadeDBDialect.supports_geo_update is True
+    def test_supports_geo_update_false(self) -> None:
+        assert ArcadeDBDialect.supports_geo_update is False
 
 
 class TestArcadeDBDialectFulltextCallRaises:
