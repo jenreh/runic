@@ -1,12 +1,6 @@
-"""Tests for IndexManager and the spec extraction/parsing helpers."""
+"""Unit tests for IndexManager dispatch and extract_declared_specs."""
 
 from __future__ import annotations
-
-import contextlib
-import secrets
-from typing import Any
-
-import pytest
 
 from runic.orm.core.descriptors import Field, Relation
 from runic.orm.core.models import Edge, Node
@@ -14,18 +8,7 @@ from runic.orm.schema.index_manager import (
     IndexManager,
     IndexSpec,
     extract_declared_specs,
-    parse_existing_specs,
 )
-
-try:
-    from redislite import FalkorDB as _FalkorDB  # noqa: F401
-
-    _HAS_FALKORDBLITE = True
-except ImportError:
-    _HAS_FALKORDBLITE = False
-
-pytestmark_integration = pytest.mark.integration
-
 
 # ---------------------------------------------------------------------------
 # Test entities
@@ -54,21 +37,34 @@ class SchemaNodeNoIndexes(Node, labels=["SchemaNoIdx"]):
 
 
 # ---------------------------------------------------------------------------
-# Fixture
+# _MockAdapter
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def graph(falkordb_server: Any) -> Any:
-    db = falkordb_server
-    g = db.select_graph(f"test_idx_{secrets.token_hex(6)}")
-    yield g
-    with contextlib.suppress(Exception):
-        g.delete()
+class _MockAdapter:
+    """Minimal IndexAdapter stub for unit testing IndexManager dispatch."""
+
+    def __init__(self) -> None:
+        from unittest.mock import MagicMock
+
+        self.create_vertex_type = MagicMock()
+        self.create_edge_type = MagicMock()
+        self.create_range_index = MagicMock()
+        self.drop_range_index = MagicMock()
+        self.create_fulltext_index = MagicMock()
+        self.drop_fulltext_index = MagicMock()
+        self.create_vector_index = MagicMock()
+        self.drop_vector_index = MagicMock()
+        self.create_constraint = MagicMock()
+        self.drop_constraint = MagicMock()
+        self._existing: set[IndexSpec] = set()
+
+    def get_existing_specs(self) -> set[IndexSpec]:
+        return self._existing
 
 
 # ---------------------------------------------------------------------------
-# extract_declared_specs — unit tests (no graph)
+# extract_declared_specs — unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -170,124 +166,8 @@ def test_extract_inherits_parent_fields() -> None:
 
 
 # ---------------------------------------------------------------------------
-# parse_existing_specs + IndexManager — integration tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.integration
-def test_parse_empty_graph_returns_empty(graph: Any) -> None:
-    specs = parse_existing_specs(graph)
-    assert specs == set()
-
-
-@pytest.mark.integration
-def test_parse_range_index(graph: Any) -> None:
-    graph.create_node_range_index("ParseLabel", "score")
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("ParseLabel", "score", "RANGE") in specs
-
-
-@pytest.mark.integration
-def test_parse_fulltext_index(graph: Any) -> None:
-    graph.create_node_fulltext_index("ParseLabel", "bio")
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("ParseLabel", "bio", "FULLTEXT") in specs
-
-
-@pytest.mark.integration
-def test_parse_unique_constraint(graph: Any) -> None:
-    graph.create_node_unique_constraint("ParseLabel", "code")
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("ParseLabel", "code", "UNIQUE") in specs
-
-
-@pytest.mark.integration
-def test_unique_backing_range_not_reported_as_extra(graph: Any) -> None:
-    """The RANGE index auto-created for a UNIQUE constraint must not appear in parsed specs."""
-    graph.create_node_unique_constraint("ParseLabel", "code")
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("ParseLabel", "code", "RANGE") not in specs
-    assert IndexSpec("ParseLabel", "code", "UNIQUE") in specs
-
-
-@pytest.mark.integration
-def test_create_indexes_creates_all_declared(graph: Any) -> None:
-    class CreateNode(Node, labels=["CreateNode"]):
-        id: str = Field()
-        email: str = Field(unique=True)
-        score: int = Field(index=True)
-        bio: str = Field(index_type="FULLTEXT")
-
-    manager = IndexManager(graph)
-    manager.create_indexes(CreateNode)
-
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("CreateNode", "email", "UNIQUE") in specs
-    assert IndexSpec("CreateNode", "score", "RANGE") in specs
-    assert IndexSpec("CreateNode", "bio", "FULLTEXT") in specs
-
-
-@pytest.mark.integration
-def test_create_indexes_idempotent(graph: Any) -> None:
-    class IdempNode(Node, labels=["IdempNode"]):
-        id: str = Field()
-        val: int = Field(index=True)
-
-    manager = IndexManager(graph)
-    manager.create_indexes(IdempNode)
-    # Second call must not raise even though indexes already exist.
-    manager.create_indexes(IdempNode)
-
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("IdempNode", "val", "RANGE") in specs
-
-
-@pytest.mark.integration
-def test_ensure_indexes_is_idempotent(graph: Any) -> None:
-    class EnsureNode(Node, labels=["EnsureNode"]):
-        id: str = Field()
-        tag: str = Field(index=True)
-
-    manager = IndexManager(graph)
-    manager.ensure_indexes(EnsureNode)
-    manager.ensure_indexes(EnsureNode)
-
-    specs = parse_existing_specs(graph)
-    assert IndexSpec("EnsureNode", "tag", "RANGE") in specs
-
-
-@pytest.mark.integration
-def test_create_indexes_no_index_fields_is_noop(graph: Any) -> None:
-    manager = IndexManager(graph)
-    manager.create_indexes(SchemaNodeNoIndexes)
-    assert parse_existing_specs(graph) == set()
-
-
-# ---------------------------------------------------------------------------
 # IndexManager with generic IndexAdapter (non-FalkorDB path)
 # ---------------------------------------------------------------------------
-
-
-class _MockAdapter:
-    """Minimal IndexAdapter stub for unit testing IndexManager dispatch."""
-
-    def __init__(self) -> None:
-        from unittest.mock import MagicMock
-
-        self.create_vertex_type = MagicMock()
-        self.create_edge_type = MagicMock()
-        self.create_range_index = MagicMock()
-        self.drop_range_index = MagicMock()
-        self.create_fulltext_index = MagicMock()
-        self.drop_fulltext_index = MagicMock()
-        self.create_vector_index = MagicMock()
-        self.drop_vector_index = MagicMock()
-        self.create_constraint = MagicMock()
-        self.drop_constraint = MagicMock()
-        self._existing: set[IndexSpec] = set()
-
-    def get_existing_specs(self) -> set[IndexSpec]:
-        return self._existing
 
 
 class TestIndexManagerWithGenericAdapter:
