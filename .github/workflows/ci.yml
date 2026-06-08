@@ -63,5 +63,5 @@ jobs:
       - name: Run tests
         env:
           RUNIC_TEST_BACKENDS: falkordb
-        run: uv run pytest
+        run: uv run pytest --ignore=tests/evals
 

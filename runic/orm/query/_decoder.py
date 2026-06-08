@@ -38,8 +38,7 @@ class _ResultDecoder(Generic[T]):  # noqa: UP046
 
     def _decode_node_result(self, result: Any) -> list[T]:
         """Decode a single-column node result into ORM entities."""
-        mapper = self._session.mapper
-        register = self._session.register_or_get
+        decode_register = self._session.decode_and_register_node
 
         # Determine the target class for decoding
         return_alias = (
@@ -52,14 +51,13 @@ class _ResultDecoder(Generic[T]):  # noqa: UP046
             val = row[0]
             if val is None:
                 continue
-            decoded = mapper.decode_node(val, target_cls)
-            entities.append(register(decoded))
+            entities.append(decode_register(val, target_cls))
         return entities
 
     def _decode_edge_result(self, result: Any) -> list[tuple[Any, ...]]:
         """Decode multi-column result into (NodeA, EdgeModel, NodeB) tuples."""
         mapper = self._session.mapper
-        register = self._session.register_or_get
+        decode_register = self._session.decode_and_register_node
 
         # Column order: return_aliases[0], edge_alias, return_aliases[1]
         edge_alias = self._edge_alias_for_result
@@ -87,15 +85,14 @@ class _ResultDecoder(Generic[T]):  # noqa: UP046
                     decoded_row.append(mapper.decode_edge(val, edge_cls))
                 else:
                     node_cls = self._alias_map.get(col_alias, self._root_cls)
-                    decoded = mapper.decode_node(val, node_cls)
-                    decoded_row.append(register(decoded))
+                    decoded_row.append(decode_register(val, node_cls))
             tuples.append(tuple(decoded_row))
         return tuples
 
     def _decode_rows_as_dicts(self, result: Any) -> list[dict[str, Any]]:
         """Decode a multi-column result into column-keyed dicts."""
         mapper = self._session.mapper
-        register = self._session.register_or_get
+        decode_register = self._session.decode_and_register_node
         header = result.columns
 
         rows: list[dict[str, Any]] = []
@@ -110,7 +107,7 @@ class _ResultDecoder(Generic[T]):  # noqa: UP046
                     node_meta = self._meta.get_node_meta(cls)
                     edge_meta = self._meta.get_edge_meta(cls)
                     if node_meta is not None:
-                        val = register(mapper.decode_node(val, cls))
+                        val = decode_register(val, cls)
                     elif edge_meta is not None:
                         val = mapper.decode_edge(val, cls)
                 d[col_name] = val

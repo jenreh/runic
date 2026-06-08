@@ -68,6 +68,10 @@ def _make_session(
 
     # register_or_get: identity pass-through in tests
     session.register_or_get.side_effect = lambda e: e
+    # decode_and_register_node delegates like the real _SessionBase method
+    session.decode_and_register_node.side_effect = lambda raw, cls: (
+        session.register_or_get(session.mapper.decode_node(raw, cls))
+    )
 
     return session
 
@@ -373,6 +377,9 @@ async def test_async_find_all_decodes_nodes() -> None:
     session.mapper.decode_node.return_value = decoded
     session.rel_loader = MagicMock()
     session.register_or_get.side_effect = lambda e: e
+    session.decode_and_register_node.side_effect = lambda raw, cls: (
+        session.register_or_get(session.mapper.decode_node(raw, cls))
+    )
     session.execute = AsyncMock(return_value=result)
 
     repo: AsyncRepository[RepoPerson] = AsyncRepository(session, RepoPerson)

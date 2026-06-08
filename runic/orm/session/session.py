@@ -7,12 +7,10 @@ import weakref
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
-from runic.orm.core.metadata import metadata as _global_metadata
-from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError
+from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor
+from runic.orm.exceptions import EntityNotFoundError
 from runic.orm.mapper.mapper import Mapper
-from runic.orm.mapper.relationship_loader import RelationshipLoader
-from runic.orm.mapper.relationship_writer import RelationshipWriter
+from runic.orm.session._base import _SessionBase
 
 if TYPE_CHECKING:
     from runic.orm.driver import GraphDriver, GraphResult
@@ -23,12 +21,13 @@ log = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
-class Session:
+class Session(_SessionBase):
     """Sync unit-of-work manager.
 
     Owns all mutations (``add``, ``delete``), single-entity lookup (``get``),
     identity map, and flush/commit lifecycle.  Repositories hold a session
-    reference and delegate writes and PK lookups to it.
+    reference and delegate writes and PK lookups to it.  The backend-agnostic
+    bookkeeping lives in :class:`~runic.orm.session._base._SessionBase`.
 
     **Transaction model** — determined by the injected driver:
 
@@ -58,21 +57,7 @@ class Session:
     ) -> None:
         from runic.orm.driver import TransactionalGraphDriver
 
-        self._driver = driver
-        self._log_cypher = log_cypher
-        self._mapper: Mapper = (
-            mapper
-            if mapper is not None
-            else Mapper(_global_metadata, dialect=driver.dialect)
-        )
-        self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
-        self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
-        # Identity map: (EntityClass, pk) → entity instance
-        self._identity_map: dict[tuple[type, Any], Any] = {}
-        # Entities staged for CREATE
-        self._pending: list[Any] = []
-        # Entities staged for DETACH DELETE
-        self._deleted: list[Any] = []
+        self._init_state(driver, mapper, log_cypher=log_cypher)
         # True when a driver-level transaction is open (lazy-begin on first query)
         self._in_transaction: bool = False
         self._is_transactional: bool = isinstance(driver, TransactionalGraphDriver)
@@ -85,76 +70,9 @@ class Session:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
         if self._is_transactional and not self._in_transaction:
-            self._driver.begin()  # ty: ignore[unresolved-attribute]
+            self._driver.begin()
             self._in_transaction = True
         return self._driver.execute(cypher, params)
-
-    # ------------------------------------------------------------------
-    # Mutations
-    # ------------------------------------------------------------------
-
-    def add(self, entity: Any) -> None:
-        """Register a transient/detached entity as pending (staged for CREATE)."""
-        if entity not in self._pending:
-            self._pending.append(entity)
-            log.debug("Staged for create: %r", entity)
-
-    def add_all(self, entities: list[Any]) -> None:
-        """Batch ``add``."""
-        for e in entities:
-            self.add(e)
-
-    def delete(self, entity: Any) -> None:
-        """Mark a persistent entity for DETACH DELETE on next flush.
-
-        Raises ``DetachedEntityError`` if the entity is not known to this session.
-        """
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        in_identity_map = (cls, pk) in self._identity_map
-        in_pending = entity in self._pending
-
-        if not in_identity_map and not in_pending:
-            raise DetachedEntityError(
-                f"Entity {entity!r} is not tracked by this session; "
-                "call session.add() first or load it via session.get()."
-            )
-
-        if entity not in self._deleted:
-            self._deleted.append(entity)
-        # If it was in pending (never flushed), also remove from pending
-        if entity in self._pending:
-            self._pending.remove(entity)
-        log.debug("Staged for delete: %r", entity)
-
-    # ------------------------------------------------------------------
-    # Properties (used by Repository)
-    # ------------------------------------------------------------------
-
-    @property
-    def mapper(self) -> Mapper:
-        """Return the Mapper used by this session."""
-        return self._mapper
-
-    @property
-    def rel_loader(self) -> RelationshipLoader:
-        """Return the RelationshipLoader used by this session."""
-        return self._rel_loader
-
-    def register_or_get(self, entity: Any) -> Any:
-        """Register *entity* in the identity map; return existing instance if present.
-
-        Used by Repository reads to deduplicate against entities already loaded
-        in this session (fulfilling the identity-map guarantee).
-        """
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        key = (cls, pk)
-        if key in self._identity_map:
-            return self._identity_map[key]
-        entity.__dict__["_session"] = weakref.ref(self)
-        self._identity_map[key] = entity
-        return entity
 
     # ------------------------------------------------------------------
     # Lookup
@@ -237,7 +155,7 @@ class Session:
         self._pending.clear()
         self._deleted.clear()
         if self._in_transaction:
-            self._driver.commit()  # ty: ignore[unresolved-attribute]
+            self._driver.commit()
             self._in_transaction = False
         log.debug("Session committed")
 
@@ -256,51 +174,21 @@ class Session:
             entity.__dict__["_expired"] = True
             entity.__dict__["_dirty"] = False
         if self._in_transaction:
-            self._driver.rollback()  # ty: ignore[unresolved-attribute]
+            self._driver.rollback()
             self._in_transaction = False
         log.debug(
             "Session rolled back (pending/deleted cleared; persistent entities expired)"
         )
 
     # ------------------------------------------------------------------
-    # Expire / Refresh
+    # Refresh
     # ------------------------------------------------------------------
-
-    def expire(self, entity: Any) -> None:
-        """Invalidate cached attributes; they will be reloaded on next ``refresh``."""
-        entity.__dict__["_expired"] = True
 
     def refresh(self, entity: Any) -> None:
         """Immediately re-query the entity from the graph and update in-place."""
         cls = type(entity)
         pk = self._mapper.get_pk_value(entity)
         self._reload(entity, cls, pk)
-
-    # ------------------------------------------------------------------
-    # Expunge
-    # ------------------------------------------------------------------
-
-    def expunge(self, entity: Any) -> None:
-        """Remove entity from session (→ detached); no graph action."""
-        entity.__dict__.pop("_session", None)
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        self._identity_map.pop((cls, pk), None)
-        if entity in self._pending:
-            self._pending.remove(entity)
-        if entity in self._deleted:
-            self._deleted.remove(entity)
-        log.debug("Expunged %r from session", entity)
-
-    def expunge_all(self) -> None:
-        """Expunge all tracked entities."""
-        for entity in self._identity_map.values():
-            entity.__dict__.pop("_session", None)
-        for entity in self._pending:
-            entity.__dict__.pop("_session", None)
-        self._identity_map.clear()
-        self._pending.clear()
-        self._deleted.clear()
 
     # ------------------------------------------------------------------
     # Relationship mutations
@@ -572,7 +460,7 @@ class Session:
         """
         if self._in_transaction:
             try:
-                self._driver.rollback()  # ty: ignore[unresolved-attribute]
+                self._driver.rollback()
             except Exception:
                 log.warning(
                     "Session.close(): driver rollback failed; connection may leak"
@@ -619,21 +507,6 @@ class Session:
         self._inject_session_into(related)
         log.debug("Loaded %s pk=%r with fetch=%r", cls.__name__, actual_pk, fetch)
         return entity
-
-    def _register_entity(self, entity: Any, query_cls: type, pk: Any) -> None:
-        """Add entity to identity map and inject weak session reference."""
-        entity.__dict__["_session"] = weakref.ref(self)
-        self._identity_map[(query_cls, pk)] = entity
-
-    def _inject_session_into(self, decoded: Any) -> None:
-        """Inject ``_session`` into a single entity or list of entities."""
-        ref = weakref.ref(self)
-        if isinstance(decoded, list):
-            for e in decoded:
-                if e is not None:
-                    e.__dict__["_session"] = ref
-        elif decoded is not None:
-            decoded.__dict__["_session"] = ref
 
     def _flush_pending(self) -> None:
         """CREATE all entities in the pending list."""
@@ -689,34 +562,6 @@ class Session:
             log.debug("Deleted %s pk=%r", cls.__name__, pk)
 
         self._deleted.clear()
-
-    def _require_query_builder(self, stmt: Any, method: str) -> None:
-        """Raise TypeError if *stmt* is not a QueryBuilder."""
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError(f"{method}() expects a QueryBuilder created by select()")
-
-    def _resolve_relation_fi(
-        self, source: Any, field_name: str | FieldDescriptor
-    ) -> FieldInfo:
-        """Return the ``FieldInfo`` for a declared ``Relation`` field on *source*.
-
-        *field_name* may be a plain string or the class-level ``FieldDescriptor``
-        (e.g. ``User.invited_trips``).
-
-        Raises ``TypeError`` when *field_name* does not correspond to a Relation.
-        """
-        name = (
-            field_name.name if isinstance(field_name, FieldDescriptor) else field_name
-        )
-        node_meta = self._mapper.require_node_meta(type(source))
-        fi = next((f for f in node_meta.fields if f.name == name), None)
-        if fi is None or fi.field.relationship is None:
-            raise TypeError(
-                f"{type(source).__name__!r} has no Relation field named {name!r}"
-            )
-        return fi
 
     def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         """Re-query a single entity from the graph and update it in-place."""
