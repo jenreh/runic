@@ -1,6 +1,6 @@
 [project]
 name = "runic-py"
-version = "0.3.1"
+version = "0.3.2"
 description = "Graph schema migrations and ORM for Cypher-based graph databases."
 readme = "README.md"
 requires-python = ">=3.14"
