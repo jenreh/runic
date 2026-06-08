@@ -12,10 +12,9 @@ To use the standard hosted API instead, set ``ANTHROPIC_API_KEY`` and replace
 
 from __future__ import annotations
 
+from claude_cli_model import ClaudeCLIModel
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCaseParams
-
-from claude_cli_model import ClaudeCLIModel
 
 _JUDGE = ClaudeCLIModel()
 

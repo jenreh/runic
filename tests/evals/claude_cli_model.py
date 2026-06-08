@@ -51,7 +51,7 @@ class ClaudeCLIModel(DeepEvalBaseLLM):
         self._model = model
         super().__init__(model)
 
-    def load_model(self) -> "ClaudeCLIModel":
+    def load_model(self) -> ClaudeCLIModel:
         return self
 
     def get_model_name(self) -> str:

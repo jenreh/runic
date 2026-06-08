@@ -1397,6 +1397,7 @@ source = { editable = "." }
 dependencies = [
     { name = "mako" },
     { name = "rich" },
+    { name = "shellingham" },
     { name = "typer" },
 ]
 
@@ -1461,6 +1462,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], marker = "extra == 'age-binary'", specifier = ">=3.3.4,<4.0.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'all'", specifier = ">=3.3.4,<4.0.0" },
     { name = "rich", specifier = ">=14.0.0,<16.0.0" },
+    { name = "shellingham", specifier = ">=1.5.0,<2.0.0" },
     { name = "typer", specifier = ">=0.26.0,<1.0.0" },
 ]
 provides-extras = ["falkordb", "neo4j", "memgraph", "arcadedb", "age", "age-binary", "all"]

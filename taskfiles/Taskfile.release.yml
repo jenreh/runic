@@ -28,4 +28,7 @@ tasks:
       - git add -A
       - 'git diff --cached --quiet || git commit -m "chore: release v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2)"'
       - git push
-      - 'gh release create v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2) --generate-notes'
+      - |
+        NEW_VERSION=v$(grep '^version = ' pyproject.toml | cut -d '"' -f2)
+        uv run python scripts/generate_changelog.py "$NEW_VERSION" > /tmp/runic_changelog.md
+        gh release create "$NEW_VERSION" --title "$NEW_VERSION" --notes-file /tmp/runic_changelog.md
