@@ -1,0 +1,62 @@
+[
+  {
+    "input": "Walk me through the runic.migrate workflow from scratch: scaffolding the directory, writing and running the first migration, and verifying what was applied.",
+    "expected_output": "Run `runic init` to scaffold runic/ (env.py, script.py.mako, versions/). Edit env.py to point at the graph using create_adapter('falkordb', url=..., graph_name=...) and context.configure(adapter). Run `runic revision -m 'initial schema'` to create versions/<id>_initial_schema.py. Edit that file: define upgrade(op)/downgrade(op) with the desired op.* calls. Run `runic upgrade head` to apply. Verify with `runic current` (prints applied revision id + message). When init uses a non-default directory, commit the generated .runic marker file."
+  },
+  {
+    "input": "What are all the required fields in a runic migration file, and what do irreversible and snapshot do?",
+    "expected_output": "Required module-level fields: message (str), create_date (datetime), revision (str), down_revision (None | str | tuple), branch_labels (list), depends_on (list), irreversible (bool), snapshot (bool), plus upgrade(op) and downgrade(op) functions. irreversible=True causes runic to refuse downgrade unless --force is passed, signalling a one-way data migration. snapshot=True causes runic to GRAPH.COPY the graph before running upgrade and to restore that snapshot automatically on failure or explicit downgrade — useful for risky data migrations."
+  },
+  {
+    "input": "I need to create a migration that adds a UNIQUE constraint on User.email. What op.* calls go in upgrade and downgrade, and what ordering rule applies?",
+    "expected_output": "In upgrade: call op.create_range_index('User', 'email') first, then op.create_constraint('UNIQUE', 'NODE', 'User', ['email']). The range index must exist before the unique constraint. In downgrade: reverse the order — drop the constraint first with op.drop_constraint('UNIQUE', 'NODE', 'User', ['email']), then drop the index with op.drop_range_index('User', 'email'). The ordering rule is critical: constraints before indexes in downgrade, indexes before constraints in upgrade."
+  },
+  {
+    "input": "How do I create a fulltext index on Post.title and Post.body, and a HNSW vector index on Product.embedding (256-dim, cosine)? Show the op.* calls.",
+    "expected_output": "Fulltext: op.create_fulltext_index('Post', 'title', 'body'). Optionally pass language='english' and stopwords=[...]. Drop with op.drop_fulltext_index('Post', 'title', 'body') — must pass ALL the same property names. Vector: op.create_vector_index('Product', 'embedding', 256, 'cosine'). Optional HNSW tuning: m=16, ef_construction=200, ef_runtime=10. Drop with op.drop_vector_index('Product', 'embedding')."
+  },
+  {
+    "input": "I renamed a Person.name property to full_name in a data migration. What op.* calls do I need, and why should I mark it irreversible with snapshot=True?",
+    "expected_output": "In upgrade: op.rename_property('Person', 'name', 'full_name') — batched (default 10 000 nodes per query), idempotent, safe to re-run after partial failure. Then op.run_cypher('MATCH (p:Person) WHERE p.name IS NOT NULL REMOVE p.name') to drop the old property. Mark irreversible=True because the old property is gone and the data cannot be reconstructed. Set snapshot=True so runic copies the graph before upgrade and restores it automatically if the migration fails mid-way."
+  },
+  {
+    "input": "Explain all four data-transform operations (rename_property, relabel_nodes, seed, run_cypher), including when each one is appropriate and any backend limitations.",
+    "expected_output": "rename_property(label, old, new, batch=10_000): iterates pages renaming a property; batched and idempotent; safe for large graphs. relabel_nodes(old, new, batch=10_000): renames a node label using SET n:New REMOVE n:Old; raises NotImplementedError on Apache AGE and ArcadeDB which do not support multi-label nodes. seed(merge_query, rows): executes UNWIND $rows AS row <merge_query> — idempotent reference data load using MERGE. run_cypher(query, params=None): raw Cypher escape hatch for anything not covered by the higher-level ops; use for one-off mutations, computed properties, or cleanup. All four respect preview mode."
+  },
+  {
+    "input": "Show how to configure autogenerate in env.py and what the SchemaManifest imports look like, then explain what runic check does.",
+    "expected_output": "In env.py, import SchemaManifest, RangeIndex, FulltextIndex, VectorIndex, UniqueConstraint, MandatoryConstraint from runic.migrate.manifest. Build manifest = SchemaManifest(range_indexes=[RangeIndex('User','email'), ...], fulltext_indexes=[FulltextIndex('Post',['title','body'])], vector_indexes=[VectorIndex('Product','embedding',256,'cosine')], constraints=[UniqueConstraint('NODE','User',['email'])]). Pass it to context.configure(adapter, target_manifest=manifest). Then `runic revision --autogenerate -m 'msg'` diffs the manifest against the live schema and writes candidate op.* calls. `runic check` exits non-zero if there are pending changes (good CI gate); exits 0 if up-to-date. Both require target_manifest in env.py."
+  },
+  {
+    "input": "How does runic test work? What does it verify, and how do I use falkordblite for CI without a real database?",
+    "expected_output": "`runic test <rev>` runs a round-trip: Phase A upgrade to <rev>, Phase B downgrade to base, Phase C re-upgrade (idempotency check). It runs against an ephemeral copy of the graph (auto-deleted on exit) and prints node/index/constraint counts at each phase plus PASSED/FAILED. Pass --url and --graph to test against an explicit DB without an env.py. For CI with no running database, use falkordblite: import falkordblite; db = falkordblite.FalkorDB(); adapter = FalkorDBAdapter(db, db.select_graph('ci_test')); runic = Runic(adapter, script_location=Path('runic/')); runic.migrate.upgrade('head'). This runs fully in-process, no server required."
+  },
+  {
+    "input": "Two developers each created a revision off the same head. How do I resolve multiple heads in runic?",
+    "expected_output": "Run `runic heads` to list both head revision ids. Then `runic merge <rev1> <rev2> -m 'merge feature-x and main'` creates a merge revision with down_revision = ('rev1_id', 'rev2_id') as a tuple. The merge script body is empty by default — add any reconciliation ops if needed. Then `runic upgrade head` applies it. If an ordering dependency is needed without a parent relationship, use depends_on in a revision rather than making it a down_revision parent."
+  },
+  {
+    "input": "I want to use the runic.migrate programmatic SDK instead of the CLI. Show how to set up the Runic object and run upgrade, downgrade, current, and get_history.",
+    "expected_output": "from runic import Runic; from runic.migrate.adapters import create_adapter; adapter = create_adapter('falkordb', url='falkor://localhost:6379', graph_name='my_graph'); runic = Runic(adapter, script_location=Path('runic/')). Then: runic.migrate.upgrade('head'), runic.migrate.downgrade('base'), runic.migrate.current() (returns current revision id or None), runic.migrate.get_history() (returns list[RevisionInfo] newest-first). Runic also accepts preview=True for dry-run and target_manifest=... for autogenerate. Additional methods: runic.migrate.stamp('head'), runic.migrate.get_heads(), runic.migrate.create_revision('add index')."
+  },
+  {
+    "input": "I'm adding runic to a graph that already has indexes and constraints. How do I baseline it so runic doesn't try to re-apply existing schema?",
+    "expected_output": "The primary approach: `runic baseline -m 'baseline'`. This introspects the live graph, writes a root revision (down_revision=None) that recreates the full schema, and stamps the version node so runic treats it as already applied. After running, runic prints a SchemaManifest snippet to paste into env.py for autogenerate. Use `runic baseline --stamp-only` to stamp without writing a file. Alternative manual approach: create a no-op revision with `runic revision -m 'baseline'`, leave upgrade/downgrade empty, then `runic stamp <rev_id>` to mark it applied without executing."
+  },
+  {
+    "input": "What does runic info do and how is it different from runic current?",
+    "expected_output": "`runic current` shows just the applied revision id and message (one line). `runic info` (COMPARE mode, default) shows a full status report: database name, current revision, applied count vs total, and lists pending migrations. `runic info --mode LOCAL` is offline-only: shows local revision count and heads without connecting to the DB. `runic info --mode REMOTE` shows only which revision is applied in the DB. Use COMPARE for a full status report; LOCAL when the DB is unreachable; REMOTE to quickly check what the live DB has."
+  },
+  {
+    "input": "My team suspects someone edited an applied migration file. How do I detect and report checksum mismatches in runic?",
+    "expected_output": "Run `runic validate`. It checks each applied migration script against its stored checksum and prints an error line for every mismatch, then exits non-zero if any are found. To proactively catch tampering during upgrade runs, pass `--validate-on-migrate` to `runic upgrade`: this aborts the upgrade if any already-applied script has a checksum mismatch before proceeding. The `--installed-by NAME` flag on `runic upgrade` records an attribution string alongside each applied revision, useful for audit trails (e.g. CI run id or deployer name)."
+  },
+  {
+    "input": "I have a one-off Cypher fix I need to run against the production graph without recording it in the migration chain. What runic command handles this?",
+    "expected_output": "`runic run fix.py` executes the migration script's upgrade() function against the database without recording the revision in the version chain. The script must be a .py file with an upgrade(op) function — NOT a raw .cypher file. Multiple scripts can be passed: `runic run step1.py step2.py`. This is an escape hatch for ad-hoc fixes — prefer a proper versioned migration for repeatable schema changes."
+  },
+  {
+    "input": "Show the env.py for a Memgraph instance, and explain which runic.migrate features are FalkorDB-specific vs available on all backends.",
+    "expected_output": "Memgraph env.py: from runic.migrate.adapters import create_adapter; adapter = create_adapter('memgraph', host='localhost', port=7687); context.configure(adapter). FalkorDB-specific: the _FalkorMigrateVersion label (other backends use _RunicMigrateVersion), GRAPH.COPY snapshot/restore (snapshot=True migration flag), and relabel_nodes requires multi-label support (unavailable on AGE/ArcadeDB). Available on all backends: range indexes, fulltext indexes, unique/mandatory constraints, rename_property, seed, run_cypher, CLI commands, autogenerate, programmatic SDK. Vector indexes are FalkorDB/Neo4j-specific (not all adapters implement them)."
+  }
+]

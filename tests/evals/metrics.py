@@ -1,10 +1,9 @@
-"""DeepEval metrics for the runic-ogm skill evaluation.
+"""DeepEval metrics for runic skill evaluations.
 
-Two LLM-judged GEval metrics, scored by the key-free ``ClaudeCLIModel``:
+Shared judge (key-free ClaudeCLIModel) and two metric sets:
 
-- ``Correctness``  — does the answer match the expected runic.ogm solution?
-- ``APIFidelity``  — does it use the real runic.ogm API (no SQLAlchemy/Django
-  idioms or invented methods)?
+- ``SINGLE_TURN_NO_TRACING_METRICS``  — runic-ogm skill (Node/Edge/Session API)
+- ``MIGRATE_METRICS``                 — runic-migrate skill (CLI + op.* API)
 
 To use the standard hosted API instead, set ``ANTHROPIC_API_KEY`` and replace
 ``_JUDGE`` with ``deepeval.models.AnthropicModel("claude-sonnet-4-6")``.
@@ -59,5 +58,56 @@ api_fidelity = GEval(
     threshold=0.7,
 )
 
-# Imported by the eval test file.
+# Imported by the OGM eval test file.
 SINGLE_TURN_NO_TRACING_METRICS: list[BaseMetric] = [correctness, api_fidelity]
+
+# ---------------------------------------------------------------------------
+# runic-migrate metrics
+# ---------------------------------------------------------------------------
+
+correctness_migrate = GEval(
+    name="Correctness",
+    criteria=(
+        "Judge whether the 'actual output' is a correct, working answer to the "
+        "runic.migrate question in 'input', using 'expected output' as the "
+        "reference solution. Reward answers that use the right CLI commands and "
+        "flags, correct op.* API call signatures, proper migration file fields "
+        "(revision, down_revision, irreversible, snapshot, upgrade, downgrade), "
+        "and follow the ordering rules (indexes before constraints in upgrade, "
+        "constraints before indexes in downgrade). Minor stylistic differences "
+        "are fine; wrong commands, invented flags, or missing ordering rules are "
+        "not."
+    ),
+    evaluation_params=_PARAMS,
+    model=_JUDGE,
+    threshold=0.7,
+)
+
+command_fidelity = GEval(
+    name="CommandFidelity",
+    evaluation_steps=[
+        "Check whether the 'actual output' uses the genuine runic CLI commands "
+        "and op.* API as shown in 'expected output': runic init/revision/upgrade/"
+        "downgrade/current/history/heads/branches/stamp/show/test/merge/check/"
+        "validate/run/info/baseline, and op.create_range_index, "
+        "op.drop_range_index, op.create_fulltext_index, op.drop_fulltext_index, "
+        "op.create_vector_index, op.drop_vector_index, op.create_constraint, "
+        "op.drop_constraint, op.rename_property, op.relabel_nodes, op.seed, "
+        "op.run_cypher.",
+        "Penalize invented CLI flags or subcommands not in the runic CLI: "
+        "for example --apply, --dry-run (correct flag is --preview), "
+        "--no-downgrade, runic apply, runic status, runic reset.",
+        "Penalize invented op.* methods not in the real API: op.add_index(), "
+        "op.execute(), op.migrate(), op.alter_property(), op.drop_property().",
+        "Penalize Alembic idioms incorrectly transplanted into runic: "
+        "op.create_table, op.add_column, op.alter_column, op.execute('ALTER ...').",
+        "A high score means the answer would work against the real runic CLI and "
+        "op.* API; a low score means it uses commands or methods that do not exist.",
+    ],
+    evaluation_params=_PARAMS,
+    model=_JUDGE,
+    threshold=0.7,
+)
+
+# Imported by the migrate eval test file.
+MIGRATE_METRICS: list[BaseMetric] = [correctness_migrate, command_fidelity]

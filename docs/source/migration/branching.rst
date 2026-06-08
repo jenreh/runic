@@ -167,5 +167,5 @@ result is an accidental branch.  The standard fix is:
 See also
 --------
 
-* :doc:`tutorial/history` — inspecting heads and branch points
+* :doc:`integration` — inspecting heads and branch points
 * :doc:`cli_reference` — ``merge``, ``heads``, ``branches`` command details

@@ -977,3 +977,96 @@ Cypher feature coverage
    * - Pattern comprehensions
      - ✗
      - Use ``repo.cypher()``
+
+----
+
+Common pitfalls
+---------------
+
+**Use** ``all_rows()`` **for projections and aggregations, not** ``scalars()``
+
+``project()`` and ``aggregate()`` return dictionaries, not entities.
+``scalars()`` will try to decode a dict as a node and fail:
+
+.. code-block:: python
+
+   from runic.ogm.query import count
+
+   # BAD
+   results = session.scalars(select(User).aggregate(count("*").as_("total")))
+
+   # GOOD
+   results = session.all_rows(select(User).aggregate(count("*").as_("total")))
+   # [{"total": 42}]
+
+**Parenthesise boolean operands**
+
+Python operator precedence means ``A.x == 1 & A.y == 2`` parses as
+``A.x == (1 & A.y) == 2``, which is almost certainly wrong.  Always
+parenthesise:
+
+.. code-block:: python
+
+   # BAD
+   stmt = select(User).where(User.active == True & User.region == "DE")
+
+   # GOOD
+   stmt = select(User).where((User.active == True) & (User.region == "DE"))
+
+**Edge property filters need** ``optional=False``
+
+The default ``traverse()`` emits ``OPTIONAL MATCH``.  A ``WHERE`` clause on
+an ``OPTIONAL MATCH`` nullifies unmatched rows rather than dropping them,
+causing ``None`` values in results.  Use ``optional=False`` when you need to
+filter on edge properties:
+
+.. code-block:: python
+
+   stmt = (
+       select(User).alias("u")
+       .traverse(User.articles, edge_alias="e", optional=False)
+       .alias("a")
+       .where(Article.published == True, on="a")
+   )
+
+**Don't alias an aggregation column the same as the node alias**
+
+The default node alias is ``n``.  Naming an aggregation column ``n`` collides
+with it and causes the decoder to treat the integer as a node:
+
+.. code-block:: python
+
+   # BAD — "n" collides with the node alias
+   stmt = select(User).aggregate(count("*").as_("n"), group_by="n.city")
+
+   # GOOD
+   stmt = select(User).aggregate(count("*").as_("total"), group_by="n.city")
+
+**Group by a field path, not the whole node alias**
+
+``group_by="u"`` groups by the entire node — one row per node.  Pass the
+field path to group by a property value:
+
+.. code-block:: python
+
+   # BAD — groups per node, not per city
+   stmt = select(User).alias("u").aggregate(count("*").as_("total"), group_by="u")
+
+   # GOOD
+   stmt = select(User).alias("u").aggregate(count("*").as_("total"), group_by="u.city")
+
+**Keep** ``datetime`` **values timezone-aware**
+
+The built-in ``DatetimeConverter`` serialises to ISO-8601 and restores the
+offset on read.  A naive ``datetime`` (no ``tzinfo``) will lose its timezone
+on the round-trip:
+
+.. code-block:: python
+
+   from datetime import datetime, UTC
+
+   # BAD — naive datetime
+   article.published_at = datetime(2026, 1, 1)
+
+   # GOOD — timezone-aware
+   article.published_at = datetime(2026, 1, 1, tzinfo=UTC)

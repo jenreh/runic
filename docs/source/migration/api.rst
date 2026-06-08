@@ -2,7 +2,7 @@ Migration API Reference
 =======================
 
 ``runic.migrate`` is the schema migration engine.  For the full workflow see
-:doc:`quickstart` and :doc:`tutorial/index`; the CLI is documented in
+:doc:`quickstart` and :doc:`integration`; the CLI is documented in
 :doc:`cli_reference`.
 
 ----
