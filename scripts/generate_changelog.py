@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -91,7 +92,7 @@ _SUMMARY_PROMPT = (
 _SSH_REMOTE_RE = re.compile(r"^git@([^:]+):(.+)$")
 
 
-class Backend(str, Enum):
+class Backend(StrEnum):
     auto = "auto"
     claude = "claude"
     github = "github"
@@ -111,11 +112,10 @@ app = typer.Typer(
 
 
 def _run(cmd: list[str], *, required: bool = False) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603, PLW1510
     if result.returncode != 0:
         _STDERR.print(
-            "[yellow]warning:[/yellow] command failed (exit %d): %s\n%s"
-            % (result.returncode, " ".join(cmd), result.stderr.strip()),
+            f"[yellow]warning:[/yellow] command failed (exit {result.returncode}): {' '.join(cmd)}\n{result.stderr.strip()}",
         )
         if required:
             raise typer.Exit(1)
@@ -132,20 +132,21 @@ def _normalize_repo_url(raw: str) -> str:
 
 
 def get_previous_tag(new_tag: str) -> str:
-    result = subprocess.run(  # noqa: S603
-        ["git", "describe", "--tags", "--abbrev=0", f"{new_tag}^"],
+    result = subprocess.run(  # noqa: S603, PLW1510
+        ["git", "describe", "--tags", "--abbrev=0", f"{new_tag}^"],  # noqa: S607
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         _STDERR.print(
-            "[yellow]warning:[/yellow] could not resolve previous tag from %r; trying HEAD^"
-            % new_tag,
+            f"[yellow]warning:[/yellow] could not resolve previous tag from {new_tag!r}; trying HEAD^",
         )
-        result = subprocess.run(  # noqa: S603
-            ["git", "describe", "--tags", "--abbrev=0", "HEAD^"],
+        result = subprocess.run(  # noqa: S603, PLW1510
+            ["git", "describe", "--tags", "--abbrev=0", "HEAD^"],  # noqa: S607
             capture_output=True,
             text=True,
+            check=False,
         )
     if result.returncode == 0:
         return result.stdout.strip()
@@ -171,11 +172,13 @@ def get_commits(since_tag: str) -> list[dict[str, str]]:
         if len(parts) >= 2 and parts[0].strip():
             subject = parts[1].strip()
             if not _SKIP_PATTERNS.match(subject):
-                commits.append({
-                    "hash": parts[0].strip(),
-                    "subject": subject,
-                    "body": parts[2].strip() if len(parts) > 2 else "",
-                })
+                commits.append(
+                    {
+                        "hash": parts[0].strip(),
+                        "subject": subject,
+                        "body": parts[2].strip() if len(parts) > 2 else "",
+                    }
+                )
     return commits
 
 
@@ -247,8 +250,7 @@ def _via_claude(prompt: str) -> str:
         )
         if result.returncode != 0:
             _STDERR.print(
-                "[yellow]warning:[/yellow] claude CLI exited %d: %s"
-                % (result.returncode, result.stderr.strip() or "(no stderr)"),
+                f"[yellow]warning:[/yellow] claude CLI exited {result.returncode}: {result.stderr.strip() or '(no stderr)'}",
             )
             return ""
         return result.stdout.strip()
@@ -258,7 +260,7 @@ def _via_claude(prompt: str) -> str:
         )
         return ""
     except OSError as exc:
-        _STDERR.print("[yellow]warning:[/yellow] could not launch claude CLI: %s" % exc)
+        _STDERR.print(f"[yellow]warning:[/yellow] could not launch claude CLI: {exc}")
         return ""
 
 
@@ -275,16 +277,17 @@ def _via_github_models(prompt: str) -> str:
     )
     if token_result.returncode != 0:
         _STDERR.print(
-            "[yellow]warning:[/yellow] `gh auth token` failed; skipping GitHub Models: %s"
-            % token_result.stderr.strip(),
+            f"[yellow]warning:[/yellow] `gh auth token` failed; skipping GitHub Models: {token_result.stderr.strip()}",
         )
         return ""
     token = token_result.stdout.strip()
-    payload = json.dumps({
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 300,
-    }).encode()
+    payload = json.dumps(
+        {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 300,
+        }
+    ).encode()
     req = urllib.request.Request(  # noqa: S310
         "https://models.inference.ai.azure.com/chat/completions",
         data=payload,
@@ -300,20 +303,17 @@ def _via_github_models(prompt: str) -> str:
             return data["choices"][0]["message"]["content"].strip()
     except urllib.error.HTTPError as exc:
         _STDERR.print(
-            "[yellow]warning:[/yellow] GitHub Models API returned HTTP %d %s; skipping AI summary"
-            % (exc.code, exc.reason),
+            f"[yellow]warning:[/yellow] GitHub Models API returned HTTP {exc.code} {exc.reason}; skipping AI summary",
         )
         return ""
     except urllib.error.URLError as exc:
         _STDERR.print(
-            "[yellow]warning:[/yellow] GitHub Models API unreachable: %s; skipping AI summary"
-            % exc.reason,
+            f"[yellow]warning:[/yellow] GitHub Models API unreachable: {exc.reason}; skipping AI summary",
         )
         return ""
     except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as exc:
         _STDERR.print(
-            "[yellow]warning:[/yellow] unexpected GitHub Models response: %s; skipping AI summary"
-            % exc,
+            f"[yellow]warning:[/yellow] unexpected GitHub Models response: {exc}; skipping AI summary",
         )
         return ""
 

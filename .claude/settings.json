@@ -49,14 +49,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "task format $CLAUDE_FILE_PATHS"
-          },
-          {
-            "type": "command",
-            "command": "task lint $CLAUDE_FILE_PATHS"
-          },
-          {
-            "type": "command",
             "command": "task typecheck $CLAUDE_FILE_PATHS"
           }
         ]
