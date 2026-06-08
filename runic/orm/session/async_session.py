@@ -7,12 +7,10 @@ import weakref
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor, FieldInfo
-from runic.orm.core.metadata import metadata as _global_metadata
-from runic.orm.exceptions import DetachedEntityError, EntityNotFoundError, LazyLoadError
+from runic.orm.core.descriptors import _NOT_LOADED, FieldDescriptor
+from runic.orm.exceptions import EntityNotFoundError, LazyLoadError
 from runic.orm.mapper.mapper import Mapper
-from runic.orm.mapper.relationship_loader import RelationshipLoader
-from runic.orm.mapper.relationship_writer import RelationshipWriter
+from runic.orm.session._base import _SessionBase
 
 if TYPE_CHECKING:
     from runic.orm.driver import AsyncGraphDriver, GraphResult
@@ -23,8 +21,12 @@ log = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
-class AsyncSession:
+class AsyncSession(_SessionBase):
     """Async unit-of-work manager; mirrors :class:`Session` with ``async`` methods.
+
+    Shares the backend-agnostic bookkeeping (identity map, pending/deleted
+    tracking, expunge, relation resolution) with the sync session via
+    :class:`~runic.orm.session._base._SessionBase`.
 
     Use as an async context manager::
 
@@ -44,18 +46,7 @@ class AsyncSession:
         *,
         log_cypher: bool = False,
     ) -> None:
-        self._driver = driver
-        self._log_cypher = log_cypher
-        self._mapper: Mapper = (
-            mapper
-            if mapper is not None
-            else Mapper(_global_metadata, dialect=driver.dialect)
-        )
-        self._rel_loader = RelationshipLoader(self._mapper.meta, self._mapper)
-        self._rel_writer = RelationshipWriter(self._mapper.meta, self._mapper)
-        self._identity_map: dict[tuple[type, Any], Any] = {}
-        self._pending: list[Any] = []
-        self._deleted: list[Any] = []
+        self._init_state(driver, mapper, log_cypher=log_cypher)
 
     # ------------------------------------------------------------------
     # Internal query runner
@@ -65,62 +56,6 @@ class AsyncSession:
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
         return await self._driver.execute(cypher, params)
-
-    # ------------------------------------------------------------------
-    # Mutations
-    # ------------------------------------------------------------------
-
-    def add(self, entity: Any) -> None:
-        """Register a transient/detached entity as pending."""
-        if entity not in self._pending:
-            self._pending.append(entity)
-
-    def add_all(self, entities: list[Any]) -> None:
-        """Batch ``add``."""
-        for e in entities:
-            self.add(e)
-
-    def delete(self, entity: Any) -> None:
-        """Mark a persistent entity for DETACH DELETE on next flush."""
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        in_identity_map = (cls, pk) in self._identity_map
-        in_pending = entity in self._pending
-
-        if not in_identity_map and not in_pending:
-            raise DetachedEntityError(
-                f"Entity {entity!r} is not tracked by this session."
-            )
-
-        if entity not in self._deleted:
-            self._deleted.append(entity)
-        if entity in self._pending:
-            self._pending.remove(entity)
-
-    # ------------------------------------------------------------------
-    # Properties (used by AsyncRepository)
-    # ------------------------------------------------------------------
-
-    @property
-    def mapper(self) -> Mapper:
-        """Return the Mapper used by this session."""
-        return self._mapper
-
-    @property
-    def rel_loader(self) -> RelationshipLoader:
-        """Return the RelationshipLoader used by this session."""
-        return self._rel_loader
-
-    def register_or_get(self, entity: Any) -> Any:
-        """Register *entity* in the identity map; return existing instance if present."""
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        key = (cls, pk)
-        if key in self._identity_map:
-            return self._identity_map[key]
-        entity.__dict__["_session"] = weakref.ref(self)
-        self._identity_map[key] = entity
-        return entity
 
     # ------------------------------------------------------------------
     # Lookup
@@ -193,43 +128,14 @@ class AsyncSession:
             entity.__dict__["_dirty"] = False
 
     # ------------------------------------------------------------------
-    # Expire / Refresh
+    # Refresh
     # ------------------------------------------------------------------
-
-    def expire(self, entity: Any) -> None:
-        """Invalidate cached attributes."""
-        entity.__dict__["_expired"] = True
 
     async def refresh(self, entity: Any) -> None:
         """Immediately re-query the entity from the graph."""
         cls = type(entity)
         pk = self._mapper.get_pk_value(entity)
         await self._reload(entity, cls, pk)
-
-    # ------------------------------------------------------------------
-    # Expunge
-    # ------------------------------------------------------------------
-
-    def expunge(self, entity: Any) -> None:
-        """Remove entity from session; no graph action."""
-        entity.__dict__.pop("_session", None)
-        cls = type(entity)
-        pk = self._mapper.get_pk_value(entity)
-        self._identity_map.pop((cls, pk), None)
-        if entity in self._pending:
-            self._pending.remove(entity)
-        if entity in self._deleted:
-            self._deleted.remove(entity)
-
-    def expunge_all(self) -> None:
-        """Expunge all tracked entities."""
-        for entity in self._identity_map.values():
-            entity.__dict__.pop("_session", None)
-        for entity in self._pending:
-            entity.__dict__.pop("_session", None)
-        self._identity_map.clear()
-        self._pending.clear()
-        self._deleted.clear()
 
     # ------------------------------------------------------------------
     # Relationship mutations
@@ -489,21 +395,6 @@ class AsyncSession:
         self._inject_session_into(related)
         return entity
 
-    def _register_entity(self, entity: Any, query_cls: type, pk: Any) -> None:
-        """Add entity to identity map and inject weak session reference."""
-        entity.__dict__["_session"] = weakref.ref(self)
-        self._identity_map[(query_cls, pk)] = entity
-
-    def _inject_session_into(self, decoded: Any) -> None:
-        """Inject ``_session`` into a single entity or list of entities."""
-        ref = weakref.ref(self)
-        if isinstance(decoded, list):
-            for e in decoded:
-                if e is not None:
-                    e.__dict__["_session"] = ref
-        elif decoded is not None:
-            decoded.__dict__["_session"] = ref
-
     async def _flush_pending(self) -> None:
         for entity in list(self._pending):
             cypher, params = self._mapper.build_create_query(entity)
@@ -551,34 +442,6 @@ class AsyncSession:
             entity.__dict__.pop("_session", None)
 
         self._deleted.clear()
-
-    def _require_query_builder(self, stmt: Any, method: str) -> None:
-        """Raise TypeError if *stmt* is not a QueryBuilder."""
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError(f"{method}() expects a QueryBuilder created by select()")
-
-    def _resolve_relation_fi(
-        self, source: Any, field_name: str | FieldDescriptor
-    ) -> FieldInfo:
-        """Return the ``FieldInfo`` for a declared ``Relation`` field on *source*.
-
-        *field_name* may be a plain string or the class-level ``FieldDescriptor``
-        (e.g. ``User.invited_trips``).
-
-        Raises ``TypeError`` when *field_name* does not correspond to a Relation.
-        """
-        name = (
-            field_name.name if isinstance(field_name, FieldDescriptor) else field_name
-        )
-        node_meta = self._mapper.require_node_meta(type(source))
-        fi = next((f for f in node_meta.fields if f.name == name), None)
-        if fi is None or fi.field.relationship is None:
-            raise TypeError(
-                f"{type(source).__name__!r} has no Relation field named {name!r}"
-            )
-        return fi
 
     async def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         cypher, params = self._mapper.build_get_query(cls, pk)

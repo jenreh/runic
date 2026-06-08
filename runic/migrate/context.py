@@ -80,6 +80,17 @@ class Runic:
     def script_location(self) -> Path:
         return self._script_location
 
+    def retarget(self, adapter: GraphAdapter) -> None:
+        """Point this context at a different adapter (e.g. a forked graph).
+
+        Rebuilds the version node and operations wrapper so subsequent commands
+        run against *adapter*.  Used by ``runic baseline --graph`` to introspect
+        a sibling graph without re-running ``env.py``.
+        """
+        self._adapter = adapter
+        self._version_node = VersionNode(adapter)
+        self._ops = GraphOperations(adapter, preview=self._preview)
+
     # ------------------------------------------------------------------
     # Preview
     # ------------------------------------------------------------------
@@ -386,6 +397,20 @@ class Runic:
             (bp, self._script_dir.get_children(bp.revision))
             for bp in self._script_dir.get_branch_points()
         ]
+
+    def current_revisions(self) -> list[str]:
+        """Return the revision ids currently recorded on the version node."""
+        return self._version_node.get()
+
+    def pending_revisions(
+        self, from_revs: list[str] | None = None, target: str = "head"
+    ) -> list[Revision]:
+        """Return the ordered upgrade path from *from_revs* to *target*.
+
+        Raises the usual revision-graph errors (e.g. ``MultipleHeadsError``,
+        ``RevisionNotFound``) when the path cannot be resolved.
+        """
+        return self._script_dir.topological_upgrade_path(from_revs or None, target)
 
     def create_revision(
         self,

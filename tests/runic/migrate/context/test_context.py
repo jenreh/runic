@@ -542,3 +542,43 @@ def test_upgrade_explicit_target_succeeds_with_multiple_heads(
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "_FalkorMigrateVersion" in q]
     assert stamp_calls
+
+
+# ---------------------------------------------------------------------------
+# Public query API (current_revisions / pending_revisions / retarget)
+# ---------------------------------------------------------------------------
+
+
+def test_current_revisions_returns_recorded_ids(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = [["aaaaaaaaaaaa"]]
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    assert ctx.current_revisions() == ["aaaaaaaaaaaa"]
+
+
+def test_pending_revisions_from_base_lists_full_path(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    pending = [r.revision for r in ctx.pending_revisions()]
+    assert pending == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]
+
+
+def test_pending_revisions_multiple_heads_raises(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_two_heads: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, tmp_two_heads)
+    with pytest.raises(MultipleHeadsError):
+        ctx.pending_revisions()
+
+
+def test_retarget_swaps_adapter(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_versions: Path
+) -> None:
+    ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
+    new_adapter = FalkorDBAdapter(mock_db, MagicMock(name="other_graph"))
+    ctx.retarget(new_adapter)
+    assert ctx.adapter is new_adapter

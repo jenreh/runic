@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from runic.orm.repository._base import _RepositoryBase
 from runic.orm.repository.cypher import _SCALAR_TYPES, map_cypher_result
 from runic.orm.repository.protocol import RepositoryProtocol
 
@@ -14,12 +15,13 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class Repository[T](RepositoryProtocol[T]):
+class Repository[T](_RepositoryBase[T], RepositoryProtocol[T]):
     """Typed reads and explicit Cypher helpers for one entity type.
 
     Mutations (``add``, ``delete``) and single-PK lookup (``get``) belong to
     the :class:`Session`.  All reads here register returned entities in the
-    session identity map.
+    session identity map.  Shared construction and row decoding live in
+    :class:`~runic.orm.repository._base._RepositoryBase`.
 
     Example::
 
@@ -30,8 +32,7 @@ class Repository[T](RepositoryProtocol[T]):
     """
 
     def __init__(self, session: Session, entity_class: type[T]) -> None:
-        self._session = session
-        self._cls = entity_class
+        super().__init__(session, entity_class)
 
     # ------------------------------------------------------------------
     # Standard reads
@@ -177,34 +178,3 @@ class Repository[T](RepositoryProtocol[T]):
     ) -> Any:
         """Execute *query* and return the raw ``QueryResult`` without entity mapping."""
         return self._session.execute(query, params or {}, write=write)
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _decode_rows(self, result: Any) -> list[T]:
-        """Decode plain MATCH rows (single node per row) and register in identity map."""
-        entities: list[T] = []
-        for row in result.rows:
-            decoded = self._session.mapper.decode_node(row[0], self._cls)
-            registered = self._session.register_or_get(decoded)
-            entities.append(registered)
-        return entities
-
-    def _decode_rows_with_fetch(
-        self,
-        result: Any,
-        fetch_meta: list[tuple[str, Any]],
-    ) -> list[T]:
-        """Decode rows that include eager-loaded relationship columns."""
-        entities: list[T] = []
-        for row in result.rows:
-            decoded = self._session.mapper.decode_node(row[0], self._cls)
-            registered = self._session.register_or_get(decoded)
-            related = self._session.rel_loader.decode_eager_columns(
-                row, registered, fetch_meta
-            )
-            for rel_entity in related:
-                self._session.register_or_get(rel_entity)
-            entities.append(registered)
-        return entities

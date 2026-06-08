@@ -72,7 +72,7 @@ def test_info_local_requires_no_db(tmp_path: Path) -> None:
 def test_info_remote_shows_applied(tmp_path: Path) -> None:
     env = _stub_env(tmp_path)
     mock_ctx = MagicMock()
-    mock_ctx._version_node.get.return_value = ["aabbcc112233"]
+    mock_ctx.current_revisions.return_value = ["aabbcc112233"]
     mock_ctx.get_revision_message.return_value = "first"
 
     with (
@@ -88,7 +88,7 @@ def test_info_remote_shows_applied(tmp_path: Path) -> None:
 def test_info_remote_shows_none_when_no_revision(tmp_path: Path) -> None:
     env = _stub_env(tmp_path)
     mock_ctx = MagicMock()
-    mock_ctx._version_node.get.return_value = []
+    mock_ctx.current_revisions.return_value = []
 
     with (
         patch("runic.migrate.cli._exec_env"),
@@ -138,10 +138,10 @@ def test_info_compare_shows_pending_and_applied(tmp_path: Path) -> None:
     )
 
     mock_ctx = MagicMock()
-    mock_ctx._version_node.get.return_value = ["aabbcc112233"]
+    mock_ctx.current_revisions.return_value = ["aabbcc112233"]
     mock_ctx.get_revision_message.return_value = "first"
     mock_ctx.get_history.return_value = [rev2_info, rev1_info]
-    mock_ctx._script_dir.topological_upgrade_path.return_value = [rev2_rev]
+    mock_ctx.pending_revisions.return_value = [rev2_rev]
     mock_ctx.adapter.name = "my_graph"
 
     with (
@@ -163,11 +163,9 @@ def test_info_compare_warns_when_pending_undeterminable(tmp_path: Path) -> None:
     from runic.migrate.exceptions import MultipleHeadsError
 
     mock_ctx = MagicMock()
-    mock_ctx._version_node.get.return_value = ["aabbcc112233"]
+    mock_ctx.current_revisions.return_value = ["aabbcc112233"]
     mock_ctx.get_history.return_value = []
-    mock_ctx._script_dir.topological_upgrade_path.side_effect = MultipleHeadsError(
-        "multiple heads"
-    )
+    mock_ctx.pending_revisions.side_effect = MultipleHeadsError("multiple heads")
     mock_ctx.adapter.name = "g"
 
     with (
@@ -184,9 +182,9 @@ def test_info_compare_default_mode(tmp_path: Path) -> None:
     """--mode defaults to COMPARE."""
     env = _stub_env(tmp_path)
     mock_ctx = MagicMock()
-    mock_ctx._version_node.get.return_value = []
+    mock_ctx.current_revisions.return_value = []
     mock_ctx.get_history.return_value = []
-    mock_ctx._script_dir.topological_upgrade_path.return_value = []
+    mock_ctx.pending_revisions.return_value = []
     mock_ctx.adapter.name = "g"
 
     with (

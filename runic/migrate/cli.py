@@ -730,7 +730,7 @@ def info_cmd(
     from runic.migrate.context import get
 
     ctx = get()
-    current_revs = ctx._version_node.get()  # noqa: SLF001
+    current_revs = ctx.current_revisions()
 
     if mode == "REMOTE":
         if not current_revs:
@@ -748,9 +748,7 @@ def info_cmd(
 
     all_revs = ctx.get_history()
     try:
-        pending = ctx._script_dir.topological_upgrade_path(  # noqa: SLF001
-            current_revs or None, "head"
-        )
+        pending = ctx.pending_revisions(current_revs)
     except (MultipleHeadsError, RevisionNotFound, AmbiguousRevision) as exc:
         # Don't report a misleading "up to date" status; surface the problem.
         typer.echo(f"Warning: cannot determine pending revisions: {exc}", err=True)
@@ -814,15 +812,10 @@ def baseline(
 
     if graph is not None:
         from runic.migrate.adapters.falkordb import FalkorDBAdapter
-        from runic.migrate.operations import GraphOperations
-        from runic.migrate.version import VersionNode
 
-        old_adapter = ctx._adapter  # noqa: SLF001
+        old_adapter = ctx.adapter
         if isinstance(old_adapter, FalkorDBAdapter):
-            new_adapter = old_adapter.fork(graph)
-            ctx._adapter = new_adapter  # noqa: SLF001
-            ctx._version_node = VersionNode(new_adapter)  # noqa: SLF001
-            ctx._ops = GraphOperations(new_adapter)  # noqa: SLF001
+            ctx.retarget(old_adapter.fork(graph))
         else:
             typer.echo(
                 "Warning: --graph override is only supported for FalkorDB adapters; "

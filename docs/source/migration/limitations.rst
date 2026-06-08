@@ -153,10 +153,22 @@ prior revision), but the partial changes are not automatically undone.
 **The exception (FalkorDB only):** Revisions with ``snapshot = True`` take a
 full graph copy before running.  On failure the snapshot is restored, leaving
 the graph in its pre-migration state.  This mechanism is not available on other
-backends.
+backends — an adapter advertises its capability via
+``supports_snapshots()``.  On a backend that does not support snapshots, a
+``snapshot = True`` revision logs a warning and runs **without** a snapshot
+rather than failing.
 
 **Why:** DDL operations are not transactional across the adapters runic
 supports.  Automatic rollback of arbitrary Cypher is not possible.
+
+**DDL failures abort the migration (fail-fast):** A failed schema operation
+(create/drop index or constraint) raises and stops the migration on every
+backend, so an incomplete schema is never silently reported as applied.  Note
+that the Bolt adapters differ in idempotency: Neo4j DDL uses
+``IF NOT EXISTS`` / ``IF EXISTS``, but Memgraph and ArcadeDB index DDL do not.
+Re-running a migration over an already-applied schema can therefore abort on
+Memgraph/ArcadeDB; prefer ``snapshot = True`` (FalkorDB) or idempotent,
+focused revisions on those backends.
 
 **Recommendation:** Use ``snapshot = True`` (FalkorDB) for high-risk migrations
 on production data.  On other backends, prefer small, focused revisions that are
