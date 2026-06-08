@@ -53,7 +53,7 @@ Graph schema migrations and OGM for Cypher-based graph databases.
 
 ----
 
-.. rubric:: ORM
+.. rubric:: OGM
 
 .. grid:: 2
 
@@ -64,21 +64,22 @@ Graph schema migrations and OGM for Cypher-based graph databases.
       Define your first node, open a session, and persist it in under a
       minute.
 
-   .. grid-item-card:: Core concepts
+   .. grid-item-card:: Define your models
       :link: concepts
       :link-type: doc
 
-      Node, Edge, Field, object states, dirty tracking, identity map.
+      Declare nodes, edges, fields, and relationships — with types, indexes,
+      and constraints.
 
 .. grid:: 2
 
-   .. grid-item-card:: Relationships
+   .. grid-item-card:: Model connections
       :link: relationships
       :link-type: doc
 
       Lazy/eager loading, polymorphic hierarchies, edge properties.
 
-   .. grid-item-card:: Session & Unit of Work
+   .. grid-item-card:: Read and write data
       :link: session
       :link-type: doc
 
@@ -86,17 +87,31 @@ Graph schema migrations and OGM for Cypher-based graph databases.
 
 .. grid:: 2
 
-   .. grid-item-card:: Query builder
+   .. grid-item-card:: Query your graph
       :link: query_builder
       :link-type: doc
 
       Fluent filter, traversal, aggregation, fulltext and vector KNN API.
 
-   .. grid-item-card:: Supported drivers
+   .. grid-item-card:: Async guide
+      :link: async
+      :link-type: doc
+
+      AsyncSession, no-lazy rules, async CRUD, repositories, and testing.
+
+.. grid:: 2
+
+   .. grid-item-card:: Test your code
+      :link: testing
+      :link-type: doc
+
+      Embedded FalkorDB, pytest fixtures, isolation patterns, and gotchas.
+
+   .. grid-item-card:: Choose a backend
       :link: drivers
       :link-type: doc
 
-      FalkorDB, ArcadeDB, and generic Bolt — feature matrix and limitations.
+      FalkorDB, ArcadeDB, Neo4j, Memgraph, AGE — feature matrix and limits.
 
 .. grid:: 2
 
@@ -119,13 +134,20 @@ Graph schema migrations and OGM for Cypher-based graph databases.
       Install runic, run ``runic init``, write your first migration, and
       apply it — all in one page.
 
+   .. grid-item-card:: OGM + Migration guide
+      :link: migration/integration
+      :link-type: doc
+
+      Three-stage workflow, Field→op table, ordering rules, and 7 annotated
+      patterns.
+
+.. grid:: 2
+
    .. grid-item-card:: CLI reference
       :link: migration/cli_reference
       :link-type: doc
 
       Every command, option, and flag documented with examples.
-
-.. grid:: 2
 
    .. grid-item-card:: Operations reference
       :link: migration/operations_reference
@@ -133,13 +155,13 @@ Graph schema migrations and OGM for Cypher-based graph databases.
 
       Full list of ``op.*`` calls available inside migration scripts.
 
+.. grid:: 2
+
    .. grid-item-card:: Schema management
       :link: migration/schema
       :link-type: doc
 
       IndexManager and SchemaManager — declare, validate, and sync indexes.
-
-.. grid:: 2
 
    .. grid-item-card:: Migration API reference
       :link: migration/api
@@ -151,13 +173,15 @@ Graph schema migrations and OGM for Cypher-based graph databases.
 
 .. toctree::
    :hidden:
-   :caption: ORM
+   :caption: OGM
 
    quickstart
    concepts
    relationships
    query_builder
    session
+   async
+   testing
    drivers
    api
 

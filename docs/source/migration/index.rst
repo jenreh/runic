@@ -19,19 +19,34 @@ those changes safely.
       Install runic, run ``runic init``, write your first migration, and
       apply it — all in one page.
 
+   .. grid-item-card:: OGM + Migration guide
+      :link: ./integration
+      :link-type: doc
+
+      Three-stage workflow, Field→op translation, ordering rules, and 7
+      annotated patterns — the complete lifecycle guide.
+
+.. grid:: 2
+
    .. grid-item-card:: CLI reference
       :link: ./cli_reference
       :link-type: doc
 
       Every command, option, and flag documented with examples.
 
-.. grid:: 2
-
    .. grid-item-card:: Operations reference
       :link: ./operations_reference
       :link-type: doc
 
       Full list of ``op.*`` calls available inside migration scripts.
+
+.. grid:: 2
+
+   .. grid-item-card:: Schema management
+      :link: ./schema
+      :link-type: doc
+
+      IndexManager and SchemaManager — declare, validate, and sync indexes.
 
    .. grid-item-card:: Migration API reference
       :link: ./api
@@ -48,12 +63,7 @@ those changes safely.
    :hidden:
 
    quickstart
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Tutorial
-
-   tutorial/index
+   integration
 
 .. toctree::
    :maxdepth: 1

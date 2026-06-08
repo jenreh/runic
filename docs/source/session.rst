@@ -1,10 +1,10 @@
-Session & Unit of Work
-======================
+Read and write data
+===================
 
-The :class:`~runic.ogm.session.session.Session` (and its async twin
-:class:`~runic.ogm.session.async_session.AsyncSession`) is the unit-of-work
-manager for Cypher-based graph databases.  It owns all mutations, manages
-the identity map, and controls the flush/commit lifecycle.
+The :class:`~runic.ogm.session.session.Session` is the unit-of-work manager
+for Cypher-based graph databases.  It owns all mutations, manages the identity
+map, and controls the flush/commit lifecycle.  For async code, see
+:doc:`async` — ``AsyncSession`` mirrors this API with ``await``.
 
 .. seealso::
 
@@ -245,25 +245,67 @@ Session API summary
    * - ``close()``
      - ``expunge_all()`` + release connection
 
-Async parity
-------------
+Session best practices
+-----------------------
 
-:class:`~runic.ogm.session.async_session.AsyncSession` mirrors all of the
-above with ``async``/``await``:
+**Keep sessions short.**  Open a session for one logical operation and close
+it when done — don't hold sessions across long-running computations or
+between HTTP requests.
+
+**Always use the context manager.**  It commits on success and rolls back on
+exception automatically:
 
 .. code-block:: python
 
-   async with AsyncSession(AsyncFalkorDBDriver(graph)) as session:
-       repo = AsyncRepository(session, Trip)
-       trips = await repo.find_all()
-       for trip in trips:
-           trip.status = "archived"
-       await session.commit()
+   with Session(driver) as session:
+       session.add_all([a, b, c])
+       session.commit()
 
-.. note::
+**Commit in one place.**  Call ``commit()`` once at the end of a unit of work.
+Multiple commits in a single session create multiple logical transactions;
+prefer staging all changes then committing once.
 
-   Lazy loading is **not** available in ``AsyncSession`` — ``__get__``
-   cannot ``await``.  Use ``fetch=[...]`` on every read.
+**Reuse the driver, not the session.**  Create the driver once at startup and
+close it on shutdown.  Create a new ``Session`` for each request or operation.
+
+Avoiding N+1
+------------
+
+Lazy relationships fire one query per access.  In a loop that is an N+1:
+
+.. code-block:: python
+
+   # BAD — one query for users, then one per user for articles
+   for user in session.scalars(select(User)):
+       print(len(user.articles))   # lazy load each iteration
+
+Use ``fetch=`` on ``session.get()`` to eager-load one entity's relations in a
+single query:
+
+.. code-block:: python
+
+   # GOOD for a single entity
+   user = session.get(User, "alice", fetch=["articles"])
+   for article in user.articles:   # already loaded
+       print(article.title)
+
+For a *collection* of parents, use a traversal query instead of a loop of
+``get()`` calls:
+
+.. code-block:: python
+
+   # GOOD for a collection — single round-trip
+   from runic.ogm import select
+
+   stmt = (
+       select(User).alias("u")
+       .traverse(User.articles, edge_alias="e").alias("a")
+       .return_nodes("u", "a")
+   )
+   rows = session.all_with_edges(stmt)
+
+Async sessions have no lazy loading at all — the rule applies unconditionally.
+See :doc:`async` for async-specific patterns.
 
 Connection management
 ---------------------
@@ -279,3 +321,7 @@ FalkorDB graph handle for reuse across sessions:
    manager = ConnectionManager(graph)
    with manager.session() as session:
        ...
+
+.. seealso::
+
+   :doc:`async` — full async session guide including ``AsyncConnectionManager``

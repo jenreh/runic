@@ -208,8 +208,7 @@ Step 7 — Roll back
 Next steps
 ----------
 
-* :doc:`tutorial/first_migration` — deeper walkthrough of revision anatomy
-* :doc:`tutorial/upgrade_downgrade` — relative targets, irreversible flags,
-  snapshot-based rollback
+* :doc:`integration` — revision anatomy, ordering rules, and 7 annotated
+  patterns including irreversible flags and snapshot-based rollback
 * :doc:`operations_reference` — full list of ``op.*`` calls
 * :doc:`autogenerate` — generate migration scripts from a schema manifest
