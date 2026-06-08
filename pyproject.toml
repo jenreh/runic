@@ -92,7 +92,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.3.1"
+current_version = "0.3.2"
 tag = false
 allow-dirty = false
 
@@ -113,7 +113,7 @@ replace = '.. |Github| image:: https://img.shields.io/badge/release-{new_version
 
 [[tool.bumpversion.files]]
 filename = "docs/source/index.rst"
-search = '   :target: hhttps://github.com/jenreh/runic/tree/v{current_version}'
+search = '   :target: https://github.com/jenreh/runic/tree/v{current_version}'
 replace = '   :target: https://github.com/jenreh/runic/tree/v{new_version}'
 
 [[tool.bumpversion.files]]
