@@ -1,18 +1,17 @@
-Core Concepts
-=============
+Define your models
+==================
 
-This page explains the building blocks of ``runic.ogm``: how models map to
-graph nodes and edges, how the session manages object lifecycle, and how the
-identity map eliminates redundant queries.
+This page shows how to declare graph models in ``runic.ogm``: nodes, edges,
+fields with indexes and constraints, and relationships.
 
-All state — query generation, dirty tracking, identity tracking — lives in the
-:class:`~runic.ogm.session.session.Session`.  The session is your unit of work.
-Models are plain Python classes; they carry no database logic themselves.
+Models are plain Python dataclasses — no database logic in the class itself.
+All state (dirty tracking, identity caching, query execution) lives in the
+:class:`~runic.ogm.session.session.Session`.
 
 ----
 
-Node and Edge
--------------
+Declare nodes and edges
+-----------------------
 
 Every graph entity inherits from either :class:`~runic.ogm.core.models.Node`
 or :class:`~runic.ogm.core.models.Edge`.
@@ -67,8 +66,8 @@ the node has more than one label.  When it is omitted, the first entry in
 
 ----
 
-Field and Relation descriptors
-------------------------------
+Add fields and relationships
+----------------------------
 
 Properties and relationships are declared with separate functions to keep
 scalar data and graph topology clearly separated:
@@ -153,8 +152,8 @@ and ``__get__`` to trigger lazy loading.
 
 ----
 
-Object states
--------------
+Understand object states
+------------------------
 
 Each entity lives in exactly one state at any time, mirroring SQLAlchemy's
 unit-of-work pattern.  The session is the source of truth for state
@@ -182,8 +181,8 @@ construct an entity with ``Entity(id="x", ...)`` and discard it, no query runs.
 
 ----
 
-Dirty tracking
---------------
+How dirty tracking works
+------------------------
 
 Two private flags drive which Cypher statement the mapper emits:
 
@@ -210,8 +209,8 @@ The OGM does not write fields that haven't changed:
 
 ----
 
-Identity map
-------------
+How the identity map avoids duplicate queries
+---------------------------------------------
 
 The session keeps one Python instance per ``(EntityClass, primary_key)`` pair.
 Two reads for the same primary key within the same session return the *same*
@@ -233,8 +232,8 @@ The identity map is cleared when the session is closed.  Objects become
 
 ----
 
-Type converters
----------------
+Use native Python types
+------------------------
 
 The OGM assigns converters *automatically* for well-known annotation types —
 no ``converter=`` argument needed:
@@ -308,8 +307,8 @@ converter class to wrap the Cypher parameter with a backend function:
 
 ----
 
-Metadata registry
------------------
+How model discovery works
+--------------------------
 
 All ``Node`` and ``Edge`` subclasses are registered automatically in the
 global :data:`~runic.ogm.core.metadata.metadata` singleton when the class is
