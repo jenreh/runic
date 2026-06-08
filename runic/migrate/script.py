@@ -56,8 +56,8 @@ class RevisionInfo:
 
 def _load_module(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem, path)
-    assert spec is not None
-    assert spec.loader is not None
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load module from {path}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[attr-defined]
     return mod
@@ -209,7 +209,7 @@ class ScriptDirectory:
 
         yield from revisions
 
-    def revision_history(self, verbose: bool = False) -> list[RevisionInfo]:  # noqa: ARG002
+    def revision_history(self) -> list[RevisionInfo]:
         """Full chronological list (oldest first)."""
         heads = {r.revision for r in self.get_heads()}
         branch_points = {r.revision for r in self.get_branch_points()}

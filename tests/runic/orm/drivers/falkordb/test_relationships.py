@@ -80,10 +80,12 @@ def _empty_result() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_not_loaded_is_singleton() -> None:
-    from runic.orm.core.descriptors import _NotLoadedType
+def test_not_loaded_is_sentinel() -> None:
+    from runic.orm.core.descriptors import _NOT_LOADED as _NL
+    from runic.orm.core.descriptors import _Sentinel
 
-    assert _NotLoadedType() is _NOT_LOADED
+    assert isinstance(_NL, _Sentinel)
+    assert _NL is _NOT_LOADED
 
 
 def test_not_loaded_repr() -> None:

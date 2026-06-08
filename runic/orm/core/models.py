@@ -5,9 +5,19 @@ from __future__ import annotations
 import logging
 import typing
 from collections.abc import Callable
+from datetime import datetime
+from enum import Enum
 from typing import Any, ClassVar, dataclass_transform
 
 from runic.orm.core.descriptors import Field, FieldDescriptor, FieldInfo
+from runic.orm.core.types import (
+    DatetimeConverter,
+    EnumConverter,
+    GeoLocation,
+    GeoLocationConverter,
+    Vector,
+    VectorConverter,
+)
 
 log = logging.getLogger(__name__)
 
@@ -19,16 +29,7 @@ def _is_collection_annotation(ann: Any) -> bool:
     """Return True if *ann* represents a list/collection type."""
     if isinstance(ann, str):
         return ann.startswith(("list[", "List["))
-    # Python 3.9+ generic alias: list[X] or typing.List[X]
-    origin = getattr(ann, "__origin__", None)
-    if origin is list:
-        return True
-    try:
-        import typing
-
-        return typing.get_origin(ann) is list
-    except Exception:
-        return False
+    return getattr(ann, "__origin__", None) is list
 
 
 _ABSENT = object()
@@ -148,18 +149,6 @@ def _apply_auto_converters(cls: type, fields: list[FieldInfo]) -> None:
     on any field that has no explicit converter and is not a relationship.
     Falls back silently when annotations cannot be resolved (e.g. forward refs).
     """
-    from datetime import datetime
-    from enum import Enum
-
-    from runic.orm.core.types import (
-        DatetimeConverter,
-        EnumConverter,
-        GeoLocation,
-        GeoLocationConverter,
-        Vector,
-        VectorConverter,
-    )
-
     try:
         hints = typing.get_type_hints(cls)
     except Exception:

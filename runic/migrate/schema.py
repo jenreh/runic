@@ -10,6 +10,51 @@ from runic.orm.schema.index_manager import IndexSpec, extract_declared_specs
 
 log = logging.getLogger(__name__)
 
+_SPEC_SORT_KEY = lambda s: (s.label, s.property, s.index_type)  # noqa: E731
+
+
+def _resolve_adapter(adapter_or_graph: Any) -> Any:
+    """Wrap a raw FalkorDB graph handle; pass through real adapters unchanged."""
+    if hasattr(adapter_or_graph, "create_node_range_index"):
+        from runic.migrate.adapters.falkordb import FalkorDBIndexAdapter
+
+        return FalkorDBIndexAdapter(adapter_or_graph)
+    return adapter_or_graph
+
+
+@dataclass
+class _SpecsData:
+    declared: set[IndexSpec]
+    existing: set[IndexSpec]
+    missing: list[IndexSpec]
+    extra: list[IndexSpec]
+    errors: list[str]
+
+
+def _collect_specs(entity_classes: list[type], adapter: Any) -> _SpecsData:
+    declared: set[IndexSpec] = set()
+    errors: list[str] = []
+
+    for cls in entity_classes:
+        try:
+            declared |= extract_declared_specs(cls)
+        except Exception as exc:
+            errors.append(f"Failed to extract specs for {cls.__name__!r}: {exc}")
+
+    try:
+        existing: set[IndexSpec] = adapter.get_existing_specs()
+    except Exception as exc:
+        errors.append(f"Failed to read live indexes: {exc}")
+        existing = set()
+
+    return _SpecsData(
+        declared=declared,
+        existing=existing,
+        missing=sorted(declared - existing, key=_SPEC_SORT_KEY),
+        extra=sorted(existing - declared, key=_SPEC_SORT_KEY),
+        errors=errors,
+    )
+
 
 @dataclass
 class ValidationResult:
@@ -77,12 +122,7 @@ class IndexManager:
     """
 
     def __init__(self, adapter_or_graph: Any) -> None:
-        if hasattr(adapter_or_graph, "create_node_range_index"):
-            from runic.migrate.adapters.falkordb import FalkorDBIndexAdapter
-
-            self._adapter: Any = FalkorDBIndexAdapter(adapter_or_graph)
-        else:
-            self._adapter = adapter_or_graph
+        self._adapter: Any = _resolve_adapter(adapter_or_graph)
 
     def create_indexes(
         self,
@@ -203,12 +243,7 @@ class SchemaManager:
     """
 
     def __init__(self, adapter_or_graph: Any) -> None:
-        if hasattr(adapter_or_graph, "create_node_range_index"):
-            from runic.migrate.adapters.falkordb import FalkorDBIndexAdapter
-
-            self._adapter: Any = FalkorDBIndexAdapter(adapter_or_graph)
-        else:
-            self._adapter = adapter_or_graph
+        self._adapter: Any = _resolve_adapter(adapter_or_graph)
         self._index_manager = IndexManager(self._adapter)
 
     def ensure_entity_types(self, entity_classes: list[type]) -> None:
@@ -233,35 +268,12 @@ class SchemaManager:
         Returns a :class:`ValidationResult` describing missing and extra indexes.
         ``is_valid`` is ``True`` only when both sets are empty and no errors occurred.
         """
-        declared: set[IndexSpec] = set()
-        errors: list[str] = []
-
-        for cls in entity_classes:
-            try:
-                declared |= extract_declared_specs(cls)
-            except Exception as exc:
-                errors.append(f"Failed to extract specs for {cls.__name__!r}: {exc}")
-
-        try:
-            existing = self._adapter.get_existing_specs()
-        except Exception as exc:
-            errors.append(f"Failed to read live indexes: {exc}")
-            existing = set()
-
-        missing = sorted(
-            declared - existing,
-            key=lambda s: (s.label, s.property, s.index_type),
-        )
-        extra = sorted(
-            existing - declared,
-            key=lambda s: (s.label, s.property, s.index_type),
-        )
-
+        data = _collect_specs(entity_classes, self._adapter)
         return ValidationResult(
-            is_valid=not missing and not extra and not errors,
-            missing_indexes=missing,
-            extra_indexes=extra,
-            errors=errors,
+            is_valid=not data.missing and not data.extra and not data.errors,
+            missing_indexes=data.missing,
+            extra_indexes=data.extra,
+            errors=data.errors,
         )
 
     def sync_schema(
@@ -308,43 +320,20 @@ class SchemaManager:
 
     def get_schema_info(self, entity_classes: list[type]) -> SchemaInfo:
         """Return a :class:`SchemaInfo` snapshot of the current schema state."""
-        declared: set[IndexSpec] = set()
-        errors: list[str] = []
-
-        for cls in entity_classes:
-            try:
-                declared |= extract_declared_specs(cls)
-            except Exception as exc:
-                errors.append(f"Failed to extract specs for {cls.__name__!r}: {exc}")
-
-        try:
-            existing = self._adapter.get_existing_specs()
-        except Exception as exc:
-            errors.append(f"Failed to read live indexes: {exc}")
-            existing = set()
-
-        missing = sorted(
-            declared - existing,
-            key=lambda s: (s.label, s.property, s.index_type),
-        )
-        extra = sorted(
-            existing - declared,
-            key=lambda s: (s.label, s.property, s.index_type),
-        )
-
+        data = _collect_specs(entity_classes, self._adapter)
         return SchemaInfo(
-            is_valid=not missing and not extra and not errors,
-            declared_count=len(declared),
-            existing_count=len(existing),
-            missing_count=len(missing),
-            extra_count=len(extra),
+            is_valid=not data.missing and not data.extra and not data.errors,
+            declared_count=len(data.declared),
+            existing_count=len(data.existing),
+            missing_count=len(data.missing),
+            extra_count=len(data.extra),
             missing=[
                 {"label": s.label, "property": s.property, "type": s.index_type}
-                for s in missing
+                for s in data.missing
             ],
             extra=[
                 {"label": s.label, "property": s.property, "type": s.index_type}
-                for s in extra
+                for s in data.extra
             ],
-            errors=errors,
+            errors=data.errors,
         )

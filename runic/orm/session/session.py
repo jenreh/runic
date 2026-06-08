@@ -379,10 +379,7 @@ class Session:
             An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
             via :func:`~runic.orm.query.select`.
         """
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError("scalars() expects a QueryBuilder created by select()")
+        self._require_query_builder(stmt, "scalars")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
             cypher, params = bound.build()
             result = self._run_query(cypher, params)
@@ -400,10 +397,7 @@ class Session:
             An unbound :class:`~runic.orm.query.builder.QueryBuilder` created
             via :func:`~runic.orm.query.select`.
         """
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError("scalar() expects a QueryBuilder created by select()")
+        self._require_query_builder(stmt, "scalar")
         old_limit = stmt._limit_val  # noqa: SLF001
         stmt._limit_val = 1  # noqa: SLF001
         try:
@@ -423,10 +417,7 @@ class Session:
         stmt:
             An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
         """
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError("all_rows() expects a QueryBuilder created by select()")
+        self._require_query_builder(stmt, "all_rows")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
             cypher, params = bound.build()
             result = self._run_query(cypher, params)
@@ -441,12 +432,7 @@ class Session:
             An unbound :class:`~runic.orm.query.builder.QueryBuilder` with
             ``return_nodes()`` and ``return_edge()`` configured.
         """
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError(
-                "all_with_edges() expects a QueryBuilder created by select()"
-            )
+        self._require_query_builder(stmt, "all_with_edges")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
             cypher, params = bound.build()
             result = self._run_query(cypher, params)
@@ -460,10 +446,7 @@ class Session:
         stmt:
             An unbound :class:`~runic.orm.query.builder.QueryBuilder`.
         """
-        from runic.orm.query.builder import QueryBuilder
-
-        if not isinstance(stmt, QueryBuilder):
-            raise TypeError("count() expects a QueryBuilder created by select()")
+        self._require_query_builder(stmt, "count")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
             return bound.count()
 
@@ -706,6 +689,13 @@ class Session:
             log.debug("Deleted %s pk=%r", cls.__name__, pk)
 
         self._deleted.clear()
+
+    def _require_query_builder(self, stmt: Any, method: str) -> None:
+        """Raise TypeError if *stmt* is not a QueryBuilder."""
+        from runic.orm.query.builder import QueryBuilder
+
+        if not isinstance(stmt, QueryBuilder):
+            raise TypeError(f"{method}() expects a QueryBuilder created by select()")
 
     def _resolve_relation_fi(
         self, source: Any, field_name: str | FieldDescriptor

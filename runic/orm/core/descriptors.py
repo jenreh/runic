@@ -12,44 +12,24 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class _NotLoadedType:
-    """Singleton sentinel for lazy relationship fields not yet loaded from the graph."""
+class _Sentinel:
+    """Falsy named sentinel. Each module-level instance is a unique marker object."""
 
-    _instance: _NotLoadedType | None = None
-
-    def __new__(cls) -> _NotLoadedType:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(self, name: str) -> None:
+        self._name = name
 
     def __repr__(self) -> str:
-        return "_NOT_LOADED"
+        return self._name
 
     def __bool__(self) -> bool:
         return False
 
 
-_NOT_LOADED: _NotLoadedType = _NotLoadedType()
+_NOT_LOADED: _Sentinel = _Sentinel("_NOT_LOADED")
+"""Lazy-relationship sentinel; accessing a field holding this triggers a graph load."""
 
-
-class _MissingType:
-    """Singleton sentinel for fields that have no default value."""
-
-    _instance: _MissingType | None = None
-
-    def __new__(cls) -> _MissingType:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __repr__(self) -> str:
-        return "MISSING"
-
-    def __bool__(self) -> bool:
-        return False
-
-
-MISSING: _MissingType = _MissingType()
+MISSING: _Sentinel = _Sentinel("MISSING")
+"""No-default sentinel for Field declarations."""
 
 
 class FieldDescriptor:
