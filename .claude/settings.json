@@ -27,8 +27,40 @@
       "Bash(sed -i '' 's/graph\\\\.ro_query\\\\.return_value\\\\.result_set/graph.query.return_value.result_set/g' tests/runic/migrate/test_snapshot.py)",
       "mcp__duckduckgo__search",
       "mcp__plugin_context7_context7__resolve-library-id",
-      "mcp__plugin_context7_context7__query-docs"
+      "mcp__plugin_context7_context7__query-docs",
+      "WebSearch",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(mkdir -p .claude/skills/commit-msg .claude/skills/code-cleanup .claude/skills/release)",
+      "Edit(/.claude/skills/commit-msg/**)",
+      "Edit(/.claude/skills/code-cleanup/**)",
+      "Edit(/.claude/skills/release/**)",
+      "Bash(rm .claude/commands/boost.md .claude/commands/commit-msg.md .claude/commands/code-cleanup.md .claude/commands/release.md && ls .claude/commands/ 2>/dev/null || echo \"commands dir now empty\")"
     ],
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "additionalDirectories": [
+      "/Users/jens/Workspace/projekte/runic/.claude/skills",
+      "/Users/jens/Workspace/projekte/runic/.claude/commands"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "task format $CLAUDE_FILE_PATHS"
+          },
+          {
+            "type": "command",
+            "command": "task lint $CLAUDE_FILE_PATHS"
+          },
+          {
+            "type": "command",
+            "command": "task typecheck $CLAUDE_FILE_PATHS"
+          }
+        ]
+      }
+    ]
   }
 }
