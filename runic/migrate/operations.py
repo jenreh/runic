@@ -28,19 +28,23 @@ class GraphOperations(DataOperations):
         super().__init__(adapter, preview=preview)
         self._adapter = adapter
 
+    def _guard(self, preview_msg: str) -> bool:
+        if self._preview:
+            self._log_preview(preview_msg)
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # Schema DDL — range indexes
     # ------------------------------------------------------------------
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
-        if self._preview:
-            self._log_preview(f"CREATE RANGE INDEX: {label}.{prop} rel={rel}")
+        if self._guard(f"CREATE RANGE INDEX: {label}.{prop} rel={rel}"):
             return
         self._adapter.create_range_index(label, prop, rel=rel)
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
-        if self._preview:
-            self._log_preview(f"DROP RANGE INDEX: {label}.{prop} rel={rel}")
+        if self._guard(f"DROP RANGE INDEX: {label}.{prop} rel={rel}"):
             return
         self._adapter.drop_range_index(label, prop, rel=rel)
 
@@ -55,19 +59,17 @@ class GraphOperations(DataOperations):
         language: str | None = None,
         stopwords: list[str] | None = None,
     ) -> None:
-        if self._preview:
-            self._log_preview(
-                f"CREATE FULLTEXT INDEX: {label} {list(props)} "
-                f"language={language} stopwords={stopwords}"
-            )
+        if self._guard(
+            f"CREATE FULLTEXT INDEX: {label} {list(props)} "
+            f"language={language} stopwords={stopwords}"
+        ):
             return
         self._adapter.create_fulltext_index(
             label, *props, language=language, stopwords=stopwords
         )
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
-        if self._preview:
-            self._log_preview(f"DROP FULLTEXT INDEX: {label} {list(props)}")
+        if self._guard(f"DROP FULLTEXT INDEX: {label} {list(props)}"):
             return
         self._adapter.drop_fulltext_index(label, *props)
 
@@ -86,10 +88,9 @@ class GraphOperations(DataOperations):
         ef_construction: int = 200,
         ef_runtime: int = 10,
     ) -> None:
-        if self._preview:
-            self._log_preview(
-                f"CREATE VECTOR INDEX: {label}.{prop} dim={dimension} sim={similarity}"
-            )
+        if self._guard(
+            f"CREATE VECTOR INDEX: {label}.{prop} dim={dimension} sim={similarity}"
+        ):
             return
         self._adapter.create_vector_index(
             label,
@@ -102,8 +103,7 @@ class GraphOperations(DataOperations):
         )
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        if self._preview:
-            self._log_preview(f"DROP VECTOR INDEX: {label}.{prop}")
+        if self._guard(f"DROP VECTOR INDEX: {label}.{prop}"):
             return
         self._adapter.drop_vector_index(label, prop)
 
@@ -114,16 +114,14 @@ class GraphOperations(DataOperations):
     def create_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        if self._preview:
-            self._log_preview(f"CREATE CONSTRAINT: {kind} {entity} {label} {props}")
+        if self._guard(f"CREATE CONSTRAINT: {kind} {entity} {label} {props}"):
             return
         self._adapter.create_constraint(kind, entity, label, props)
 
     def drop_constraint(
         self, kind: str, entity: str, label: str, props: list[str]
     ) -> None:
-        if self._preview:
-            self._log_preview(f"DROP CONSTRAINT: {kind} {entity} {label} {props}")
+        if self._guard(f"DROP CONSTRAINT: {kind} {entity} {label} {props}"):
             return
         self._adapter.drop_constraint(kind, entity, label, props)
 
@@ -132,13 +130,11 @@ class GraphOperations(DataOperations):
     # ------------------------------------------------------------------
 
     def snapshot(self, snap_name: str) -> None:
-        if self._preview:
-            self._log_preview(f"SNAPSHOT: copy {self._adapter.name} → {snap_name}")
+        if self._guard(f"SNAPSHOT: copy {self._adapter.name} → {snap_name}"):
             return
         self._adapter.snapshot(snap_name)
 
     def restore_snapshot(self, snap_name: str) -> None:
-        if self._preview:
-            self._log_preview(f"RESTORE SNAPSHOT: {snap_name} → {self._adapter.name}")
+        if self._guard(f"RESTORE SNAPSHOT: {snap_name} → {self._adapter.name}"):
             return
         self._adapter.restore_snapshot(snap_name)

@@ -1,7 +1,7 @@
 [project]
 name = "runic-py"
 version = "0.3.1"
-description = "OGM and schema migrations for Graph Databases."
+description = "Graph schema migrations and ORM for Cypher-based graph databases."
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
@@ -12,7 +12,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Home Automation",
+    "Topic :: Database",
 ]
 
 dependencies = [
