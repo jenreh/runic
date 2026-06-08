@@ -321,4 +321,4 @@ class Article(Node, labels=["Article"]):
 
 ## Documentation
 
-Full conceptual overview, async usage, advanced CLI flags, and API reference at the complete [Runic Documentation](https://runic-py.readthedocs.io/latest/).
+Full conceptual overview, async usage, advanced CLI flags, and API reference at the complete [Runic Documentation](https://runic-py.readthedocs.io/en/latest).
