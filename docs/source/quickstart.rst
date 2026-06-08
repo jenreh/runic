@@ -1,9 +1,9 @@
 Quickstart
 ==========
 
-``runic.orm`` maps Python classes to graph nodes and edges.  You define
-a model, open a :class:`~runic.orm.session.session.Session`, and call methods —
-the ORM generates Cypher, executes it, and hands back typed Python objects.
+``runic.ogm`` maps Python classes to graph nodes and edges.  You define
+a model, open a :class:`~runic.ogm.session.session.Session`, and call methods —
+the OGM generates Cypher, executes it, and hands back typed Python objects.
 
 The example below uses FalkorDB.  Swap the ``create_driver`` arguments for any
 other supported backend — see :doc:`drivers` and :doc:`installation`.
@@ -28,13 +28,13 @@ Start a local FalkorDB instance for this example:
 Define a model
 --------------
 
-Every graph entity inherits from :class:`~runic.orm.core.models.Node`.
-Declare properties with :func:`~runic.orm.core.descriptors.Field`.
+Every graph entity inherits from :class:`~runic.ogm.core.models.Node`.
+Declare properties with :func:`~runic.ogm.core.descriptors.Field`.
 The ``labels`` keyword controls which graph labels are applied:
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Repository, Session, create_driver
+   from runic.ogm import Field, Node, Repository, Session, create_driver
 
    class Language(Node, labels=["Language"]):
        id: str = Field(primary_key=True)
@@ -54,7 +54,7 @@ identity map.
 Connect
 -------
 
-Pass a :class:`~runic.orm.driver.GraphDriver` to ``Session``.  The driver
+Pass a :class:`~runic.ogm.driver.GraphDriver` to ``Session``.  The driver
 holds the connection; the session holds the unit of work.  Create the driver
 once per application process and share it across sessions:
 
@@ -69,7 +69,7 @@ See :doc:`drivers` for the full set of supported backends and their kwargs.
 Create
 ------
 
-Add entities to the session and call ``commit()``.  The ORM emits a
+Add entities to the session and call ``commit()``.  The OGM emits a
 ``CREATE`` statement for each new entity on ``flush()``, which happens
 automatically when you call ``commit()``:
 
@@ -89,7 +89,7 @@ after ``session.add()`` and *persistent* after the first successful flush.
 Read
 ----
 
-Use a :class:`~runic.orm.repository.repository.Repository` for collection
+Use a :class:`~runic.ogm.repository.repository.Repository` for collection
 reads, or ``session.get()`` for a single lookup by primary key:
 
 .. code-block:: python
@@ -119,7 +119,7 @@ Mutate a field on a persistent entity.  The descriptor sets ``_dirty = True``;
        en.title = "English (UK)"      # marks _dirty = True
        session.commit()               # emits MERGE (n:Language {id: $id}) SET n.title = $title
 
-Only the mutated fields are included in the ``SET`` clause — the ORM does
+Only the mutated fields are included in the ``SET`` clause — the OGM does
 not overwrite fields it did not touch.
 
 ----
@@ -143,12 +143,12 @@ runs on ``flush()``:
 Query builder
 -------------
 
-For filtered, ordered, or paginated reads use :func:`~runic.orm.query.select`
+For filtered, ordered, or paginated reads use :func:`~runic.ogm.query.select`
 to build a composable statement and execute it via the session:
 
 .. code-block:: python
 
-   from runic.orm import select
+   from runic.ogm import select
 
    stmt = (
        select(Language)

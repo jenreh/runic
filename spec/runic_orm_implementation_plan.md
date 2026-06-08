@@ -1,9 +1,9 @@
-# Custom FalkorDB ORM Framework — Implementation Plan
+# Custom FalkorDB OGM Framework — Implementation Plan
 
 **Document Version**: 1.0
 **Date**: June 5, 2026
 **Status**: Ready for Implementation
-**Scope**: Graph-optimized ORM replacement for `falkordb_orm`
+**Scope**: Graph-optimized OGM replacement for `falkordb_orm`
 
 ---
 
@@ -121,10 +121,7 @@ bio: str = Field(default=None, index_type="FULLTEXT")
 
 # Relationship (single)
 company: Company | None = Field(
-    relationship="WORKS_FOR",
-    direction="OUTGOING",
-    target="Company",
-    cascade=True
+    relationship="WORKS_FOR", direction="OUTGOING", target="Company", cascade=True
 )
 
 # Relationship (collection)
@@ -132,7 +129,7 @@ employees: list["Person"] = Field(
     relationship="WORKS_FOR",
     direction="INCOMING",
     target="Person",
-    lazy=True  # default; False for eager
+    lazy=True,  # default; False for eager
 )
 
 # Relationship with native edge properties
@@ -189,11 +186,13 @@ location: GeoPoint = Field(default=None, converter=GeoPointConverter())
 ```python
 from runic_orm import Edge, Field, Node
 
+
 # Simple node (single label)
 class Person(Node, labels=["Person"]):
     id: int | None = Field(default=None, generated=True)
     name: str = Field()
     email: str = Field(index=True, unique=True)
+
 
 # Multi-label node (polymorphic base)
 class Location(Node, labels=["Location"], primary_label="Location"):
@@ -202,14 +201,19 @@ class Location(Node, labels=["Location"], primary_label="Location"):
     latitude: float = Field(index=True)
     longitude: float = Field(index=True)
 
+
 # Multi-label subtype
 class Country(Location, labels=["Location", "Country"], primary_label="Location"):
     iso_code: str = Field(unique=True)
     population: int | None = Field(default=None)
 
+
 # Multi-label subtype with inherited fields
-class Museum(Location, labels=["Location", "Attraction", "Museum"], primary_label="Location"):
+class Museum(
+    Location, labels=["Location", "Attraction", "Museum"], primary_label="Location"
+):
     pass
+
 
 # Edge model for relationship properties
 class InvitationEdge(Edge, type="INVITED_TO"):
@@ -311,6 +315,7 @@ print(f"Page {page.page_number} of {page.total_pages}")
 ```python
 from runic_orm import Repository
 
+
 class PersonRepository(Repository[Person]):
     def find_friends(self, person_id: int) -> list[Person]:
         return self.cypher(
@@ -340,6 +345,7 @@ class PersonRepository(Repository[Person]):
             {"id": person_id},
             write=True,
         )
+
 
 # Usage
 with Session(graph) as session:
@@ -390,11 +396,13 @@ print(person.company)  # ← no additional query
 ```python
 from runic_orm import Edge, Field, Node, Repository
 
+
 class InvitationEdge(Edge, type="INVITED_TO"):
     role: str = Field(required=True)
     status: str = Field(required=True)
     invited_at: str = Field(required=True)  # ISO datetime
     accepted_at: str | None = Field(default=None)
+
 
 class User(Node, labels=["User"]):
     id: str = Field(primary_key=True)
@@ -404,6 +412,7 @@ class User(Node, labels=["User"]):
         target="Trip",
         edge_model=InvitationEdge,
     )
+
 
 class UserRepository(Repository[User]):
     def get_invitation_details(self, user_id: str, trip_id: str) -> dict | None:
@@ -476,21 +485,21 @@ with Session(graph) as session:
     # add: transient → pending; INSERT on flush
     alice = Person(name="Alice", email="alice@example.com")
     session.add(alice)
-    session.commit()            # flush → alice is now persistent
-    print(alice.id)             # id assigned after flush
+    session.commit()  # flush → alice is now persistent
+    print(alice.id)  # id assigned after flush
 
     # get: checks identity map first, then queries graph
     person = session.get(Person, alice.id)
-    person.name = "Alice Smith" # _dirty = True
-    session.commit()            # MERGE/SET on flush
+    person.name = "Alice Smith"  # _dirty = True
+    session.commit()  # MERGE/SET on flush
 
     # delete: persistent → deleted; DETACH DELETE on flush
     session.delete(person)
     session.commit()
 
     # expire / refresh
-    session.expire(person)      # attrs cleared; reload on next access
-    session.refresh(person)     # immediate re-query from graph
+    session.expire(person)  # attrs cleared; reload on next access
+    session.refresh(person)  # immediate re-query from graph
 
     # expunge: removes from session without graph action
     session.expunge(person)
@@ -517,7 +526,7 @@ with Session(graph) as session:
 session = Session(graph)
 try:
     session.add(Person(name="Bob", email="bob@example.com"))
-    session.rollback()          # discards pending add; nothing written to graph
+    session.rollback()  # discards pending add; nothing written to graph
 finally:
     session.close()
 
@@ -640,10 +649,12 @@ info = schema.get_schema_info([Entity1, Entity2, ...])
 ```python
 from runic_orm import Field, Node, Repository, Session
 
+
 class Language(Node, labels=["Language"]):
     id: str = Field()
     title: str = Field()
     code: str = Field(unique=True, required=True)
+
 
 graph = db.select_graph("voyager")
 
@@ -653,7 +664,7 @@ with Session(graph) as session:
     # Create — session.add() stages the insert
     lang = Language(id="en", title="English", code="en-US")
     session.add(lang)
-    session.commit()            # flush → lang is now persistent
+    session.commit()  # flush → lang is now persistent
 
     # Read all
     all_langs = languages.find_all()
@@ -675,6 +686,7 @@ with Session(graph) as session:
 ```python
 from runic_orm import Field, Node, Repository
 
+
 class Location(Node, labels=["Location"], primary_label="Location"):
     id: str = Field()
     title: str = Field(index_type="FULLTEXT")
@@ -682,16 +694,20 @@ class Location(Node, labels=["Location"], primary_label="Location"):
     longitude: float = Field(index=True)
     description: str = Field(index_type="FULLTEXT")
 
+
 class Country(Location, labels=["Location", "Country"], primary_label="Location"):
     iso_code: str = Field(unique=True)
     capital: str | None = Field(default=None)
     population: int | None = Field(default=None)
 
+
 class City(Location, labels=["Location", "City"], primary_label="Location"):
     population: int | None = Field(default=None)
 
+
 class Restaurant(Location, labels=["Location", "Restaurant"], primary_label="Location"):
     cuisine: str | None = Field(default=None)
+
 
 graph = db.select_graph("voyager")
 
@@ -715,6 +731,7 @@ class Company(Node, labels=["Company"]):
     id: int | None = Field(default=None, generated=True)
     name: str = Field()
 
+
 class Person(Node, labels=["Person"]):
     id: int | None = Field(default=None, generated=True)
     name: str = Field()
@@ -725,6 +742,7 @@ class Person(Node, labels=["Person"]):
         target="Company",
         cascade=True,  # auto-save company when person is saved
     )
+
 
 with Session(graph) as session:
     # cascade=True: session.add(person) also stages company for insert

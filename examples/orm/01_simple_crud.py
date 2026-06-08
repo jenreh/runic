@@ -1,4 +1,4 @@
-"""Example 1 — Simple CRUD with runic.orm.
+"""Example 1 — Simple CRUD with runic.ogm.
 
 Demonstrates:
   - Defining a Node with Field descriptors
@@ -36,10 +36,10 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 # Model definitions
 # ---------------------------------------------------------------------------
 
-from runic.orm import Field, Node, Repository, Session, select  # noqa: E402
-from runic.orm.driver import GraphDriver  # noqa: E402
-from runic.orm.driver.factory import create_driver  # noqa: E402
-from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
+from runic.ogm import Field, Node, Repository, Session, select  # noqa: E402
+from runic.ogm.driver import GraphDriver  # noqa: E402
+from runic.ogm.driver.factory import create_driver  # noqa: E402
+from runic.ogm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 
 class Language(Node, labels=["Language"]):

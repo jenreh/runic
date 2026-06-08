@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from runic.migrate.schema import IndexManager
-from runic.orm.core.descriptors import Field, Relation
-from runic.orm.core.models import Edge, Node
-from runic.orm.schema.index_manager import IndexSpec, extract_declared_specs
+from runic.ogm.core.descriptors import Field, Relation
+from runic.ogm.core.models import Edge, Node
+from runic.ogm.schema.index_manager import IndexSpec, extract_declared_specs
 
 # ---------------------------------------------------------------------------
 # Test entities

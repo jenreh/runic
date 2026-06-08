@@ -1,18 +1,18 @@
 Supported Drivers
 =================
 
-Runic's ORM is database-agnostic.  Every backend is hidden behind the
-:class:`~runic.orm.driver.GraphDriver` /
-:class:`~runic.orm.driver.AsyncGraphDriver` Protocol so the rest of the
+Runic's OGM is database-agnostic.  Every backend is hidden behind the
+:class:`~runic.ogm.driver.GraphDriver` /
+:class:`~runic.ogm.driver.AsyncGraphDriver` Protocol so the rest of the
 stack (Session, Repository, QueryBuilder) never talks to the database
 directly.
 
-Use :func:`~runic.orm.driver.factory.create_driver` as the recommended
+Use :func:`~runic.ogm.driver.factory.create_driver` as the recommended
 entry-point, or instantiate a driver class directly for advanced cases.
 
 .. code-block:: python
 
-   from runic.orm import create_driver
+   from runic.ogm import create_driver
 
    # FalkorDB
    driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
@@ -79,7 +79,7 @@ Feature matrix
      - ✗ — use pgvector
    * - Fulltext search
      - ✓ — ``db.idx.fulltext.queryNodes``
-     - ✗ — not supported by ArcadeDB ORM driver
+     - ✗ — not supported by ArcadeDB OGM driver
      - ✓ — ``CALL db.index.fulltext.queryNodes``
      - ✓ — ``CALL text_search.search_all``
      - ✗ — use PostgreSQL FTS
@@ -157,14 +157,14 @@ FalkorDB
 
 **Supported**
 
-- Sync (:class:`~runic.orm.driver.falkordb.FalkorDBDriver`) and async
-  (:class:`~runic.orm.driver.falkordb.AsyncFalkorDBDriver`) execution.
+- Sync (:class:`~runic.ogm.driver.falkordb.FalkorDBDriver`) and async
+  (:class:`~runic.ogm.driver.falkordb.AsyncFalkorDBDriver`) execution.
 - Full fulltext search via ``CALL db.idx.fulltext.queryNodes()``.
 - Vector KNN using ``vecf32(alias.field) <-> vecf32($vec)`` (FalkorDB
   native similarity syntax).
-- :func:`~runic.orm.core.descriptors.Field` options ``interned=True``
+- :func:`~runic.ogm.core.descriptors.Field` options ``interned=True``
   (wraps the value in ``intern()`` on write) and custom
-  :class:`~runic.orm.core.types.TypeConverter` Cypher functions
+  :class:`~runic.ogm.core.types.TypeConverter` Cypher functions
   (e.g. ``vecf32``, ``toPoint``).
 - Multiple named graphs on the same server via ``graph=`` parameter.
 
@@ -172,14 +172,14 @@ FalkorDB
 
 - No TLS — FalkorDB communicates over Redis, which this driver does not
   encrypt.
-- :class:`~runic.orm.driver.falkordb.AsyncFalkorDBDriver` requires an
+- :class:`~runic.ogm.driver.falkordb.AsyncFalkorDBDriver` requires an
   *async* FalkorDB graph handle; there is no built-in
   ``create_async_falkordb_driver`` factory — you must pass the handle
   yourself.
 
 .. code-block:: python
 
-   from runic.orm import create_driver, Session
+   from runic.ogm import create_driver, Session
 
    driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
    with Session(driver) as session:
@@ -187,7 +187,7 @@ FalkorDB
 
    # Async — build the handle manually
    from falkordb import FalkorDB
-   from runic.orm.driver.falkordb import AsyncFalkorDBDriver
+   from runic.ogm.driver.falkordb import AsyncFalkorDBDriver
 
    async_handle = FalkorDB(host="localhost", port=6379).select_graph("myapp")
    async_driver = AsyncFalkorDBDriver(async_handle)
@@ -202,7 +202,7 @@ Python driver (``encrypted=False``).
 
 **Supported**
 
-- Sync execution via :class:`~runic.orm.driver.bolt.BoltDriver`.
+- Sync execution via :class:`~runic.ogm.driver.bolt.BoltDriver`.
 - Vector KNN via ``CALL vector.neighbors('<type>[<field>]', $vec, $k)
   YIELD node, distance``.
 - Standard ``MATCH``/``MERGE``/``DELETE`` Cypher queries.
@@ -210,7 +210,7 @@ Python driver (``encrypted=False``).
 **Not supported / limitations**
 
 - **No async driver.**
-- **No fulltext search** via the ORM query builder.  The migrate adapter
+- **No fulltext search** via the OGM query builder.  The migrate adapter
   issues ``CREATE FULLTEXT INDEX ON \`{label}\` (prop)`` DDL where
   supported; ArcadeDB may accept or reject it depending on configuration.
 - **No TypeConverter Cypher wrappers.** Raw Python values stored as-is.
@@ -218,7 +218,7 @@ Python driver (``encrypted=False``).
 - **No vector index DDL.** ``create_vector_index()`` logs a warning and
   directs you to the ArcadeDB HTTP management API.
 - **No GeoLocation in-place update.**  ``SET n.geo = point($v)`` is not
-  supported via ArcadeDB's Bolt interface.  :class:`~runic.orm.core.types.GeoLocation`
+  supported via ArcadeDB's Bolt interface.  :class:`~runic.ogm.core.types.GeoLocation`
   values are stored and returned as a plain map (``{"latitude": …,
   "longitude": …}``).  Updating the geo field requires re-saving the whole
   node.  Tests marked ``requires_geo_update`` are automatically skipped for
@@ -226,7 +226,7 @@ Python driver (``encrypted=False``).
 
 .. code-block:: python
 
-   from runic.orm import create_driver, Session
+   from runic.ogm import create_driver, Session
 
    driver = create_driver(
        "arcadedb",
@@ -246,7 +246,7 @@ driver.
 
 **Supported**
 
-- Sync execution via :class:`~runic.orm.driver.bolt.BoltDriver`.
+- Sync execution via :class:`~runic.ogm.driver.bolt.BoltDriver`.
 - Fulltext search via ``CALL db.index.fulltext.queryNodes()``.  The
   query uses an index named after the label (e.g. ``Person``).
 - Vector KNN via ``CALL db.index.vector.queryNodes()``.  A vector index
@@ -287,7 +287,7 @@ driver.
 
 .. code-block:: python
 
-   from runic.orm import create_driver, Session
+   from runic.ogm import create_driver, Session
 
    driver = create_driver(
        "neo4j",
@@ -309,7 +309,7 @@ Python driver, with Memgraph-specific ``text_search`` and
 
 **Supported**
 
-- Sync execution via :class:`~runic.orm.driver.bolt.BoltDriver`.
+- Sync execution via :class:`~runic.ogm.driver.bolt.BoltDriver`.
 - Fulltext search via ``CALL text_search.search_all()``.  Uses a
   whole-label text index named after the label (``CREATE TEXT INDEX
   {label} ON :{label}``).
@@ -356,7 +356,7 @@ Python driver, with Memgraph-specific ``text_search`` and
 
 .. code-block:: python
 
-   from runic.orm import create_driver, Session
+   from runic.ogm import create_driver, Session
 
    driver = create_driver(
        "memgraph",
@@ -388,22 +388,22 @@ argument to ``cypher()``, making them available inside the Cypher query as
 
 **Supported**
 
-- Sync execution via :class:`~runic.orm.driver.age.AGEDriver`.
+- Sync execution via :class:`~runic.ogm.driver.age.AGEDriver`.
 - Automatic agtype decoding — vertices and edges are returned as
-  :class:`~runic.orm.driver.age.AGENode` /
-  :class:`~runic.orm.driver.age.AGEEdge` wrappers.
+  :class:`~runic.ogm.driver.age.AGENode` /
+  :class:`~runic.ogm.driver.age.AGEEdge` wrappers.
 - Standard ``MATCH``/``MERGE``/``DELETE`` Cypher queries.
 - Automatic graph creation on first connect (if the graph does not exist).
 - TLS — supported via PostgreSQL SSL (pass SSL keyword arguments directly
   to ``psycopg.connect`` by instantiating
-  :class:`~runic.orm.driver.age.AGEDriver` manually).
+  :class:`~runic.ogm.driver.age.AGEDriver` manually).
 
 **Not supported / limitations**
 
 - **No async driver.**  Async support requires an async psycopg3 connection
   which is not yet wired up.
 - **No multi-label nodes.**  AGE stores each vertex under exactly one
-  PostgreSQL table (one label).  The ORM emulates multi-label hierarchies by
+  PostgreSQL table (one label).  The OGM emulates multi-label hierarchies by
   injecting a ``_labels`` array property on ``CREATE`` and filtering with
   ``WHERE "SubLabel" IN n._labels`` on queries.  Tests requiring true
   multi-label behaviour (``@pytest.mark.requires_multi_label``) are
@@ -411,7 +411,7 @@ argument to ``cypher()``, making them available inside the Cypher query as
   (``AGEDriver.supports_multi_label = False``).
 - **No GeoLocation in-place update.**  AGE's agtype does not expose a
   ``point()`` constructor via the psycopg3 interface.
-  :class:`~runic.orm.core.types.GeoLocation` values are stored as a plain
+  :class:`~runic.ogm.core.types.GeoLocation` values are stored as a plain
   agtype map (``{"latitude": …, "longitude": …}``) and read back the same
   way.  Re-saving the full node is required to update geo coordinates.
 - **No fulltext search** in Cypher.  Use PostgreSQL ``tsvector``/``tsquery``
@@ -425,7 +425,7 @@ argument to ``cypher()``, making them available inside the Cypher query as
 
 .. code-block:: python
 
-   from runic.orm import create_driver, Session
+   from runic.ogm import create_driver, Session
 
    driver = create_driver(
        "age",
@@ -455,13 +455,13 @@ connection.
 Generic Bolt (custom backends)
 ------------------------------
 
-:class:`~runic.orm.driver.bolt.BoltDriver` can connect to **any
+:class:`~runic.ogm.driver.bolt.BoltDriver` can connect to **any
 Bolt-compatible graph database** by supplying a custom
-:class:`~runic.orm.driver.GraphDialect`.
+:class:`~runic.ogm.driver.GraphDialect`.
 
 .. code-block:: python
 
-   from runic.orm.driver.bolt import BoltDriver
+   from runic.ogm.driver.bolt import BoltDriver
    from myapp.dialects import MyDialect
 
    driver = BoltDriver.from_params(

@@ -3,7 +3,7 @@
 Apache AGE stores graph data inside PostgreSQL, so migration version-tracking
 nodes are created as AGE vertices (not PostgreSQL tables).  The adapter
 executes Cypher through the AGE ``cypher()`` SQL function and delegates
-agtype decoding to the :mod:`runic.orm.driver.age` module.
+agtype decoding to the :mod:`runic.ogm.driver.age` module.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import GraphAdapterBase
-from runic.orm.driver.age import AGEDriver
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.driver.age import AGEDriver
+from runic.ogm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class AGEAdapter(GraphAdapterBase, GraphAdapter):
         username: str = "postgres",
         password: str = "",  # noqa: S107
     ) -> AGEAdapter:
-        from runic.orm.driver.age import create_age_driver
+        from runic.ogm.driver.age import create_age_driver
 
         driver = create_age_driver(
             host=host,
@@ -64,7 +64,7 @@ class AGEAdapter(GraphAdapterBase, GraphAdapter):
     def run_query(self, query: str, params: dict | None = None) -> Any:
         result = self._driver.execute(query, params or {})
         # AGEDriver no longer auto-commits; the adapter owns the transaction
-        # lifecycle for write operations (not managed by an ORM Session here).
+        # lifecycle for write operations (not managed by an OGM Session here).
         self._driver.commit()
         return result
 

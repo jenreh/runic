@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from runic.migrate.adapters.neo4j import Neo4jAdapter
-from runic.orm.driver.bolt import BoltDriver
-from runic.orm.schema.index_manager import IndexSpec
-from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
-from tests.runic.orm.unit.mock_helpers import row_result as _row_result
+from runic.ogm.driver.bolt import BoltDriver
+from runic.ogm.schema.index_manager import IndexSpec
+from tests.runic.ogm.unit.mock_helpers import empty_result as _empty_result
+from tests.runic.ogm.unit.mock_helpers import row_result as _row_result
 
 
 def _make_adapter(database: str = "neo4j") -> tuple[Neo4jAdapter, MagicMock]:

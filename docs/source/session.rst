@@ -1,8 +1,8 @@
 Session & Unit of Work
 ======================
 
-The :class:`~runic.orm.session.session.Session` (and its async twin
-:class:`~runic.orm.session.async_session.AsyncSession`) is the unit-of-work
+The :class:`~runic.ogm.session.session.Session` (and its async twin
+:class:`~runic.ogm.session.async_session.AsyncSession`) is the unit-of-work
 manager for Cypher-based graph databases.  It owns all mutations, manages
 the identity map, and controls the flush/commit lifecycle.
 
@@ -17,13 +17,13 @@ the identity map, and controls the flush/commit lifecycle.
 Opening a session
 -----------------
 
-``Session`` accepts a :class:`~runic.orm.driver.GraphDriver` (or
-:class:`~runic.orm.driver.AsyncGraphDriver` for the async variant).
-Use the helpers in ``runic.orm.driver`` to build one:
+``Session`` accepts a :class:`~runic.ogm.driver.GraphDriver` (or
+:class:`~runic.ogm.driver.AsyncGraphDriver` for the async variant).
+Use the helpers in ``runic.ogm.driver`` to build one:
 
 .. code-block:: python
 
-   from runic.orm import Session, create_driver
+   from runic.ogm import Session, create_driver
 
    # FalkorDB
    driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
@@ -46,7 +46,7 @@ All writes go through the Session, never the Repository.
 
 .. code-block:: python
 
-   from runic.orm import Session
+   from runic.ogm import Session
 
    with Session(driver) as session:
        # add: transient → pending; CREATE on flush
@@ -123,14 +123,14 @@ Expunge
 Composable statement execution
 ------------------------------
 
-:func:`~runic.orm.query.select` creates a
-:class:`~runic.orm.query.builder.QueryBuilder` that is **not bound to a
+:func:`~runic.ogm.query.select` creates a
+:class:`~runic.ogm.query.builder.QueryBuilder` that is **not bound to a
 session**.  Build the statement freely — including conditional filters — then
 pass it to one of the session execution methods:
 
 .. code-block:: python
 
-   from runic.orm import select
+   from runic.ogm import select
 
    stmt = select(Person).where(Person.active == True)
    if min_age > 0:
@@ -181,7 +181,7 @@ features not covered by the builder.
 
 .. code-block:: python
 
-   from runic.orm import select
+   from runic.ogm import select
 
    # Prefer select() + session.scalars() for reads
    stmt = (
@@ -231,7 +231,7 @@ Session API summary
    * - ``expunge_all()``
      - Expunge all tracked entities
    * - ``scalars(stmt)``
-     - Execute a :func:`~runic.orm.query.select` statement; return ``list[T]``
+     - Execute a :func:`~runic.ogm.query.select` statement; return ``list[T]``
    * - ``scalar(stmt)``
      - Execute a statement; return first ``T`` or ``None``
    * - ``count(stmt)``
@@ -241,14 +241,14 @@ Session API summary
    * - ``all_with_edges(stmt)``
      - Execute a statement; return ``list[tuple[Any, ...]]``
    * - ``execute(cypher, params, write)``
-     - Raw Cypher; returns :class:`~runic.orm.driver.GraphResult` (``.rows``, ``.columns``)
+     - Raw Cypher; returns :class:`~runic.ogm.driver.GraphResult` (``.rows``, ``.columns``)
    * - ``close()``
      - ``expunge_all()`` + release connection
 
 Async parity
 ------------
 
-:class:`~runic.orm.session.async_session.AsyncSession` mirrors all of the
+:class:`~runic.ogm.session.async_session.AsyncSession` mirrors all of the
 above with ``async``/``await``:
 
 .. code-block:: python
@@ -268,13 +268,13 @@ above with ``async``/``await``:
 Connection management
 ---------------------
 
-:class:`~runic.orm.session.connection_pool.ConnectionManager` and
-:class:`~runic.orm.session.connection_pool.AsyncConnectionManager` wrap a
+:class:`~runic.ogm.session.connection_pool.ConnectionManager` and
+:class:`~runic.ogm.session.connection_pool.AsyncConnectionManager` wrap a
 FalkorDB graph handle for reuse across sessions:
 
 .. code-block:: python
 
-   from runic.orm import ConnectionManager
+   from runic.ogm import ConnectionManager
 
    manager = ConnectionManager(graph)
    with manager.session() as session:

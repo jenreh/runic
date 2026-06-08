@@ -1,4 +1,4 @@
-# runic.orm Cookbook
+# runic.ogm Cookbook
 
 Task-oriented recipes and gotchas. For the full API see
 [api-reference.md](api-reference.md); for runnable code see
@@ -6,7 +6,7 @@ Task-oriented recipes and gotchas. For the full API see
 
 ## Contents
 
-- [runic.orm Cookbook](#runicorm-cookbook)
+- [runic.ogm Cookbook](#runicorm-cookbook)
   - [Contents](#contents)
   - [Session lifecycle](#session-lifecycle)
   - [Avoiding N+1](#avoiding-n1)
@@ -69,8 +69,8 @@ calls.
 ## Async patterns
 
 ```python
-from runic.orm import AsyncSession
-from runic.orm.driver.falkordb import AsyncFalkorDBDriver
+from runic.ogm import AsyncSession
+from runic.ogm.driver.falkordb import AsyncFalkorDBDriver
 
 driver = AsyncFalkorDBDriver(async_graph_handle)
 
@@ -236,7 +236,7 @@ Use embedded FalkorDB (redislite) for fast, serverless tests:
 
 ```python
 from redislite import FalkorDB
-from runic.orm.driver.falkordb import FalkorDBDriver
+from runic.ogm.driver.falkordb import FalkorDBDriver
 
 def make_driver(name="test"):
     db = FalkorDB(protocol=2)              # protocol=2 avoids a redis-py 8 issue

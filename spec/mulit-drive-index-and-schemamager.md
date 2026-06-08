@@ -157,7 +157,7 @@ Modify `IndexManager`:
 ### 9. Docs
 
 - Update `docs/source/drivers.rst` feature matrix
-- Update docstrings in ORM driver files (`neo4j.py`, `memgraph.py`)
+- Update docstrings in OGM driver files (`neo4j.py`, `memgraph.py`)
 
 ---
 

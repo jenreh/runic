@@ -81,7 +81,7 @@ Add a method that reuses the already-working `read_live_schema()`:
 
 ```python
 def get_existing_specs(self) -> set[IndexSpec]:
-    from runic.orm.schema.index_manager import IndexSpec
+    from runic.ogm.schema.index_manager import IndexSpec
 
     schema = self.read_live_schema()
     unique_pairs: set[tuple[str, str]] = set()
@@ -111,7 +111,7 @@ is preserved. Over time, update callsites and examples to use `create_adapter()`
 
 ```python
 def get_existing_specs(self) -> set[IndexSpec]:
-    from runic.orm.schema.index_manager import IndexSpec
+    from runic.ogm.schema.index_manager import IndexSpec
 
     specs: set[IndexSpec] = set()
     try:
@@ -159,7 +159,7 @@ def get_existing_specs(self) -> set[IndexSpec]:
 
 ```python
 def get_existing_specs(self) -> set[IndexSpec]:
-    from runic.orm.schema.index_manager import IndexSpec
+    from runic.ogm.schema.index_manager import IndexSpec
 
     specs: set[IndexSpec] = set()
     try:
@@ -238,7 +238,7 @@ Update `docs/source/schema.rst`:
 - Primary pattern for FalkorDB: `create_adapter("falkordb", ...)` → `SchemaManager(adapter)`.
 - Keep the raw-handle variant as "backward-compatible".
 - Update the cross-backend table: FalkorDB, Neo4j, Memgraph now have introspection; ArcadeDB and AGE remain create-only.
-- Update `docs/source/migration/limitations.rst` to note that `get_existing_specs()` now works for Neo4j and Memgraph (lift the FalkorDB-only claim from the ORM schema validation section, though migrate autogenerate remains FalkorDB-only).
+- Update `docs/source/migration/limitations.rst` to note that `get_existing_specs()` now works for Neo4j and Memgraph (lift the FalkorDB-only claim from the OGM schema validation section, though migrate autogenerate remains FalkorDB-only).
 
 ---
 
