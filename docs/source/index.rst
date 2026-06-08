@@ -3,14 +3,18 @@
 Welcome to **Runic**
 ====================
 
-Graph ORM and Schema Migrations for FalkorDB, Apache AGE, and more
+Graph schema migrations and ORM for Cypher-based graph databases.
 
-|PyPI| |Python| |License|
+|PyPI| |Github| |Python| |License|
 
 
 .. |PyPI| image:: https://img.shields.io/pypi/v/runic-py.svg
    :target: https://pypi.org/project/runic-py/
    :alt: PyPI
+
+.. |Github| image:: https://img.shields.io/badge/release-0.3.1-yellow?logo=github
+   :target: https://github.com/jenreh/runic/tree/v0.3.1
+   :alt: GitHub
 
 .. |Python| image:: https://img.shields.io/badge/python-3.14%2B-orange.svg
    :target: https://www.python.org
@@ -19,8 +23,6 @@ Graph ORM and Schema Migrations for FalkorDB, Apache AGE, and more
 .. |License| image:: https://img.shields.io/badge/license-MIT-green.svg
    :target: https://github.com/jenreh/runic/blob/main/LICENSE.md
    :alt: License
-
-Documentation for version: 0.3.1.
 
 -----
 
