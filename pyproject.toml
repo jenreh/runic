@@ -108,8 +108,13 @@ replace = '![Version](https://img.shields.io/badge/version-{new_version}-blue)'
 
 [[tool.bumpversion.files]]
 filename = "docs/source/index.rst"
-search = 'Documentation for version: {current_version}.'
-replace = 'Documentation for version: {new_version}.'
+search = '.. |Github| image:: https://img.shields.io/badge/release-{current_version}-yellow?logo=github'
+replace = '.. |Github| image:: https://img.shields.io/badge/release-{new_version}-yellow?logo=github'
+
+[[tool.bumpversion.files]]
+filename = "docs/source/index.rst"
+search = '   :target: hhttps://github.com/jenreh/runic/tree/v{current_version}'
+replace = '   :target: https://github.com/jenreh/runic/tree/v{new_version}'
 
 [[tool.bumpversion.files]]
 filename = "docs/source/conf.py"

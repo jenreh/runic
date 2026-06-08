@@ -8,25 +8,11 @@ includes:
     flatten: true
     vars:
       PROJECT: "{{.PROJECT}}"
+  graphdb: ./taskfiles/Taskfile.graphdb.yml
   release: ./taskfiles/Taskfile.release.yml
   docs:
     taskfile: ./taskfiles/Taskfile.docs.yml
     dir: .
-  # db: ./taskfiles/Taskfile.db.yml
-  # docker:
-  #   taskfile: ./taskfiles/Taskfile.docker.yml
-  #   vars:
-  #     IMAGE_NAME: "{{.PROJECT}}-image"
-  # dev:
-  #   taskfile: ./taskfiles/Taskfile.terraform-azure.yaml
-  #   vars:
-  #     TF_DIR: "{{.ROOT_DIR}}/terraform"
-  #     ENVIRONMENT: dev
-  # prod:
-  #   taskfile: ./taskfiles/Taskfile.terraform-azure.yaml
-  #   vars:
-  #     TF_DIR: "{{.ROOT_DIR}}/terraform"
-  #     ENVIRONMENT: prod
 
 silent: true
 
