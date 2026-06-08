@@ -95,24 +95,10 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
     # ------------------------------------------------------------------
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"CREATE INDEX ON :{label}({prop})"
-        log.info("Memgraph DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Memgraph create_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"CREATE INDEX ON :{label}({prop})")
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX ON :{label}({prop})"
-        log.info("Memgraph DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Memgraph drop_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"DROP INDEX ON :{label}({prop})")
 
     def create_fulltext_index(
         self,
@@ -122,8 +108,6 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
         # Memgraph TEXT INDEX is whole-label; index name = label (matches MemgraphDialect)
-        cypher = f"CREATE TEXT INDEX {label} ON :{label}"
-        log.info("Memgraph DDL: %s", cypher)
         if len(props) > 1:
             log.warning(
                 "Memgraph text indexes cover the full label — "
@@ -131,18 +115,10 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
                 props,
                 label,
             )
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("Memgraph create_fulltext_index failed for %s: %s", label, exc)
+        self._execute_ddl(f"CREATE TEXT INDEX {label} ON :{label}")
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:  # noqa: ARG002
-        cypher = f"DROP TEXT INDEX {label}"
-        log.info("Memgraph DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("Memgraph drop_fulltext_index failed for %s: %s", label, exc)
+        self._execute_ddl(f"DROP TEXT INDEX {label}")
 
     def create_vector_index(
         self,
@@ -168,23 +144,10 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
             f'{{"dimension": {dimension}, "capacity": 1000, "metric": "{similarity}", '
             f'"resize_coefficient": 2, "m": {m}, "ef_construction": {ef_construction}}}'
         )
-        log.info("Memgraph DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Memgraph create_vector_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(cypher)
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        cypher = f"DROP VECTOR INDEX {label}_{prop}"
-        log.info("Memgraph DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Memgraph drop_vector_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"DROP VECTOR INDEX {label}_{prop}")
 
     # ------------------------------------------------------------------
     # DDL — constraints
@@ -195,14 +158,9 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"CREATE CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
-            log.info("Memgraph DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "Memgraph create_constraint failed for %s.%s: %s", label, prop, exc
-                )
+            self._execute_ddl(
+                f"CREATE CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
+            )
         else:
             log.warning(
                 "Memgraph create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
@@ -217,14 +175,9 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"DROP CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
-            log.info("Memgraph DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "Memgraph drop_constraint failed for %s.%s: %s", label, prop, exc
-                )
+            self._execute_ddl(
+                f"DROP CONSTRAINT ON (n:{label}) ASSERT n.{prop} IS UNIQUE"
+            )
         else:
             log.warning(
                 "Memgraph drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",

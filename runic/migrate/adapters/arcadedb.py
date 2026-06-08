@@ -84,44 +84,20 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
     # ------------------------------------------------------------------
 
     def create_vertex_type(self, label: str) -> None:
-        cypher = f"CREATE VERTEX TYPE `{label}` IF NOT EXISTS"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("ArcadeDB create_vertex_type failed for %s: %s", label, exc)
+        self._execute_ddl(f"CREATE VERTEX TYPE `{label}` IF NOT EXISTS")
 
     def create_edge_type(self, type_name: str) -> None:
-        cypher = f"CREATE EDGE TYPE `{type_name}` IF NOT EXISTS"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("ArcadeDB create_edge_type failed for %s: %s", type_name, exc)
+        self._execute_ddl(f"CREATE EDGE TYPE `{type_name}` IF NOT EXISTS")
 
     # ------------------------------------------------------------------
     # DDL — indexes
     # ------------------------------------------------------------------
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"CREATE INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB create_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"CREATE INDEX ON `{label}` ({prop})")
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX ON `{label}` ({prop})"
-        log.info("ArcadeDB: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"DROP INDEX ON `{label}` ({prop})")
 
     def get_existing_specs(self) -> set[IndexSpec]:
         return set()
@@ -134,25 +110,11 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
         stopwords: list[str] | None = None,  # noqa: ARG002
     ) -> None:
         props_str = ", ".join(props)
-        cypher = f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB create_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+        self._execute_ddl(f"CREATE FULLTEXT INDEX ON `{label}` ({props_str})")
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
         props_str = ", ".join(props)
-        cypher = f"DROP INDEX ON `{label}` ({props_str})"
-        log.info("ArcadeDB DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "ArcadeDB drop_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+        self._execute_ddl(f"DROP INDEX ON `{label}` ({props_str})")
 
     def create_vector_index(
         self,
@@ -189,14 +151,7 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"CREATE INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "ArcadeDB create_constraint failed for %s.%s: %s", label, prop, exc
-                )
+            self._execute_ddl(f"CREATE INDEX ON `{label}` ({prop}) UNIQUE")
         else:
             log.warning(
                 "ArcadeDB create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
@@ -211,14 +166,7 @@ class ArcadeDBAdapter(GraphAdapterBase, GraphAdapter):
     ) -> None:
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
-            cypher = f"DROP INDEX ON `{label}` ({prop}) UNIQUE"
-            log.info("ArcadeDB DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "ArcadeDB drop_constraint failed for %s.%s: %s", label, prop, exc
-                )
+            self._execute_ddl(f"DROP INDEX ON `{label}` ({prop}) UNIQUE")
         else:
             log.warning(
                 "ArcadeDB drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",

@@ -116,3 +116,10 @@ wheels/
 .runic
 runic_test/
 .claude/ralph-loop.local.md
+
+# DeepEval run caches (tests/evals suite runs from an isolated venv)
+.deepeval/
+.deepeval-cache.json
+.deepeval_telemetry.txt
+.latest_run_full.json
+.latest_test_run.json

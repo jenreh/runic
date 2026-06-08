@@ -11,7 +11,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
-from runic.migrate.introspect import LiveSchema
+from runic.migrate.introspect import LiveSchema, SchemaSnapshot
 from runic.orm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
@@ -125,6 +125,19 @@ class GraphAdapterBase(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # DDL execution
+    # ------------------------------------------------------------------
+
+    def _execute_ddl(self, cypher: str) -> Any:
+        """Log and execute a single DDL statement, propagating any error.
+
+        Shared by the Bolt-based adapters so a failed schema operation aborts
+        the migration rather than leaving the schema silently incomplete.
+        """
+        log.info("%s DDL: %s", self._backend_name, cypher)
+        return self.run_query(cypher)
+
+    # ------------------------------------------------------------------
     # Version tracking
     # ------------------------------------------------------------------
 
@@ -154,6 +167,17 @@ class GraphAdapterBase(ABC):
             constraints=[],
         )
 
+    def introspect_schema(self) -> SchemaSnapshot:
+        """Snapshot the live schema for baseline / autogenerate.
+
+        Defaults to raising; backends with full index/constraint introspection
+        (currently FalkorDB) override this.
+        """
+        raise NotImplementedError(
+            f"{self._backend_name} does not support schema introspection for "
+            "baseline/autogenerate."
+        )
+
     def get_existing_specs(self) -> set[IndexSpec]:
         return set()
 
@@ -168,6 +192,14 @@ class GraphAdapterBase(ABC):
             self.name,
         )
         self.run_query("MATCH (n) DETACH DELETE n")
+
+    def supports_snapshots(self) -> bool:
+        """Whether this adapter can take and restore pre-migration snapshots.
+
+        Defaults to ``False``; backends with native graph-copy support (e.g.
+        FalkorDB) override this to ``True``.
+        """
+        return False
 
     def snapshot(self, snap_name: str) -> None:
         raise NotImplementedError(

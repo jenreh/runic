@@ -183,10 +183,11 @@ class TestRangeIndex:
         cypher = mock_driver.execute.call_args[0][0]
         assert "DROP INDEX ON :User(email)" == cypher
 
-    def test_create_range_index_swallows_exception(self) -> None:
+    def test_create_range_index_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("fail")
-        adapter.create_range_index("User", "email")  # must not raise
+        with pytest.raises(RuntimeError, match="fail"):
+            adapter.create_range_index("User", "email")
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +216,11 @@ class TestFulltextIndex:
         cypher = mock_driver.execute.call_args[0][0]
         assert "DROP TEXT INDEX Post" == cypher
 
-    def test_create_fulltext_swallows_exception(self) -> None:
+    def test_create_fulltext_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("fail")
-        adapter.create_fulltext_index("Post", "body")  # must not raise
+        with pytest.raises(RuntimeError, match="fail"):
+            adapter.create_fulltext_index("Post", "body")
 
 
 # ---------------------------------------------------------------------------
@@ -274,10 +276,11 @@ class TestConstraints:
         adapter.create_constraint("EXISTS", "NODE", "User", ["id"])
         mock_driver.execute.assert_not_called()
 
-    def test_create_constraint_swallows_exception(self) -> None:
+    def test_create_constraint_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("fail")
-        adapter.create_constraint("UNIQUE", "NODE", "User", ["id"])  # must not raise
+        with pytest.raises(RuntimeError, match="fail"):
+            adapter.create_constraint("UNIQUE", "NODE", "User", ["id"])
 
 
 # ---------------------------------------------------------------------------

@@ -160,6 +160,9 @@ class FalkorDBAdapter(GraphAdapter):
     def read_live_schema(self) -> LiveSchema:
         return introspect.read_live_schema(self._graph)
 
+    def introspect_schema(self) -> introspect.SchemaSnapshot:
+        return introspect.introspect_graph(self._graph)
+
     def get_existing_specs(self) -> set[IndexSpec]:
         try:
             schema = self.read_live_schema()
@@ -327,6 +330,9 @@ class FalkorDBAdapter(GraphAdapter):
     # ------------------------------------------------------------------
     # Snapshots
     # ------------------------------------------------------------------
+
+    def supports_snapshots(self) -> bool:
+        return True
 
     def snapshot(self, snap_name: str) -> None:
         # GRAPH.COPY fails on an empty key; initialize graph if it doesn't exist yet
