@@ -12,8 +12,8 @@ Graph schema migrations and OGM for Cypher-based graph databases.
    :target: https://pypi.org/project/runic-py/
    :alt: PyPI
 
-.. |Github| image:: https://img.shields.io/badge/release-0.3.4-yellow?logo=github
-   :target: https://github.com/jenreh/runic/tree/v0.3.4
+.. |Github| image:: https://img.shields.io/badge/release-0.3.5-yellow?logo=github
+   :target: https://github.com/jenreh/runic/tree/v0.3.5
    :alt: GitHub
 
 .. |Python| image:: https://img.shields.io/badge/python-3.14%2B-orange.svg
