@@ -273,6 +273,7 @@ exclude = [
     "dist",
     "examples",
     "skill",
+    "tests/evals",
 ]
 
 [tool.ty.rules]

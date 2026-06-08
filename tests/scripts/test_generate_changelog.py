@@ -1,4 +1,3 @@
-
 from scripts.generate_changelog import (
     _assemble,
     _normalize_repo_url,
@@ -23,7 +22,11 @@ def test_parse_subject_feat_no_scope() -> None:
 
 
 def test_parse_subject_fix_with_scope() -> None:
-    assert parse_subject("fix(parser): handle null input") == ("fix", "parser", "handle null input")
+    assert parse_subject("fix(parser): handle null input") == (
+        "fix",
+        "parser",
+        "handle null input",
+    )
 
 
 def test_parse_subject_breaking_bang() -> None:
@@ -78,7 +81,9 @@ def test_is_breaking_scoped_bang() -> None:
 
 
 def test_is_breaking_body_marker() -> None:
-    assert is_breaking("feat: add new option", "BREAKING CHANGE: old flag removed") is True
+    assert (
+        is_breaking("feat: add new option", "BREAKING CHANGE: old flag removed") is True
+    )
 
 
 def test_is_breaking_false_normal() -> None:
@@ -136,15 +141,23 @@ def test_commit_link_truncates_to_7() -> None:
 
 
 def test_normalize_repo_url_ssh() -> None:
-    assert _normalize_repo_url("git@github.com:owner/repo") == "https://github.com/owner/repo"
+    assert (
+        _normalize_repo_url("git@github.com:owner/repo")
+        == "https://github.com/owner/repo"
+    )
 
 
 def test_normalize_repo_url_https_passthrough() -> None:
-    assert _normalize_repo_url("https://github.com/owner/repo") == "https://github.com/owner/repo"
+    assert (
+        _normalize_repo_url("https://github.com/owner/repo")
+        == "https://github.com/owner/repo"
+    )
 
 
 def test_normalize_repo_url_ssh_other_host() -> None:
-    assert _normalize_repo_url("git@gitlab.com:org/proj") == "https://gitlab.com/org/proj"
+    assert (
+        _normalize_repo_url("git@gitlab.com:org/proj") == "https://gitlab.com/org/proj"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +193,9 @@ def test_render_commit_line_capitalizes_desc() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _commit(subject: str, body: str = "", hash_: str = "abc123def456") -> dict[str, str]:
+def _commit(
+    subject: str, body: str = "", hash_: str = "abc123def456"
+) -> dict[str, str]:
     return {"hash": hash_, "subject": subject, "body": body}
 
 

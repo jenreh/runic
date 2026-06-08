@@ -61,12 +61,13 @@ class ClaudeCLIModel(DeepEvalBaseLLM):
         claude = shutil.which("claude")
         if claude is None:
             raise RuntimeError("`claude` CLI not found on PATH.")
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603
             [claude, "-p", "--model", self._model],
             input=prompt,
             capture_output=True,
             text=True,
             timeout=240,
+            check=False,
         )
         if proc.returncode != 0:
             raise RuntimeError(
@@ -74,7 +75,9 @@ class ClaudeCLIModel(DeepEvalBaseLLM):
             )
         return proc.stdout.strip()
 
-    def generate(self, prompt: str, schema: type[BaseModel] | None = None):
+    def generate(
+        self, prompt: str, schema: type[BaseModel] | None = None
+    ) -> str | BaseModel:
         if schema is None:
             return self._call(prompt)
         instructed = (
@@ -85,5 +88,7 @@ class ClaudeCLIModel(DeepEvalBaseLLM):
         raw = self._call(instructed)
         return schema.model_validate_json(_extract_json(raw))
 
-    async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None):
+    async def a_generate(
+        self, prompt: str, schema: type[BaseModel] | None = None
+    ) -> str | BaseModel:
         return self.generate(prompt, schema)

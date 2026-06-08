@@ -31,12 +31,13 @@ def run_ai_app(prompt: str, model: str = "claude-sonnet-4-6") -> str:
         raise RuntimeError("`claude` CLI not found on PATH.")
     skill_text = _SKILL_PATH.read_text(encoding="utf-8")
     full_prompt = _SYSTEM.format(skill=skill_text, question=prompt)
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603
         [claude, "-p", "--model", model],
         input=full_prompt,
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError(
