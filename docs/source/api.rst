@@ -1,173 +1,173 @@
-ORM API Reference
+OGM API Reference
 =================
 
-``runic.orm`` is a lightweight graph ORM for Cypher-based graph databases.
+``runic.ogm`` is a lightweight graph OGM for Cypher-based graph databases.
 It follows a SQLAlchemy-style architecture: driver → session → mapper →
 repository.  FalkorDB, ArcadeDB, and any Bolt-compatible database are
-supported via the :class:`~runic.orm.driver.GraphDriver` abstraction.
+supported via the :class:`~runic.ogm.driver.GraphDriver` abstraction.
 
 ----
 
-runic.orm.core — Models & Fields
+runic.ogm.core — Models & Fields
 ---------------------------------
 
-.. autoclass:: runic.orm.core.models.Node
+.. autoclass:: runic.ogm.core.models.Node
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.models.Edge
+.. autoclass:: runic.ogm.core.models.Edge
    :members:
    :show-inheritance:
 
-.. autofunction:: runic.orm.core.descriptors.Field
+.. autofunction:: runic.ogm.core.descriptors.Field
 
-.. autofunction:: runic.orm.core.descriptors.Relation
+.. autofunction:: runic.ogm.core.descriptors.Relation
 
-.. autoclass:: runic.orm.core.descriptors.FieldDescriptor
+.. autoclass:: runic.ogm.core.descriptors.FieldDescriptor
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.descriptors.FieldInfo
+.. autoclass:: runic.ogm.core.descriptors.FieldInfo
    :members:
    :show-inheritance:
 
 ----
 
-runic.orm.core — MetaData
+runic.ogm.core — MetaData
 --------------------------
 
-.. autoclass:: runic.orm.core.metadata.MetaData
+.. autoclass:: runic.ogm.core.metadata.MetaData
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.metadata.NodeMeta
+.. autoclass:: runic.ogm.core.metadata.NodeMeta
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.metadata.EdgeMeta
+.. autoclass:: runic.ogm.core.metadata.EdgeMeta
    :members:
    :show-inheritance:
 
-.. autofunction:: runic.orm.core.metadata.get_metadata
+.. autofunction:: runic.ogm.core.metadata.get_metadata
 
 ----
 
-runic.orm.core — Type Converters
+runic.ogm.core — Type Converters
 ----------------------------------
 
-.. autoclass:: runic.orm.core.types.TypeConverter
+.. autoclass:: runic.ogm.core.types.TypeConverter
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.DatetimeConverter
+.. autoclass:: runic.ogm.core.types.DatetimeConverter
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.EnumConverter
+.. autoclass:: runic.ogm.core.types.EnumConverter
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.Vector
+.. autoclass:: runic.ogm.core.types.Vector
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.VectorConverter
+.. autoclass:: runic.ogm.core.types.VectorConverter
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.GeoLocation
+.. autoclass:: runic.ogm.core.types.GeoLocation
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.core.types.GeoLocationConverter
+.. autoclass:: runic.ogm.core.types.GeoLocationConverter
    :members:
    :show-inheritance:
 
 ----
 
-runic.orm.driver — Drivers & Dialects
+runic.ogm.driver — Drivers & Dialects
 --------------------------------------
 
-.. autoclass:: runic.orm.driver.falkordb.FalkorDBDriver
+.. autoclass:: runic.ogm.driver.falkordb.FalkorDBDriver
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.falkordb.AsyncFalkorDBDriver
+.. autoclass:: runic.ogm.driver.falkordb.AsyncFalkorDBDriver
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.falkordb.FalkorDBDialect
+.. autoclass:: runic.ogm.driver.falkordb.FalkorDBDialect
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.bolt.BoltDriver
+.. autoclass:: runic.ogm.driver.bolt.BoltDriver
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.arcadedb.ArcadeDBDialect
+.. autoclass:: runic.ogm.driver.arcadedb.ArcadeDBDialect
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.age.AGEDriver
+.. autoclass:: runic.ogm.driver.age.AGEDriver
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.driver.age.AGEDialect
+.. autoclass:: runic.ogm.driver.age.AGEDialect
    :members:
    :show-inheritance:
 
-.. autofunction:: runic.orm.driver.falkordb.create_falkordb_driver
+.. autofunction:: runic.ogm.driver.falkordb.create_falkordb_driver
 
-.. autofunction:: runic.orm.driver.arcadedb.create_arcadedb_driver
+.. autofunction:: runic.ogm.driver.arcadedb.create_arcadedb_driver
 
-.. autofunction:: runic.orm.driver.age.create_age_driver
+.. autofunction:: runic.ogm.driver.age.create_age_driver
 
-.. autofunction:: runic.orm.driver.factory.create_driver
+.. autofunction:: runic.ogm.driver.factory.create_driver
 
 ----
 
-runic.orm.session — Session
+runic.ogm.session — Session
 -----------------------------
 
-.. autoclass:: runic.orm.session.session.Session
+.. autoclass:: runic.ogm.session.session.Session
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.session.async_session.AsyncSession
+.. autoclass:: runic.ogm.session.async_session.AsyncSession
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.session.connection_pool.ConnectionManager
+.. autoclass:: runic.ogm.session.connection_pool.ConnectionManager
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.session.connection_pool.AsyncConnectionManager
+.. autoclass:: runic.ogm.session.connection_pool.AsyncConnectionManager
    :members:
    :show-inheritance:
 
 ----
 
-runic.orm.repository — Repository
+runic.ogm.repository — Repository
 ---------------------------------
 
-.. autoclass:: runic.orm.repository.repository.Repository
+.. autoclass:: runic.ogm.repository.repository.Repository
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.repository.async_repository.AsyncRepository
+.. autoclass:: runic.ogm.repository.async_repository.AsyncRepository
    :members:
    :show-inheritance:
 
 ----
 
-runic.orm.schema — Index declarations
+runic.ogm.schema — Index declarations
 ---------------------------------------------
 
-.. autoclass:: runic.orm.schema.index_manager.IndexSpec
+.. autoclass:: runic.ogm.schema.index_manager.IndexSpec
    :members:
    :show-inheritance:
 
-.. autofunction:: runic.orm.schema.index_manager.extract_declared_specs
+.. autofunction:: runic.ogm.schema.index_manager.extract_declared_specs
 
 runic.migrate.schema — Index & Schema Management
 -------------------------------------------------
@@ -186,25 +186,25 @@ runic.migrate.schema — Index & Schema Management
 
 ----
 
-runic.orm.exceptions
+runic.ogm.exceptions
 ---------------------
 
-.. autoexception:: runic.orm.exceptions.OrmError
+.. autoexception:: runic.ogm.exceptions.OrmError
    :show-inheritance:
 
-.. autoexception:: runic.orm.exceptions.EntityNotFoundError
+.. autoexception:: runic.ogm.exceptions.EntityNotFoundError
    :show-inheritance:
 
-.. autoexception:: runic.orm.exceptions.DetachedEntityError
+.. autoexception:: runic.ogm.exceptions.DetachedEntityError
    :show-inheritance:
 
-.. autoexception:: runic.orm.exceptions.LazyLoadError
+.. autoexception:: runic.ogm.exceptions.LazyLoadError
    :show-inheritance:
 
-.. autoexception:: runic.orm.exceptions.FieldValidationError
+.. autoexception:: runic.ogm.exceptions.FieldValidationError
    :show-inheritance:
 
-.. autoexception:: runic.orm.exceptions.MetadataError
+.. autoexception:: runic.ogm.exceptions.MetadataError
    :show-inheritance:
 
 .. seealso::
@@ -213,69 +213,68 @@ runic.orm.exceptions
 
 ----
 
-runic.orm.query
+runic.ogm.query
 ---------------
 
-.. autofunction:: runic.orm.query.select
+.. autofunction:: runic.ogm.query.select
 
-.. autoclass:: runic.orm.query.builder.QueryBuilder
+.. autoclass:: runic.ogm.query.builder.QueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.specialised.AsyncQueryBuilder
+.. autoclass:: runic.ogm.query.specialised.AsyncQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.specialised.FulltextQueryBuilder
+.. autoclass:: runic.ogm.query.specialised.FulltextQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.specialised.VectorQueryBuilder
+.. autoclass:: runic.ogm.query.specialised.VectorQueryBuilder
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.traversal.TraversalStep
+.. autoclass:: runic.ogm.query.traversal.TraversalStep
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.Expr
+.. autoclass:: runic.ogm.query.expressions.Expr
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.FilterExpr
+.. autoclass:: runic.ogm.query.expressions.FilterExpr
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.CompoundExpr
+.. autoclass:: runic.ogm.query.expressions.CompoundExpr
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.NegatedExpr
+.. autoclass:: runic.ogm.query.expressions.NegatedExpr
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.OrderExpr
+.. autoclass:: runic.ogm.query.expressions.OrderExpr
    :members:
    :show-inheritance:
 
-.. autoclass:: runic.orm.query.expressions.AggExpr
+.. autoclass:: runic.ogm.query.expressions.AggExpr
    :members:
    :show-inheritance:
 
-.. autofunction:: runic.orm.query.expressions.count
+.. autofunction:: runic.ogm.query.expressions.count
 
-.. autofunction:: runic.orm.query.expressions.avg
+.. autofunction:: runic.ogm.query.expressions.avg
 
-.. autofunction:: runic.orm.query.expressions.sum_
+.. autofunction:: runic.ogm.query.expressions.sum_
 
-.. autofunction:: runic.orm.query.expressions.min_
+.. autofunction:: runic.ogm.query.expressions.min_
 
-.. autofunction:: runic.orm.query.expressions.max_
+.. autofunction:: runic.ogm.query.expressions.max_
 
-.. autofunction:: runic.orm.query.expressions.collect
-
+.. autofunction:: runic.ogm.query.expressions.collect

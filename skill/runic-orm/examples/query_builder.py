@@ -14,7 +14,7 @@ import logging
 
 from redislite import FalkorDB
 
-from runic.orm import (
+from runic.ogm import (
     Edge,
     Field,
     Node,
@@ -25,7 +25,7 @@ from runic.orm import (
     select,
     sum_,
 )
-from runic.orm.driver.falkordb import FalkorDBDriver
+from runic.ogm.driver.falkordb import FalkorDBDriver
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

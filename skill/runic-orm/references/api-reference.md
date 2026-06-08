@@ -1,11 +1,11 @@
-# runic.orm API Reference
+# runic.ogm API Reference
 
 Complete public API surface. For idioms and recipes see
 [cookbook.md](cookbook.md); for runnable code see [../examples/](../examples/).
 
 ## Table of contents
 
-- [runic.orm API Reference](#runicorm-api-reference)
+- [runic.ogm API Reference](#runicorm-api-reference)
   - [Table of contents](#table-of-contents)
   - [Imports](#imports)
   - [Declaring models](#declaring-models)
@@ -24,10 +24,10 @@ Complete public API surface. For idioms and recipes see
 
 ## Imports
 
-Everything public is re-exported from the `runic.orm` package root:
+Everything public is re-exported from the `runic.ogm` package root:
 
 ```python
-from runic.orm import (
+from runic.ogm import (
     Node, Edge, Field, Relation,            # modeling
     Session, AsyncSession,                  # unit of work
     Repository, AsyncRepository,            # collection reads
@@ -39,8 +39,8 @@ from runic.orm import (
     LazyLoadError, FieldValidationError, MetadataError,
     metadata, get_metadata,
 )
-from runic.orm.driver.factory import create_driver
-from runic.orm.driver.falkordb import FalkorDBDriver, AsyncFalkorDBDriver
+from runic.ogm.driver.factory import create_driver
+from runic.ogm.driver.falkordb import FalkorDBDriver, AsyncFalkorDBDriver
 ```
 
 ---
@@ -262,7 +262,7 @@ alias or `"n.<field>"`).
 ## Drivers & factory
 
 ```python
-from runic.orm.driver.factory import create_driver
+from runic.ogm.driver.factory import create_driver
 
 create_driver("falkordb", host="localhost", port=6379, graph="app")
 create_driver("neo4j",    host="localhost", port=7687, database="neo4j",

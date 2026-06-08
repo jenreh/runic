@@ -2,7 +2,7 @@
 
 ## Context
 
-The `runic` test suite has grown organically around FalkorDB (via embedded `redislite`). While the ORM and migration layers now support five backends (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE), only FalkorDB has real integration coverage. Driver-specific concerns leak into generic tests, mock helpers are copy-pasted across files, and eight integration test files each redefine an identical `graph` fixture. This refactor fixes all three problems without changing any public API.
+The `runic` test suite has grown organically around FalkorDB (via embedded `redislite`). While the OGM and migration layers now support five backends (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE), only FalkorDB has real integration coverage. Driver-specific concerns leak into generic tests, mock helpers are copy-pasted across files, and eight integration test files each redefine an identical `graph` fixture. This refactor fixes all three problems without changing any public API.
 
 ---
 
@@ -10,9 +10,9 @@ The `runic` test suite has grown organically around FalkorDB (via embedded `redi
 
 1. **Decouple** — no FalkorDB imports in tests that aren't testing FalkorDB-specific behavior.
 2. **De-duplicate** — shared mock builders and shared adapter base tests extracted once.
-3. **Multi-backend integration** — both `runic.migrate` and `runic.orm` integration tests run against every configured backend using Docker Compose, with zero code duplication (only the driver changes).
+3. **Multi-backend integration** — both `runic.migrate` and `runic.ogm` integration tests run against every configured backend using Docker Compose, with zero code duplication (only the driver changes).
 4. **Driver-specific isolation** — FalkorDB/Bolt/AGE unit tests live in their own modules.
-5. **Voyager scenario** — THE canonical integration test exercises all ORM features end-to-end.
+5. **Voyager scenario** — THE canonical integration test exercises all OGM features end-to-end.
 
 ---
 
@@ -25,7 +25,7 @@ Run the following analysis before touching any file. Capture findings in a worki
 find tests -type f -name "*.py" | sort
 
 # 2. FalkorDB coupling: any test importing FalkorDB concrete types
-grep -rn "FalkorDBDriver\|falkordb_server\|falkordb_graph\|from runic.orm.driver.falkordb\|from redislite" tests/
+grep -rn "FalkorDBDriver\|falkordb_server\|falkordb_graph\|from runic.ogm.driver.falkordb\|from redislite" tests/
 
 # 3. Mock usage: copy-pasted helpers
 grep -rn "_empty_result\|_node_result\|_multi_node_result\|_scalar_result\|_row_result" tests/
@@ -43,7 +43,7 @@ grep -rn "pytest.mark.integration\|pytestmark.*integration\|importorskip" tests/
 wc -l tests/**/*.py tests/**/**/*.py | sort -rn | head -30
 ```
 
-For each coupling found in step 2: classify as (a) truly driver-specific → move to `drivers/`, (b) generic ORM logic using FalkorDB as the concrete driver → replace with `graph_driver` fixture.
+For each coupling found in step 2: classify as (a) truly driver-specific → move to `drivers/`, (b) generic OGM logic using FalkorDB as the concrete driver → replace with `graph_driver` fixture.
 
 Only proceed to Phase 1 once this map is complete and matches the plan's file list below.
 
@@ -95,7 +95,7 @@ tests/_backends.py      ← backend registry + connection helpers
 
 **`tests/_backends.py`** — reads `RUNIC_TEST_BACKENDS` env var (comma-separated, default `falkordb`). For each name, provides:
 
-- `connect(backend_name) -> GraphDriver` — creates a driver using `runic.orm.driver.factory.create_driver`
+- `connect(backend_name) -> GraphDriver` — creates a driver using `runic.ogm.driver.factory.create_driver`
 - `cleanup(driver, graph_name)` — drops the test graph/database
 
 FalkorDB is the only embedded backend (uses `redislite.FalkorDB`). Others connect to Docker Compose services using fixed local connection strings (or env var overrides):
@@ -178,13 +178,13 @@ tests/runic/orm/drivers/
 
 ---
 
-## Phase 4 — ORM Integration Tests: Decouple + Voyager Canonical Test
+## Phase 4 — OGM Integration Tests: Decouple + Voyager Canonical Test
 
 ### 4a. Consolidate `graph` fixture
 
 Each of the 8 `tests/runic/orm/integration/test_*.py` files defines its own `graph` fixture. All 8 are deleted. The shared `graph_driver` fixture from root `conftest.py` (Phase 1c) replaces them automatically — the parametrization across backends is handled there.
 
-Each integration test file imports nothing from `runic.orm.driver.falkordb`. Tests use `graph_driver: GraphDriver` typed as the Protocol.
+Each integration test file imports nothing from `runic.ogm.driver.falkordb`. Tests use `graph_driver: GraphDriver` typed as the Protocol.
 
 ### 4b. Voyager canonical integration test
 
@@ -215,7 +215,7 @@ The existing `test_voyager_patterns.py` is **deleted** — its content is absorb
 `test_session_integration.py`, `test_repository_crud.py`, `test_relationships.py`, `test_relationship_mutations.py`, `test_pagination_integration.py`, `test_new_types.py`, `test_cypher_helpers.py` remain but:
 
 - Remove local `graph` fixture definition (uses root `graph_driver` instead)
-- Remove all `from runic.orm.driver.falkordb import FalkorDBDriver` imports
+- Remove all `from runic.ogm.driver.falkordb import FalkorDBDriver` imports
 - Remove `try/except redislite` import guard (handled centrally in `_backends.py`)
 
 ---
@@ -264,7 +264,7 @@ For backends that don't support all DDL (e.g., AGE has no vector DDL), individua
 
 ## Reusable Utilities
 
-- `runic.orm.driver.factory.create_driver(backend, **kwargs)` — `tests/_backends.py` uses this
+- `runic.ogm.driver.factory.create_driver(backend, **kwargs)` — `tests/_backends.py` uses this
 - `runic.migrate.testing.falkordb_server` — kept as FalkorDB-only fixture, still re-exported for migrate-layer tests
 - `runic.migrate.adapters._base._parse_kv_list` / `_encode_kv_list` — `test_adapter_base.py` imports from here
 
@@ -303,8 +303,8 @@ Integration tests must:
 
 ## Out of Scope
 
-- Changing any ORM or migration public API
-- Adding new ORM features
+- Changing any OGM or migration public API
+- Adding new OGM features
 - Refactoring the Cypher query builder
 - ArcadeDB fulltext/vector (not supported; existing xfail/skip markers stay)
 - AGE vector/fulltext (same)

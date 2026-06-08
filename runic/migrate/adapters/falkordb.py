@@ -10,8 +10,8 @@ from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
 from runic.migrate.manifest import UniqueConstraint
-from runic.orm.driver.falkordb import FalkorDBDriver, FalkorDBResult
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.driver.falkordb import FalkorDBDriver, FalkorDBResult
+from runic.ogm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ _SET_TRACKING_QUERY = (
 class FalkorDBAdapter(GraphAdapter):
     """GraphAdapter implementation for FalkorDB (standalone or embedded via falkordblite).
 
-    Query execution is routed through :class:`~runic.orm.driver.falkordb.FalkorDBDriver`
+    Query execution is routed through :class:`~runic.ogm.driver.falkordb.FalkorDBDriver`
     so results are normalised to ``GraphResult.rows`` — consistent with Bolt adapters.
     The raw ``db`` and ``graph`` references are kept only for FalkorDB-specific migration
     operations (constraint DDL via Redis commands, snapshot copy/delete).
@@ -97,7 +97,7 @@ class FalkorDBAdapter(GraphAdapter):
         return self._graph.name  # type: ignore[no-any-return]
 
     def execute(self, cypher: str, params: dict[str, Any]) -> FalkorDBResult:
-        """Normalised query execution via ORM driver (result has .rows)."""
+        """Normalised query execution via OGM driver (result has .rows)."""
         return self._driver.execute(cypher, params)
 
     def run_query(self, query: str, params: dict | None = None) -> FalkorDBResult:

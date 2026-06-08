@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from runic.orm.schema.index_manager import IndexSpec, extract_declared_specs
+from runic.ogm.schema.index_manager import IndexSpec, extract_declared_specs
 
 log = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ class IndexManager:
         When *if_not_exists* is ``True`` (default), existing non-FULLTEXT specs are
         skipped.  FULLTEXT creation is always attempted — adapters must handle idempotency.
         """
-        from runic.orm.core.models import Edge, Node
+        from runic.ogm.core.models import Edge, Node
 
         if issubclass(entity_class, Node):
             label: str = getattr(entity_class, "_primary_label", entity_class.__name__)
@@ -252,7 +252,7 @@ class SchemaManager:
         No-op for schemaless backends.  Issues ``CREATE VERTEX TYPE`` / ``CREATE EDGE TYPE``
         DDL for ArcadeDB.
         """
-        from runic.orm.core.models import Edge, Node
+        from runic.ogm.core.models import Edge, Node
 
         for cls in entity_classes:
             if issubclass(cls, Node):

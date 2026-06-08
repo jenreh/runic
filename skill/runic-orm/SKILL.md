@@ -1,20 +1,20 @@
 ---
 name: runic-orm
 description: |
-  Expert guide for runic.orm — a SQLModel-style, graph-native Python ORM for
+  Expert guide for runic.ogm — a SQLModel-style, graph-native Python OGM for
   Cypher databases (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE). Use
   whenever the user defines graph models (Node/Edge), maps fields, declares
   relationships, writes graph queries/traversals, or does session/repository
-  CRUD with runic. Invoke for any code that imports from `runic.orm`, uses
+  CRUD with runic. Invoke for any code that imports from `runic.ogm`, uses
   `Node`, `Edge`, `Field`, `Relation`, `Session`, `Repository`, `select()`, or
   the query builder, and for any "how do I model/query this graph in runic"
-  task. This is the ORM skill; for schema migrations use the `runic-migrate`
+  task. This is the OGM skill; for schema migrations use the `runic-migrate`
   skill instead.
 ---
 
-# runic.orm — Graph ORM for Cypher Databases
+# runic.ogm — Graph OGM for Cypher Databases
 
-`runic.orm` is a lightweight, SQLModel-inspired ORM for property-graph
+`runic.ogm` is a lightweight, SQLModel-inspired OGM for property-graph
 databases. You declare nodes and edges as typed Python classes, then create,
 read, relate, and query them through a `Session` — without hand-writing Cypher.
 It targets **FalkorDB** first and also runs on **Neo4j, Memgraph, ArcadeDB, and
@@ -43,21 +43,21 @@ recipes and gotchas read [references/cookbook.md](references/cookbook.md).
 
 ## Quick start
 
-> **All runic.orm imports come from `runic.orm` directly.** `Session`,
+> **All runic.ogm imports come from `runic.ogm` directly.** `Session`,
 > `Repository`, `select`, and their methods (`add`, `commit`, `flush`,
 > `scalars`, `relate`, `unrelate`, `query`, `count`, `all_rows`, etc.) are
-> **runic.orm-native API** — not from SQLAlchemy or any other ORM. Never
-> import from `runic.orm.orm.*` — the package root re-exports everything.
+> **runic.ogm-native API** — not from SQLAlchemy or any other ORM. Never
+> import from `runic.ogm.orm.*` — the package root re-exports everything.
 
 ```python
-from runic.orm import (
+from runic.ogm import (
     Field, Node, Edge, Relation,
     Session, AsyncSession,
     Repository,
     select,
     count, avg, sum_,
 )
-from runic.orm.driver.factory import create_driver
+from runic.ogm.driver.factory import create_driver
 
 class User(Node, labels=["User"]):
     id: str = Field(primary_key=True)
@@ -82,7 +82,7 @@ Embedded FalkorDB (no server, great for tests/examples):
 
 ```python
 from redislite import FalkorDB
-from runic.orm.driver.falkordb import FalkorDBDriver
+from runic.ogm.driver.falkordb import FalkorDBDriver
 
 db = FalkorDB(protocol=2)               # protocol=2 avoids a redis-py 8 issue
 driver = FalkorDBDriver(db.select_graph("app"))
@@ -98,7 +98,7 @@ relationship *property* model; declare it with a `type` string.
 ```python
 from datetime import datetime
 from enum import StrEnum
-from runic.orm import Edge, Field, Node, Vector, GeoLocation
+from runic.ogm import Edge, Field, Node, Vector, GeoLocation
 
 class Status(StrEnum):
     DRAFT = "draft"
@@ -167,7 +167,7 @@ Declare a relationship with `Relation()`. `relationship`, `direction`, and
 `target` are required; `edge_model` attaches a property model.
 
 ```python
-from runic.orm import Node, Relation
+from runic.ogm import Node, Relation
 
 class User(Node, labels=["User"]):
     id: str = Field(primary_key=True)
@@ -241,7 +241,7 @@ Build statements with `select(Cls)` (session-independent) and run them through
 the session. Filters come from comparing class-level field descriptors.
 
 ```python
-from runic.orm import select
+from runic.ogm import select
 
 # list of entities
 users = session.scalars(
@@ -290,7 +290,7 @@ Operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `.contains()`, `.startswith()`,
 **Projection & aggregation** return rows (dicts), read via `all_rows()`:
 
 ```python
-from runic.orm import avg, count, sum_
+from runic.ogm import avg, count, sum_
 
 rows = session.all_rows(select(Product).project(Product.name, Product.price))
 # keys are "n.name", "n.price"

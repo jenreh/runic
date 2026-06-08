@@ -1,8 +1,8 @@
 Relationships
 =============
 
-``runic.orm`` models relationships as first-class graph edges.  When you
-declare a :func:`~runic.orm.core.descriptors.Relation` on a model, the ORM
+``runic.ogm`` models relationships as first-class graph edges.  When you
+declare a :func:`~runic.ogm.core.descriptors.Relation` on a model, the ORM
 knows the edge type, direction, and target class — enough to generate
 ``MATCH``/``OPTIONAL MATCH`` traversal patterns without any hand-written
 Cypher.
@@ -16,14 +16,14 @@ edges, and how polymorphic hierarchies interact with relationships.
 Declaring a relationship
 ------------------------
 
-Use :func:`~runic.orm.core.descriptors.Relation` with ``relationship``,
+Use :func:`~runic.ogm.core.descriptors.Relation` with ``relationship``,
 ``direction``, and ``target``.  Property fields use
-:func:`~runic.orm.core.descriptors.Field` — the two are intentionally separate
+:func:`~runic.ogm.core.descriptors.Field` — the two are intentionally separate
 so that scalar data and graph topology never mix:
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Relation
+   from runic.ogm import Field, Node, Relation
 
    class Company(Node, labels=["Company"]):
        id: str = Field(primary_key=True, generated=True)
@@ -66,7 +66,7 @@ read-views onto it:
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Relation
+   from runic.ogm import Field, Node, Relation
 
    class Team(Node, labels=["Team"]):
        id: str = Field(primary_key=True)
@@ -123,7 +123,7 @@ Bidirectional relationships (``direction="BOTH"``)
 ---------------------------------------------------
 
 Use ``direction="BOTH"`` when the relationship has no inherent orientation —
-friendship, co-authorship, contact networks.  The ORM generates an
+friendship, co-authorship, contact networks.  The OGM generates an
 *undirected* Cypher pattern ``(a)-[r:TYPE]-(b)``, so the edge is found
 regardless of which node acts as source:
 
@@ -192,8 +192,8 @@ if you actually access them.
 
 .. note::
 
-   In an :class:`~runic.orm.session.async_session.AsyncSession`, lazy loading
-   raises :exc:`~runic.orm.exceptions.LazyLoadError` because ``__get__``
+   In an :class:`~runic.ogm.session.async_session.AsyncSession`, lazy loading
+   raises :exc:`~runic.ogm.exceptions.LazyLoadError` because ``__get__``
    cannot ``await``.  Use ``fetch=[...]`` to load relationships eagerly in
    async code.
 
@@ -203,7 +203,7 @@ Eager loading
 -------------
 
 Pass ``fetch=["field_name", ...]`` to ``session.get()`` or any
-:class:`~runic.orm.repository.repository.Repository` read to load
+:class:`~runic.ogm.repository.repository.Repository` read to load
 relationships in a single query.  The mapper adds one ``OPTIONAL MATCH``
 clause per entry in ``fetch``:
 
@@ -281,8 +281,8 @@ expressed by a graph label rather than a property value.
 Mutating relationships
 ----------------------
 
-Use :meth:`~runic.orm.session.session.Session.relate` and
-:meth:`~runic.orm.session.session.Session.unrelate` to create, update, or
+Use :meth:`~runic.ogm.session.session.Session.relate` and
+:meth:`~runic.ogm.session.session.Session.unrelate` to create, update, or
 remove relationships without writing Cypher:
 
 .. code-block:: python
@@ -321,13 +321,13 @@ Edge properties
 ---------------
 
 When a relationship carries its own properties, declare an
-:class:`~runic.orm.core.models.Edge` subclass and pass it via
-``edge_model``.  The ORM maps the edge properties exactly as it maps node
+:class:`~runic.ogm.core.models.Edge` subclass and pass it via
+``edge_model``.  The OGM maps the edge properties exactly as it maps node
 properties, including dirty tracking and type converters:
 
 .. code-block:: python
 
-   from runic.orm import Edge, Field, Node, Relation
+   from runic.ogm import Edge, Field, Node, Relation
 
    class InvitationEdge(Edge, type="INVITED_TO"):
        role: str = Field()
@@ -374,7 +374,7 @@ Using a session-bound repository query (classic pattern):
 
 .. code-block:: python
 
-   from runic.orm import Repository
+   from runic.ogm import Repository
 
    class UserRepository(Repository[User]):
        def get_invitation(self, user_id: str, trip_id: str) -> InvitationEdge | None:
@@ -394,12 +394,12 @@ Using a session-bound repository query (classic pattern):
            _, edge, _ = rows[0]
            return edge
 
-Alternatively, use :func:`~runic.orm.query.select` to build the statement
+Alternatively, use :func:`~runic.ogm.query.select` to build the statement
 independently and execute it via ``session.all_with_edges(stmt)``:
 
 .. code-block:: python
 
-   from runic.orm import select
+   from runic.ogm import select
 
    stmt = (
        select(User)

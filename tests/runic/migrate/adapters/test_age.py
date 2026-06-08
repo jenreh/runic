@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from runic.migrate.adapters.age import AGEAdapter
-from runic.orm.driver.age import AGEDriver, AGEResult
+from runic.ogm.driver.age import AGEDriver, AGEResult
 
 
 def _make_adapter(graph_name: str = "testgraph") -> tuple[AGEAdapter, MagicMock]:

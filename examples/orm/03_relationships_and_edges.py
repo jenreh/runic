@@ -29,10 +29,10 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Edge, Node, Relation, Repository, Session, select  # noqa: E402
-from runic.orm.driver import GraphDriver  # noqa: E402
-from runic.orm.driver.factory import create_driver  # noqa: E402
-from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
+from runic.ogm import Edge, Node, Relation, Repository, Session, select  # noqa: E402
+from runic.ogm.driver import GraphDriver  # noqa: E402
+from runic.ogm.driver.factory import create_driver  # noqa: E402
+from runic.ogm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models

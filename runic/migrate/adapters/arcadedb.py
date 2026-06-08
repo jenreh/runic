@@ -7,9 +7,9 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import GraphAdapterBase
-from runic.orm.driver.arcadedb import ArcadeDBDialect
-from runic.orm.driver.bolt import BoltDriver
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.driver.arcadedb import ArcadeDBDialect
+from runic.ogm.driver.bolt import BoltDriver
+from runic.ogm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 

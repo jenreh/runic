@@ -1,6 +1,6 @@
-"""The 'app under test': Claude answering runic.orm questions WITH the skill.
+"""The 'app under test': Claude answering runic.ogm questions WITH the skill.
 
-``run_ai_app(prompt)`` invokes ``claude -p`` with the runic-orm SKILL.md prepended
+``run_ai_app(prompt)`` invokes ``claude -p`` with the runic-ogm SKILL.md prepended
 as the source of truth, so the eval measures *skill-guided* answers. It uses the
 local Claude Code authentication (no API key required).
 """
@@ -15,10 +15,10 @@ from pathlib import Path
 _SKILL_PATH = Path(__file__).resolve().parents[2] / "skill" / "runic" / "SKILL.md"
 
 _SYSTEM = (
-    "You are answering a developer's question about the `runic.orm` Python "
-    "library (a SQLModel-style ORM for Cypher graph databases). Use the skill "
-    "documentation below as the authoritative source for the runic.orm API. "
-    "Answer with correct, idiomatic runic.orm code and a brief explanation; do "
+    "You are answering a developer's question about the `runic.ogm` Python "
+    "library (a SQLModel-style OGM for Cypher graph databases). Use the skill "
+    "documentation below as the authoritative source for the runic.ogm API. "
+    "Answer with correct, idiomatic runic.ogm code and a brief explanation; do "
     "not invent API that is not in the skill.\n\n<skill>\n{skill}\n</skill>\n\n"
     "Question:\n{question}\n"
 )

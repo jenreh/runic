@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from runic.migrate.schema import SchemaManager, ValidationResult
-from runic.orm.core.descriptors import Field
-from runic.orm.core.models import Edge, Node
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.core.descriptors import Field
+from runic.ogm.core.models import Edge, Node
+from runic.ogm.schema.index_manager import IndexSpec
 
 # ---------------------------------------------------------------------------
 # _MockSchemaAdapter

@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
-from runic.orm.driver.bolt import BoltDriver
-from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
-from tests.runic.orm.unit.mock_helpers import row_result as _row_result
+from runic.ogm.driver.bolt import BoltDriver
+from tests.runic.ogm.unit.mock_helpers import empty_result as _empty_result
+from tests.runic.ogm.unit.mock_helpers import row_result as _row_result
 
 
 def _make_adapter(database: str = "testdb") -> tuple[ArcadeDBAdapter, MagicMock]:
