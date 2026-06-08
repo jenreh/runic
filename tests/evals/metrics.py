@@ -12,10 +12,9 @@ To use the standard hosted API instead, set ``ANTHROPIC_API_KEY`` and replace
 
 from __future__ import annotations
 
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCaseParams
-
 from claude_cli_model import ClaudeCLIModel
+from deepeval.metrics import BaseMetric, GEval
+from deepeval.test_case import LLMTestCaseParams
 
 _JUDGE = ClaudeCLIModel()
 
@@ -61,4 +60,4 @@ api_fidelity = GEval(
 )
 
 # Imported by the eval test file.
-SINGLE_TURN_NO_TRACING_METRICS = [correctness, api_fidelity]
+SINGLE_TURN_NO_TRACING_METRICS: list[BaseMetric] = [correctness, api_fidelity]

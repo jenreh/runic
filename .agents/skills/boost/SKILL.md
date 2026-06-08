@@ -1,6 +1,7 @@
 ---
 name: boost
 description: Use when the user wants to refine, sharpen, or expand a rough idea into a detailed implementation prompt — before any code gets written. Trigger on /boost, "refine this prompt", "turn this into a prompt", "help me specify", "what do I need to think through before implementing", "can you make this more detailed", rough feature ideas the user explicitly wants help scoping (not implementing). Also trigger when user says "boost this" or hands you a vague feature description and asks for a proper prompt or spec. Do NOT trigger for direct implementation requests, debugging questions, code reviews, or architectural questions where the user is not asking for a refined prompt.
+allowed-tools: Read, Bash, WebSearch, WebFetch, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, mcp__code-reasoning__code-reasoning, mcp__duckduckgo__search, mcp__plugin_context7_context7__query-docs, mcp__plugin_context7_context7__resolve-library-id
 ---
 
 # Boost — Prompt Refinement Workflow
@@ -8,6 +9,10 @@ description: Use when the user wants to refine, sharpen, or expand a rough idea 
 Help the user turn a rough idea or vague request into a precise, detailed implementation plan prompt. Do NOT write or generate any implementation code. Your output is always a refined prompt — not the solution itself.
 
 ## Workflow
+
+### 0. Enter plan mode
+
+Call `EnterPlanMode` immediately. This enforces the no-code constraint at the tool level and ensures the final refined prompt is delivered through the plan approval interface.
 
 ### 1. Understand the raw request
 
@@ -42,7 +47,7 @@ Avoid asking things already answerable from the codebase or docs.
 
 ### 4. Produce the refined prompt
 
-Once you have enough context, write the improved prompt. Structure it clearly:
+Once you have enough context, write the improved prompt to the plan file. Structure it clearly:
 
 ```
 ## Task
@@ -66,11 +71,11 @@ Once you have enough context, write the improved prompt. Structure it clearly:
 
 Adapt sections to the task — not every section applies to every task.
 
+Then call `ExitPlanMode`. The plan approval interface becomes the iteration loop — the user can reject and request adjustments, which brings you back to this step.
+
 ### 5. Iterate
 
-Ask the user: "Does this capture what you need, or should I adjust anything?"
-
-Refine based on feedback. Repeat until the user is satisfied.
+If the user rejects the plan and requests changes, update the plan file and call `ExitPlanMode` again. Repeat until approved.
 
 ## Rules
 

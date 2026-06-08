@@ -22,12 +22,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import pytest  # noqa: E402
-
+import runic_orm_app  # noqa: E402
 from deepeval import assert_test  # noqa: E402
 from deepeval.dataset import EvaluationDataset, Golden  # noqa: E402
 from deepeval.test_case import LLMTestCase  # noqa: E402
-
-import runic_orm_app  # noqa: E402
 from metrics import SINGLE_TURN_NO_TRACING_METRICS  # noqa: E402
 
 _DATASET_PATH = Path(__file__).parent / ".dataset.json"

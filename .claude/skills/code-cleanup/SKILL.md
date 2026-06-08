@@ -1,10 +1,11 @@
 ---
-agent: agent
-model: Gemini 3 Pro (Preview) (copilot)
-tools: [vscode/memory, execute, read, agent, browser, 'code-reasoning/*', duckduckgo/search, 'upstash/context7/*', 'pylance-mcp-server/*', edit, search, web, todo]
-description: 'Refactor and cleanup code.'
+name: code-cleanup
+description: Refactor and simplify Python files modified in the current session — minimal diff, clean code principles, then lint/format/typecheck. Use when the user asks to clean up, simplify, or refactor code.
+disable-model-invocation: true
+allowed-tools: Read, Edit, Bash, Agent, mcp__code-reasoning__code-reasoning, mcp__plugin_context7_context7__query-docs, mcp__plugin_context7_context7__resolve-library-id
 ---
-# Cleanup
+
+# Code Cleanup
 
 ## Target files
 
