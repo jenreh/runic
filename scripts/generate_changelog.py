@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate a user-friendly changelog from git commits between the previous tag and HEAD.
 
 Usage:
@@ -17,7 +16,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from enum import Enum
+from collections.abc import Callable
 from typing import Annotated
 
 import typer
@@ -88,6 +87,9 @@ _SUMMARY_PROMPT = (
     "- Output only the paragraph text, no markdown headers."
 )
 
+# SSH remote pattern: git@HOST:OWNER/REPO
+_SSH_REMOTE_RE = re.compile(r"^git@([^:]+):(.+)$")
+
 
 class Backend(str, Enum):
     auto = "auto"
@@ -108,9 +110,25 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str]) -> str:
+def _run(cmd: list[str], *, required: bool = False) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    if result.returncode != 0:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] command failed (exit %d): %s\n%s"
+            % (result.returncode, " ".join(cmd), result.stderr.strip()),
+        )
+        if required:
+            raise typer.Exit(1)
+        return ""
     return result.stdout.strip()
+
+
+def _normalize_repo_url(raw: str) -> str:
+    """Convert SSH remote URLs to HTTPS so commit/issue links are valid."""
+    m = _SSH_REMOTE_RE.match(raw)
+    if m:
+        return f"https://{m.group(1)}/{m.group(2)}"
+    return raw
 
 
 def get_previous_tag(new_tag: str) -> str:
@@ -120,12 +138,23 @@ def get_previous_tag(new_tag: str) -> str:
         text=True,
     )
     if result.returncode != 0:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] could not resolve previous tag from %r; trying HEAD^"
+            % new_tag,
+        )
         result = subprocess.run(  # noqa: S603
             ["git", "describe", "--tags", "--abbrev=0", "HEAD^"],
             capture_output=True,
             text=True,
         )
-    return result.stdout.strip() if result.returncode == 0 else ""
+    if result.returncode == 0:
+        return result.stdout.strip()
+    _STDERR.print(
+        "[yellow]warning:[/yellow] no previous tag found; "
+        "changelog will include all commits. "
+        "Pass a previous tag explicitly if this is a first release."
+    )
+    return ""
 
 
 def get_commits(since_tag: str) -> list[dict[str, str]]:
@@ -142,13 +171,11 @@ def get_commits(since_tag: str) -> list[dict[str, str]]:
         if len(parts) >= 2 and parts[0].strip():
             subject = parts[1].strip()
             if not _SKIP_PATTERNS.match(subject):
-                commits.append(
-                    {
-                        "hash": parts[0].strip(),
-                        "subject": subject,
-                        "body": parts[2].strip() if len(parts) > 2 else "",
-                    }
-                )
+                commits.append({
+                    "hash": parts[0].strip(),
+                    "subject": subject,
+                    "body": parts[2].strip() if len(parts) > 2 else "",
+                })
     return commits
 
 
@@ -157,6 +184,11 @@ def get_contributors(since_tag: str) -> list[str]:
     range_spec = f"{since_tag}..HEAD" if since_tag else "HEAD"
     raw = _run(["git", "log", range_spec, "--format=%aN"])
     owner = _run(["git", "config", "user.name"])
+    if not owner:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] git user.name is not set; "
+            "contributor list may include the repo owner"
+        )
     names = {n.strip() for n in raw.splitlines() if n.strip()}
     return sorted(names - {owner})
 
@@ -213,8 +245,20 @@ def _via_claude(prompt: str) -> str:
             timeout=60,
             check=False,
         )
-        return result.stdout.strip() if result.returncode == 0 else ""
+        if result.returncode != 0:
+            _STDERR.print(
+                "[yellow]warning:[/yellow] claude CLI exited %d: %s"
+                % (result.returncode, result.stderr.strip() or "(no stderr)"),
+            )
+            return ""
+        return result.stdout.strip()
     except subprocess.TimeoutExpired:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] claude CLI timed out after 60 s; skipping"
+        )
+        return ""
+    except OSError as exc:
+        _STDERR.print("[yellow]warning:[/yellow] could not launch claude CLI: %s" % exc)
         return ""
 
 
@@ -230,30 +274,51 @@ def _via_github_models(prompt: str) -> str:
         check=False,
     )
     if token_result.returncode != 0:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] `gh auth token` failed; skipping GitHub Models: %s"
+            % token_result.stderr.strip(),
+        )
         return ""
     token = token_result.stdout.strip()
-    payload = json.dumps(
-        {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 300,
-        }
-    ).encode()
+    payload = json.dumps({
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 300,
+    }).encode()
     req = urllib.request.Request(  # noqa: S310
         "https://models.inference.ai.azure.com/chat/completions",
         data=payload,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
             data = json.loads(resp.read())
             return data["choices"][0]["message"]["content"].strip()
-    except (urllib.error.URLError, KeyError, json.JSONDecodeError):
+    except urllib.error.HTTPError as exc:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] GitHub Models API returned HTTP %d %s; skipping AI summary"
+            % (exc.code, exc.reason),
+        )
+        return ""
+    except urllib.error.URLError as exc:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] GitHub Models API unreachable: %s; skipping AI summary"
+            % exc.reason,
+        )
+        return ""
+    except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as exc:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] unexpected GitHub Models response: %s; skipping AI summary"
+            % exc,
+        )
         return ""
 
 
-_BACKEND_FNS: dict[Backend, list] = {
+_BACKEND_FNS: dict[Backend, list[Callable[[str], str]]] = {
     Backend.auto: [_via_claude, _via_github_models],
     Backend.claude: [_via_claude],
     Backend.github: [_via_github_models],
@@ -274,6 +339,11 @@ def ai_summary(
         result = fn(prompt)
         if result:
             return result
+    if _BACKEND_FNS[backend]:
+        _STDERR.print(
+            "[yellow]warning:[/yellow] all AI backends failed; "
+            "release notes will not include an AI summary"
+        )
     return ""
 
 
@@ -332,20 +402,18 @@ def _assemble(
         for commit in breaking:
             _, scope, desc = parse_subject(commit["subject"])
             refs = extract_issue_refs(commit["subject"], commit["body"])
-            lines.append(_render_commit_line(scope, desc, commit["hash"], refs, repo_url))
+            lines.append(
+                _render_commit_line(scope, desc, commit["hash"], refs, repo_url)
+            )
         lines.append("")
 
     lines += ["## What's Changed", ""]
 
-    seen_titles: set[str] = set()
     for key in TYPE_ORDER:
         items = grouped.get(key, [])
         if not items:
             continue
         title = COMMIT_TYPES.get(key, key.capitalize())
-        if title in seen_titles:
-            continue
-        seen_titles.add(title)
         lines += [f"### {title}", ""]
         for scope, desc, hash_, refs in items:
             lines.append(_render_commit_line(scope, desc, hash_, refs, repo_url))
@@ -360,7 +428,9 @@ def _assemble(
         lines += [f"Thanks to {thanks} for contributions to this release.", ""]
 
     if previous_tag:
-        lines.append(f"**Full Changelog**: {repo_url}/compare/{previous_tag}...{version}")
+        lines.append(
+            f"**Full Changelog**: {repo_url}/compare/{previous_tag}...{version}"
+        )
 
     return "\n".join(lines)
 
@@ -459,7 +529,8 @@ def main(
         uv run python scripts/generate_changelog.py --completion zsh >> ~/.zshrc
     """
     previous_tag = get_previous_tag(version)
-    repo_url = _run(["git", "remote", "get-url", "origin"]).removesuffix(".git")
+    raw_remote = _run(["git", "remote", "get-url", "origin"], required=True)
+    repo_url = _normalize_repo_url(raw_remote.removesuffix(".git"))
 
     total_steps = 2 if no_ai else 3
 
@@ -477,7 +548,9 @@ def main(
             progress.advance(task)
 
         progress.update(task, description="Assembling release notes...")
-        result = _assemble(commits, summary, contributors, version, previous_tag, repo_url)
+        result = _assemble(
+            commits, summary, contributors, version, previous_tag, repo_url
+        )
         progress.advance(task)
 
     typer.echo(result)
