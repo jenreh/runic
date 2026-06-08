@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from runic.orm.operations import DataOperations
+from runic.ogm.operations import DataOperations
 
 if TYPE_CHECKING:
     from runic.migrate.adapters import GraphAdapter
@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 class GraphOperations(DataOperations):
     """Migration-script API: data manipulation + DDL, both with preview mode.
 
-    Extends :class:`~runic.orm.operations.DataOperations` with DDL operations
+    Extends :class:`~runic.ogm.operations.DataOperations` with DDL operations
     (indexes, constraints, snapshots) that delegate to the underlying adapter.
 
     Migration scripts receive this object as their ``ops`` argument::

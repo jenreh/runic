@@ -3,7 +3,7 @@
 Welcome to **Runic**
 ====================
 
-Graph schema migrations and ORM for Cypher-based graph databases.
+Graph schema migrations and OGM for Cypher-based graph databases.
 
 |PyPI| |Github| |Python| |License|
 
@@ -28,7 +28,7 @@ Graph schema migrations and ORM for Cypher-based graph databases.
 
 **runic** ships two tools:
 
-* **runic.orm** — a lightweight, graph-optimized ORM that maps Python classes
+* **runic.ogm** — a lightweight, graph-optimized OGM that maps Python classes
   to graph nodes and edges.  Supports FalkorDB, ArcadeDB, Neo4j,
   Memgraph, Apache AGE (PostgreSQL), and any Bolt-compatible database
   via a pluggable driver layer.
@@ -37,7 +37,7 @@ Graph schema migrations and ORM for Cypher-based graph databases.
 
 .. code-block:: python
 
-   from runic.orm import Field, Node, Repository, Session, create_driver
+   from runic.ogm import Field, Node, Repository, Session, create_driver
 
    class Person(Node, labels=["Person"]):
        id: str = Field()
@@ -57,7 +57,7 @@ Graph schema migrations and ORM for Cypher-based graph databases.
 
 .. grid:: 2
 
-   .. grid-item-card:: ORM quickstart
+   .. grid-item-card:: OGM quickstart
       :link: quickstart
       :link-type: doc
 
@@ -100,7 +100,7 @@ Graph schema migrations and ORM for Cypher-based graph databases.
 
 .. grid:: 2
 
-   .. grid-item-card:: ORM API reference
+   .. grid-item-card:: OGM API reference
       :link: api
       :link-type: doc
 

@@ -3,7 +3,7 @@
 
 # Runic
 
-**Graph schema migrations and ORM for Cypher-based graph databases.**
+**Graph schema migrations and OGM for Cypher-based graph databases.**
 
 ![Version](https://img.shields.io/badge/version-0.3.3-blue)
 [![PyPI](https://img.shields.io/pypi/v/runic-py.svg)](https://pypi.org/project/runic-py/)
@@ -19,7 +19,7 @@
 **Runic** is a Python toolkit for Cypher-based graph databases that covers two layers:
 
 - **`runic.migrate`** — Alembic-style schema migrations with revision tracking, a CLI, and rollback snapshots.
-- **`runic.orm`** — A lightweight graph ORM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all via a pluggable driver layer supporting FalkorDB, ArcadeDB, and any Bolt-compatible database.
+- **`runic.ogm`** — A lightweight graph OGM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all via a pluggable driver layer supporting FalkorDB, ArcadeDB, and any Bolt-compatible database.
 
 ## Features
 
@@ -147,12 +147,12 @@ print("current:", runic.migrate.current())
 
 ---
 
-## runic.orm
+## runic.ogm
 
 ### Defining models
 
 ```python
-from runic.orm import Field, Node, Edge, Relation
+from runic.ogm import Field, Node, Edge, Relation
 
 
 class User(Node, labels=["User"]):
@@ -187,7 +187,7 @@ class Author(Node, labels=["Author"]):
 `Session` accepts any `GraphDriver`. Use `create_driver()` to build one for your backend:
 
 ```python
-from runic.orm import Session, Repository, create_driver
+from runic.ogm import Session, Repository, create_driver
 
 # Pick your backend — the rest of the code is identical
 driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
@@ -228,7 +228,7 @@ with Session(driver) as session:
 ### Pagination and custom queries
 
 ```python
-from runic.orm import Repository
+from runic.ogm import Repository
 
 with Session(driver) as session:
     repo = Repository(session, User)
@@ -254,7 +254,7 @@ class UserRepository(Repository[User]):
 dynamic query composition (e.g. conditional UI filters) before execution:
 
 ```python
-from runic.orm import select
+from runic.ogm import select
 
 stmt = select(User).where(User.active == True)
 if min_age > 0:
@@ -275,7 +275,7 @@ still fully supported.
 Declare indexes inline on `Field`, then let `SchemaManager` keep the live graph in sync:
 
 ```python
-from runic.orm import Field, IndexManager, Node, SchemaManager
+from runic.ogm import Field, IndexManager, Node, SchemaManager
 
 
 class Place(Node, labels=["Place"]):
@@ -300,7 +300,7 @@ print("valid:", result.is_valid)
 ```python
 from datetime import UTC, datetime
 from enum import StrEnum
-from runic.orm import Field, GeoLocation, Node, Vector
+from runic.ogm import Field, GeoLocation, Node, Vector
 
 
 class Status(StrEnum):

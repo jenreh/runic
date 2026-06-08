@@ -1,11 +1,11 @@
-# runic-orm skill — DeepEval suite
+# runic-ogm skill — DeepEval suite
 
-LLM-judged evaluation of whether the **runic-orm skill** (`skill/runic/`) makes
-Claude answer real `runic.orm` questions correctly.
+LLM-judged evaluation of whether the **runic-ogm skill** (`skill/runic/`) makes
+Claude answer real `runic.ogm` questions correctly.
 
 | File | Purpose |
 | --- | --- |
-| `.dataset.json` | Goldens: `input` (a runic.orm task) + `expected_output` (reference solution) |
+| `.dataset.json` | Goldens: `input` (a runic.ogm task) + `expected_output` (reference solution) |
 | `runic_orm_app.py` | The app under test — answers a prompt with the skill via `claude -p` |
 | `claude_cli_model.py` | Key-free DeepEval judge backed by the local `claude` CLI |
 | `metrics.py` | Two `GEval` metrics: `Correctness` and `APIFidelity` |
@@ -42,5 +42,5 @@ the app model are then the hosted API.
 
 `.dataset.json` is a plain JSON array of `{ "input", "expected_output" }`
 objects. Add or edit goldens freely, then rerun. Keep `expected_output`
-describing the *correct runic.orm approach* so the `Correctness` judge has a
+describing the *correct runic.ogm approach* so the `Correctness` judge has a
 solid reference.

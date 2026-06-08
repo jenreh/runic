@@ -21,7 +21,7 @@ class GraphAdapter(Protocol):
     @property
     def name(self) -> str: ...
 
-    # Normalised query execution (satisfies runic.orm.operations._Executor)
+    # Normalised query execution (satisfies runic.ogm.operations._Executor)
     def execute(self, cypher: str, params: dict[str, Any]) -> Any: ...
 
     # Low-level query execution

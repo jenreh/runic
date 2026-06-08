@@ -1,4 +1,4 @@
-"""Async sessions with runic.orm — and the lazy-loading sharp edge.
+"""Async sessions with runic.ogm — and the lazy-loading sharp edge.
 
 AsyncSession mirrors Session, but I/O methods are coroutines you must await.
 The critical difference: there is NO lazy relationship loading in async. Touching
@@ -18,9 +18,9 @@ import os
 
 from falkordb.asyncio import FalkorDB
 
-from runic.orm import AsyncSession, Field, Node, Relation, select
-from runic.orm.driver.falkordb import AsyncFalkorDBDriver
-from runic.orm.exceptions import LazyLoadError
+from runic.ogm import AsyncSession, Field, Node, Relation, select
+from runic.ogm.driver.falkordb import AsyncFalkorDBDriver
+from runic.ogm.exceptions import LazyLoadError
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

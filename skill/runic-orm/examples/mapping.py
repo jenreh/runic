@@ -1,4 +1,4 @@
-"""Mapping: defining Node and Edge models with runic.orm.
+"""Mapping: defining Node and Edge models with runic.ogm.
 
 Covers field declaration styles, primary keys, indexes/constraints, defaults,
 and the basic create/read/update/delete cycle that proves a model is wired up.
@@ -15,8 +15,8 @@ from enum import StrEnum
 
 from redislite import FalkorDB
 
-from runic.orm import Edge, Field, Node, Session
-from runic.orm.driver.falkordb import FalkorDBDriver
+from runic.ogm import Edge, Field, Node, Session
+from runic.ogm.driver.falkordb import FalkorDBDriver
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

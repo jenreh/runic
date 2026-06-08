@@ -13,7 +13,7 @@ from runic.migrate.adapters.falkordb import FalkorDBAdapter
 from runic.migrate.exceptions import ConstraintFailedError, ConstraintTimeoutError
 from runic.migrate.introspect import LiveSchema
 from runic.migrate.manifest import MandatoryConstraint, RangeIndex, UniqueConstraint
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.schema.index_manager import IndexSpec
 
 
 @pytest.fixture

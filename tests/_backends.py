@@ -78,7 +78,7 @@ def _make_falkordb(graph_name: str) -> tuple[Any, Callable[[], None]]:
 
     g = db.select_graph(graph_name)
 
-    from runic.orm.driver.falkordb import FalkorDBDriver
+    from runic.ogm.driver.falkordb import FalkorDBDriver
 
     driver = FalkorDBDriver(g, db)
 
@@ -110,7 +110,7 @@ def _make_neo4j(graph_name: str) -> tuple[Any, Callable[[], None]]:  # noqa: ARG
     except Exception as exc:
         pytest.skip(f"Neo4j not reachable at {uri}: {exc}")
 
-    from runic.orm.driver.neo4j import create_neo4j_driver
+    from runic.ogm.driver.neo4j import create_neo4j_driver
 
     # Neo4j Community Edition only supports one database; use the default.
     # Per-test isolation is achieved by DETACH DELETE + index/constraint cleanup.
@@ -140,7 +140,7 @@ def _make_memgraph(graph_name: str) -> tuple[Any, Callable[[], None]]:
     port = int(uri.rsplit(":", 1)[-1])
 
     try:
-        from runic.orm.driver.memgraph import create_memgraph_driver
+        from runic.ogm.driver.memgraph import create_memgraph_driver
 
         # Memgraph does not support arbitrary named databases in the same way
         # as Neo4j — use the default database ("") and rely on DETACH DELETE
@@ -195,7 +195,7 @@ def _make_arcadedb(graph_name: str) -> tuple[Any, Callable[[], None]]:
         pytest.skip(f"ArcadeDB not reachable at {host}:{http_port}: {exc}")
 
     try:
-        from runic.orm.driver.arcadedb import create_arcadedb_driver
+        from runic.ogm.driver.arcadedb import create_arcadedb_driver
 
         driver = create_arcadedb_driver(
             host=host,
@@ -231,7 +231,7 @@ def _make_age(graph_name: str) -> tuple[Any, Callable[[], None]]:
     password = os.environ.get("RUNIC_AGE_PASSWORD", "postgres")
 
     try:
-        from runic.orm.driver.age import create_age_driver
+        from runic.ogm.driver.age import create_age_driver
 
         driver = create_age_driver(
             host=host,

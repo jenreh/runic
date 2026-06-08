@@ -67,12 +67,12 @@ migration path anyway.
 **What to do:** Write vector index parameter changes as explicit migrations
 using ``op.drop_vector_index`` + ``op.create_vector_index``.
 
-ORM schema validation vs. autogenerate introspection
+OGM schema validation vs. autogenerate introspection
 ------------------------------------------------------
 
 These are two separate concerns that use different code paths:
 
-**ORM schema validation** (``IndexManager`` / ``SchemaManager``) uses
+**OGM schema validation** (``IndexManager`` / ``SchemaManager``) uses
 ``get_existing_specs()`` to read the live schema at startup and diff/sync it
 against your model declarations.  This is implemented for:
 

@@ -7,9 +7,9 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import GraphAdapterBase
-from runic.orm.driver.bolt import BoltDriver
-from runic.orm.driver.memgraph import _MEMGRAPH_DIALECT, MemgraphDialect
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.driver.bolt import BoltDriver
+from runic.ogm.driver.memgraph import _MEMGRAPH_DIALECT, MemgraphDialect
+from runic.ogm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
     """Migration adapter for Memgraph accessed via Bolt protocol.
 
-    Named index convention (must match :class:`~runic.orm.driver.memgraph.MemgraphDialect`):
+    Named index convention (must match :class:`~runic.ogm.driver.memgraph.MemgraphDialect`):
 
     - **Fulltext** (text search) index name = ``{label}`` (e.g. ``Post``)
     - **Vector** index name = ``{label}_{prop}`` (e.g. ``Article_embedding``)

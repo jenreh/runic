@@ -33,7 +33,7 @@ except ImportError:
 
 from runic.migrate import IndexManager, SchemaManager  # noqa: E402
 from runic.migrate.adapters import GraphAdapter, create_adapter  # noqa: E402
-from runic.orm import Field, Node  # noqa: E402
+from runic.ogm import Field, Node  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models with index declarations
