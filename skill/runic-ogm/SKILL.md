@@ -1,5 +1,5 @@
 ---
-name: runic-orm
+name: runic-ogm
 description: |
   Expert guide for runic.ogm — a SQLModel-style, graph-native Python OGM for
   Cypher databases (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE). Use

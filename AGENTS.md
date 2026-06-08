@@ -104,13 +104,13 @@ Prefer official docs; widen via web search for cross-version issues.
 
 ## 5) Python Code & Testing
 
-Full rules in **writing-python-code** skill. Key:
+Full rules in **python-coding** skill. Key:
 
 - Python 3.14; uv; line length **88**.
 - No f-strings in logger calls.
-- Files ≤ 1000 lines.
-- Coverage ≥ 80% non-Reflex classes & State classes.
-- Type annotations on all functions/methods.
+- Files **≤ 1000 lines**.
+- Test coverage ≥ 80%.
+- Type annotations on **all** functions/methods.
 
 ---
 
@@ -132,26 +132,24 @@ Full rules in **writing-python-code** skill. Key:
 
 ---
 
-## 8) Pre‑PR Checklist
+## 8) Task Checklist / Definition of Done
 
 - [ ] Tests added/updated; all green
-- [ ] Coverage ≥ 80% non-Reflex classes & Reflex states
-- [ ] `task format && task lint` pass
+- [ ] Coverage ≥ 80%
+- [ ] `task format && task lint && task typecheck` pass
 - [ ] No file > 1000 lines
-- [ ] Design patterns applied
+- [ ] Clean architecture, no code smells, used python-clean-code principles
 - [ ] Migrations reviewed & documented
-- [ ] Memory updated (decisions, patterns, error→fix)
-- [ ] PR description complete; links/screenshots added
+- [ ] Documentation & README.md updated
+- [ ] Memory updated (decisions, patterns, error→fix, learnings)
 
 ---
 
-## 9) Skills
+## 9) Important Skills
 
 | Skill | Purpose |
 | --- | --- |
-| `writing-python-code` | Python 3.14 style, logging, type annotations, design patterns, testing |
-| `reflex-state-and-architecture` | State design, event handlers, background tasks, form validation, page factory, service registry, repo pattern, DB models, architecture |
-| `appkit-mantine-reference` | Full API for appkit_mantine components — inputs, layout, overlays, charts, data display, navigation |
-| `testing-reflex-state` | Pytest unit tests for Reflex State — event handlers, computed vars, substates |
-| `multi-stage-dockerfile` | Optimized multi-stage Dockerfiles, layer caching, security, healthchecks |
-| `frontend-design` | Create distinctive, production-grade frontend interfaces |
+| `python-coding` | Python 3.14 style, logging, type annotations, design patterns, testing |
+| `python-clean-code` | Enforce Clean Code Developer (CCD) architecture and software quality principles |
+| `code-cleanup` | Refactor and simplify Python files modified in the current session if they get complex/big |
+| `boost` | Use when the user wants to refine, sharpen, or expand a rough idea into a detailed implementation prompt |
