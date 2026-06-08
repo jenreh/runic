@@ -1,4 +1,4 @@
-"""Relations: declaring and traversing relationships with runic.orm.
+"""Relations: declaring and traversing relationships with runic.ogm.
 
 Covers Relation() declaration (single, collection, edge model, directions),
 lazy vs eager loading, relate()/unrelate() mutation, and reading edge
@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 
 from redislite import FalkorDB
 
-from runic.orm import Edge, Field, Node, Relation, Session, select
-from runic.orm.driver.falkordb import FalkorDBDriver
+from runic.ogm import Edge, Field, Node, Relation, Session, select
+from runic.ogm.driver.falkordb import FalkorDBDriver
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

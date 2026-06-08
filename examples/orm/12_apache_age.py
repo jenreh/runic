@@ -1,4 +1,4 @@
-"""Example 12 — Apache AGE (PostgreSQL graph extension) with runic.orm.
+"""Example 12 — Apache AGE (PostgreSQL graph extension) with runic.ogm.
 
 Demonstrates:
   - Connecting to Apache AGE via create_driver("age", ...)
@@ -28,9 +28,9 @@ import os
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.orm import Field, Node, Repository, Session, select  # noqa: E402
-from runic.orm.driver import GraphDriver  # noqa: E402
-from runic.orm.driver.factory import create_driver  # noqa: E402
+from runic.ogm import Field, Node, Repository, Session, select  # noqa: E402
+from runic.ogm.driver import GraphDriver  # noqa: E402
+from runic.ogm.driver.factory import create_driver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Model definitions

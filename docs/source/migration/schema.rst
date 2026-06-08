@@ -48,11 +48,11 @@ is also accepted for backward compatibility; the adapter path is preferred.
 Declaring indexes on models
 ---------------------------
 
-Index hints live on :func:`~runic.orm.core.descriptors.Field` parameters:
+Index hints live on :func:`~runic.ogm.core.descriptors.Field` parameters:
 
 .. code-block:: python
 
-   from runic.orm import Field, Node
+   from runic.ogm import Field, Node
 
    class Person(Node, labels=["Person"]):
        id: str = Field(primary_key=True)
@@ -117,7 +117,7 @@ model class at a time.
      - Alias for ``create_indexes(cls, if_not_exists=True)``.  Preferred for
        startup code where "make sure these exist" is the intent.
    * - ``create_spec(spec)``
-     - Issue the adapter call for a single :class:`~runic.orm.schema.index_manager.IndexSpec`.
+     - Issue the adapter call for a single :class:`~runic.ogm.schema.index_manager.IndexSpec`.
    * - ``drop_spec(spec)``
      - Drop the index or constraint described by *spec*.
 

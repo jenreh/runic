@@ -1,7 +1,7 @@
 Query Builder
 =============
 
-The query builder lets you construct Cypher queries from your ORM model
+The query builder lets you construct Cypher queries from your OGM model
 declarations using a fluent Python API — without writing raw Cypher strings for
 the common cases.  This page explains *how* the builder works, *what Cypher it
 emits*, and *when* to use each feature so you can read the result confidently
@@ -12,8 +12,8 @@ and know when to reach for something else.
 How the query builder works
 ----------------------------
 
-:func:`~runic.orm.query.select` returns a
-:class:`~runic.orm.query.builder.QueryBuilder` that accumulates clauses as you
+:func:`~runic.ogm.query.select` returns a
+:class:`~runic.ogm.query.builder.QueryBuilder` that accumulates clauses as you
 chain method calls.  Nothing is sent to the database until you pass the
 statement to a session execution method (``session.scalars()``,
 ``session.scalar()``, ``session.count()``, etc.).
@@ -23,7 +23,7 @@ At that point the session:
 1. **Generates a Cypher string and a parameter dict** from the accumulated
    clauses.
 2. **Sends the query to the driver** via the session's connection.
-3. **Decodes each result row** using the ORM mapper — the same code path used
+3. **Decodes each result row** using the OGM mapper — the same code path used
    by ``session.get()`` and ``repo.find_all()``.
 4. **Registers returned entities in the session's identity map**, so change
    tracking works on them exactly as if you had loaded them any other way.
@@ -33,10 +33,10 @@ builder queries and direct ``session.get()`` calls freely within the same
 session.
 
 To see the Cypher the builder *would* emit without executing it, call
-:meth:`~runic.orm.query.builder.QueryBuilder.build` — this works on an unbound
+:meth:`~runic.ogm.query.builder.QueryBuilder.build` — this works on an unbound
 statement (no session required)::
 
-    from runic.orm import select
+    from runic.ogm import select
 
     cypher: str
     params: dict[str, Any]
@@ -62,7 +62,7 @@ Entry points
 ------------
 
 There are four starting points for a query.  All four return a
-:class:`~runic.orm.query.builder.QueryBuilder` whose chaining and terminal
+:class:`~runic.ogm.query.builder.QueryBuilder` whose chaining and terminal
 methods behave identically.
 
 .. list-table::
@@ -92,14 +92,14 @@ methods behave identically.
 Composable statements
 ---------------------
 
-:func:`~runic.orm.query.select` creates a :class:`~runic.orm.query.builder.QueryBuilder`
+:func:`~runic.ogm.query.select` creates a :class:`~runic.ogm.query.builder.QueryBuilder`
 that is **not bound to a session**, making it easy to build dynamic queries from
 UI filters, request parameters, or any conditional logic — then hand the
 finished statement to a session for execution.
 
 .. code-block:: python
 
-   from runic.orm import select
+   from runic.ogm import select
 
    # Build without touching the database
    stmt = select(User).where(User.active == True)
@@ -143,14 +143,14 @@ Filtering
 
 Predicates are built by applying Python comparison operators to **class-level
 field accesses**.  The operator overloads on
-:class:`~runic.orm.core.descriptors.FieldDescriptor` return lightweight
-:class:`~runic.orm.query.expressions.FilterExpr` objects that the builder
+:class:`~runic.ogm.core.descriptors.FieldDescriptor` return lightweight
+:class:`~runic.ogm.query.expressions.FilterExpr` objects that the builder
 serialises into parameterised Cypher ``WHERE`` clauses.
 
 Two important points before you start:
 
 * **No Python evaluation happens.** ``User.age > 18`` does not evaluate to a
-  Python boolean; it returns a :class:`~runic.orm.query.expressions.FilterExpr`
+  Python boolean; it returns a :class:`~runic.ogm.query.expressions.FilterExpr`
   object.  This means you cannot use it inside a Python ``if`` statement — only
   inside ``.where()``.
 * **Parameters are always bound.** The builder never interpolates values
@@ -293,7 +293,7 @@ Projection — returning scalar values
 --------------------------------------
 
 By default, the query returns fully decoded node instances.  Use
-:meth:`~runic.orm.query.builder.QueryBuilder.project` when you only need a
+:meth:`~runic.ogm.query.builder.QueryBuilder.project` when you only need a
 subset of properties — this avoids loading full node objects and reduces the
 data transferred from the database.
 
@@ -321,13 +321,13 @@ Aggregation
 -----------
 
 The query builder ships aggregation helpers that map to Cypher's built-in
-aggregate functions.  Import them from :mod:`runic.orm.query`:
+aggregate functions.  Import them from :mod:`runic.ogm.query`:
 
 .. code-block:: python
 
-    from runic.orm.query import count, avg, sum_, min_, max_, collect
+    from runic.ogm.query import count, avg, sum_, min_, max_, collect
 
-Use :meth:`~runic.orm.query.builder.QueryBuilder.aggregate` to add one or more
+Use :meth:`~runic.ogm.query.builder.QueryBuilder.aggregate` to add one or more
 aggregation expressions to the ``RETURN`` clause.  The ``.as_("name")`` call
 sets the Cypher alias for that column, which you use to retrieve the value from
 the result dict returned by ``.all_rows()``.
@@ -399,7 +399,7 @@ Traversals
 ----------
 
 The traversal API lets you follow relationship patterns declared on your models
-using :func:`~runic.orm.core.descriptors.Relation` fields — without writing
+using :func:`~runic.ogm.core.descriptors.Relation` fields — without writing
 ``MATCH (a)-[:TYPE]->(b)`` by hand.
 
 Understanding OPTIONAL MATCH vs MATCH
@@ -422,8 +422,8 @@ Choose based on whether missing relationships are valid data or an error.
 Single-hop traversal
 ~~~~~~~~~~~~~~~~~~~~
 
-:meth:`~runic.orm.query.builder.QueryBuilder.traverse` takes a
-:func:`~runic.orm.core.descriptors.Relation` field reference.  Call
+:meth:`~runic.ogm.query.builder.QueryBuilder.traverse` takes a
+:func:`~runic.ogm.core.descriptors.Relation` field reference.  Call
 ``.alias()`` on the returned step to name the target node variable and continue
 the builder chain:
 
@@ -469,7 +469,7 @@ relationships.  Each step names a new alias::
 Variable-length paths
 ~~~~~~~~~~~~~~~~~~~~~
 
-Use :meth:`~runic.orm.query.builder.QueryBuilder.repeat` when you need to
+Use :meth:`~runic.ogm.query.builder.QueryBuilder.repeat` when you need to
 traverse an unknown number of hops — equivalent to Cypher's ``*min..max``
 quantifier.  This is useful for hierarchies (org charts, category trees,
 dependency graphs):
@@ -657,9 +657,9 @@ Full-text search
 
 Full-text search uses a backend-specific ``CALL`` procedure instead of a
 ``MATCH`` clause.  The entry point is
-:meth:`~runic.orm.session.session.Session.fulltext_search`, which returns a
+:meth:`~runic.ogm.session.session.Session.fulltext_search`, which returns a
 specialised builder that has the same chaining and terminal methods as
-:class:`~runic.orm.query.builder.QueryBuilder`.
+:class:`~runic.ogm.query.builder.QueryBuilder`.
 
 The backend procedure invoked depends on which driver you are using:
 
@@ -791,14 +791,14 @@ changes the ``ORDER BY`` clause, which may return non-nearest results.
 Async usage
 -----------
 
-:class:`~runic.orm.session.async_session.AsyncSession` returns an
-:class:`~runic.orm.query.builder.AsyncQueryBuilder` from ``.query()``.  The
+:class:`~runic.ogm.session.async_session.AsyncSession` returns an
+:class:`~runic.ogm.query.builder.AsyncQueryBuilder` from ``.query()``.  The
 chaining methods (``where``, ``order_by``, ``traverse``, etc.) are identical;
 only the terminal methods are ``async`` and must be awaited:
 
 .. code-block:: python
 
-    from runic.orm import select
+    from runic.ogm import select
 
     stmt = select(User).where(User.active == True).order_by(User.name).limit(50)
     stmt_friends = (
@@ -833,7 +833,7 @@ tuple without executing it.  Use it to:
 
 .. code-block:: python
 
-    from runic.orm import select
+    from runic.ogm import select
 
     cypher: str
     params: dict[str, Any]
@@ -940,7 +940,7 @@ Cypher feature coverage
      - ``.with_("alias")``
    * - Aggregation (count/avg/sum/…)
      - ✓
-     - ``.aggregate(...)`` + helpers from ``runic.orm.query``
+     - ``.aggregate(...)`` + helpers from ``runic.ogm.query``
    * - Edge property filter
      - ✓
      - ``traverse(edge_alias=)`` + ``where(on=)``

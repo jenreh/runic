@@ -1,6 +1,6 @@
-"""DeepEval suite: does the runic-orm skill make Claude answer correctly?
+"""DeepEval suite: does the runic-ogm skill make Claude answer correctly?
 
-Each golden is a real runic.orm question. The 'app' (runic_orm_app.run_ai_app)
+Each golden is a real runic.ogm question. The 'app' (runic_orm_app.run_ai_app)
 answers it with the skill as context; two GEval metrics judge the answer for
 correctness and API fidelity.
 

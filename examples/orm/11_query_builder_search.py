@@ -26,16 +26,16 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 from runic.migrate import IndexManager  # noqa: E402
-from runic.orm import (  # noqa: E402
+from runic.ogm import (  # noqa: E402
     Field,
     GeoLocation,
     Node,
     Session,
     Vector,
 )
-from runic.orm.driver import GraphDriver  # noqa: E402
-from runic.orm.driver.factory import create_driver  # noqa: E402
-from runic.orm.driver.falkordb import FalkorDBDriver  # noqa: E402
+from runic.ogm.driver import GraphDriver  # noqa: E402
+from runic.ogm.driver.factory import create_driver  # noqa: E402
+from runic.ogm.driver.falkordb import FalkorDBDriver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Models
@@ -137,7 +137,7 @@ def run() -> None:
             ),
             Article(
                 id="a4",
-                title="Python ORM Patterns",
+                title="Python OGM Patterns",
                 body="How ORMs simplify database access in Python applications.",
                 category="python",
                 published=True,

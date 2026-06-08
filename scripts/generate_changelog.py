@@ -75,7 +75,7 @@ _BREAKING_SUBJECT_RE = re.compile(r"^\w+(?:\([^)]+\))?!:")
 
 _SUMMARY_PROMPT = (
     "Write the opening paragraph for the GitHub release notes of **runic {version}** "
-    "(a Python graph schema migration and ORM library for Cypher-based graph "
+    "(a Python graph schema migration and OGM library for Cypher-based graph "
     "databases like FalkorDB).\n\n"
     "Commits since {previous_tag}:\n{commits}\n\n"
     "Instructions:\n"

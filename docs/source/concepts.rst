@@ -1,12 +1,12 @@
 Core Concepts
 =============
 
-This page explains the building blocks of ``runic.orm``: how models map to
+This page explains the building blocks of ``runic.ogm``: how models map to
 graph nodes and edges, how the session manages object lifecycle, and how the
 identity map eliminates redundant queries.
 
 All state — query generation, dirty tracking, identity tracking — lives in the
-:class:`~runic.orm.session.session.Session`.  The session is your unit of work.
+:class:`~runic.ogm.session.session.Session`.  The session is your unit of work.
 Models are plain Python classes; they carry no database logic themselves.
 
 ----
@@ -14,12 +14,12 @@ Models are plain Python classes; they carry no database logic themselves.
 Node and Edge
 -------------
 
-Every graph entity inherits from either :class:`~runic.orm.core.models.Node`
-or :class:`~runic.orm.core.models.Edge`.
+Every graph entity inherits from either :class:`~runic.ogm.core.models.Node`
+or :class:`~runic.ogm.core.models.Edge`.
 
 .. code-block:: python
 
-   from runic.orm import Edge, Field, Node
+   from runic.ogm import Edge, Field, Node
 
    class Person(Node, labels=["Person"]):
        id: str = Field(primary_key=True, generated=True)
@@ -73,11 +73,11 @@ Field and Relation descriptors
 Properties and relationships are declared with separate functions to keep
 scalar data and graph topology clearly separated:
 
-* :func:`~runic.orm.core.descriptors.Field` — scalar properties, index hints,
+* :func:`~runic.ogm.core.descriptors.Field` — scalar properties, index hints,
   and constraints.
-* :func:`~runic.orm.core.descriptors.Relation` — graph relationships (edges).
+* :func:`~runic.ogm.core.descriptors.Relation` — graph relationships (edges).
 
-Both return :class:`~runic.orm.core.descriptors.FieldDescriptor` typed as
+Both return :class:`~runic.ogm.core.descriptors.FieldDescriptor` typed as
 ``Any``, so ``name: str = Field()`` is accepted by type checkers without
 error.  At runtime the descriptor intercepts ``__set__`` to set ``_dirty``
 and ``__get__`` to trigger lazy loading.
@@ -106,9 +106,9 @@ and ``__get__`` to trigger lazy loading.
      - Unique constraint
    * - ``required``
      - ``bool``
-     - Validated on save; raises :exc:`~runic.orm.exceptions.FieldValidationError`
+     - Validated on save; raises :exc:`~runic.ogm.exceptions.FieldValidationError`
    * - ``converter``
-     - :class:`~runic.orm.core.types.TypeConverter`
+     - :class:`~runic.ogm.core.types.TypeConverter`
      - Custom encode/decode; omit for ``datetime``, ``Enum``, ``Vector``,
        and ``GeoLocation`` — converters are assigned automatically
    * - ``generated``
@@ -139,7 +139,7 @@ and ``__get__`` to trigger lazy loading.
      - Entity class (or forward-reference string) for the other end (required)
    * - ``edge_model``
      - ``str | type``
-     - Optional :class:`~runic.orm.core.models.Edge` subclass holding edge
+     - Optional :class:`~runic.ogm.core.models.Edge` subclass holding edge
        properties
    * - ``lazy``
      - ``bool``
@@ -196,7 +196,7 @@ The descriptor ``__set__`` sets ``_dirty = True`` automatically.  The session
 clears both flags after a successful ``flush()``.
 
 Only the fields that were actually set are included in the ``SET`` clause.
-The ORM does not write fields that haven't changed:
+The OGM does not write fields that haven't changed:
 
 .. code-block:: python
 
@@ -236,7 +236,7 @@ The identity map is cleared when the session is closed.  Objects become
 Type converters
 ---------------
 
-The ORM assigns converters *automatically* for well-known annotation types —
+The OGM assigns converters *automatically* for well-known annotation types —
 no ``converter=`` argument needed:
 
 .. list-table::
@@ -246,19 +246,19 @@ no ``converter=`` argument needed:
    * - Annotation type
      - Converter assigned automatically
    * - ``datetime``
-     - :class:`~runic.orm.core.types.DatetimeConverter` — stores as ISO-8601 string
+     - :class:`~runic.ogm.core.types.DatetimeConverter` — stores as ISO-8601 string
    * - ``Enum`` subclass
-     - :class:`~runic.orm.core.types.EnumConverter` — stores ``.value``
-   * - :class:`~runic.orm.core.types.Vector`
-     - :class:`~runic.orm.core.types.VectorConverter` — stores via ``vecf32()``
-   * - :class:`~runic.orm.core.types.GeoLocation`
-     - :class:`~runic.orm.core.types.GeoLocationConverter` — stores via ``point()``
+     - :class:`~runic.ogm.core.types.EnumConverter` — stores ``.value``
+   * - :class:`~runic.ogm.core.types.Vector`
+     - :class:`~runic.ogm.core.types.VectorConverter` — stores via ``vecf32()``
+   * - :class:`~runic.ogm.core.types.GeoLocation`
+     - :class:`~runic.ogm.core.types.GeoLocationConverter` — stores via ``point()``
 
 .. code-block:: python
 
    from datetime import datetime
    from enum import StrEnum
-   from runic.orm import Field, GeoLocation, Node, Vector
+   from runic.ogm import Field, GeoLocation, Node, Vector
 
    class Status(StrEnum):
        ACTIVE = "active"
@@ -287,13 +287,13 @@ high-cardinality-but-low-variety fields like country names or status codes:
 
 **Custom converters**
 
-Implement :class:`~runic.orm.core.types.TypeConverter` (``to_graph`` /
+Implement :class:`~runic.ogm.core.types.TypeConverter` (``to_graph`` /
 ``from_graph``) for any type not covered above.  Set ``cypher_fn`` on the
 converter class to wrap the Cypher parameter with a backend function:
 
 .. code-block:: python
 
-   from runic.orm import TypeConverter
+   from runic.ogm import TypeConverter
 
    class MyConverter(TypeConverter):
        cypher_fn = "myFunc"   # wraps Cypher parameter: myFunc($value)
@@ -312,7 +312,7 @@ Metadata registry
 -----------------
 
 All ``Node`` and ``Edge`` subclasses are registered automatically in the
-global :data:`~runic.orm.core.metadata.metadata` singleton when the class is
+global :data:`~runic.ogm.core.metadata.metadata` singleton when the class is
 defined.  The registry is used by :class:`~runic.migrate.schema.IndexManager`
 to discover index hints and by the mapper for polymorphic label resolution.
 
@@ -320,7 +320,7 @@ Forward references in ``target=`` strings are resolved at import time.
 
 .. code-block:: python
 
-   from runic.orm import metadata
+   from runic.ogm import metadata
 
    for node_meta in metadata.all_nodes():
        print(node_meta.cls.__name__, node_meta.labels)

@@ -7,9 +7,9 @@ from typing import Any
 
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import GraphAdapterBase
-from runic.orm.driver.bolt import BoltDriver
-from runic.orm.driver.neo4j import _NEO4J_DIALECT, Neo4jDialect
-from runic.orm.schema.index_manager import IndexSpec
+from runic.ogm.driver.bolt import BoltDriver
+from runic.ogm.driver.neo4j import _NEO4J_DIALECT, Neo4jDialect
+from runic.ogm.schema.index_manager import IndexSpec
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
     """Migration adapter for Neo4j 5.x accessed via Bolt protocol.
 
-    Named index convention (must match :class:`~runic.orm.driver.neo4j.Neo4jDialect`):
+    Named index convention (must match :class:`~runic.ogm.driver.neo4j.Neo4jDialect`):
 
     - **Fulltext** index name = ``{label}`` (e.g. ``Post``)
     - **Vector** index name = ``{label}_{prop}`` (e.g. ``Article_embedding``)
