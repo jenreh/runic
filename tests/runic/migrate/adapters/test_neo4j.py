@@ -225,10 +225,11 @@ class TestRangeIndex:
         cypher = mock_driver.execute.call_args[0][0]
         assert "DROP INDEX User_email IF EXISTS" in cypher
 
-    def test_create_range_index_swallows_exception(self) -> None:
+    def test_create_range_index_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("already exists")
-        adapter.create_range_index("User", "email")  # must not raise
+        with pytest.raises(RuntimeError, match="already exists"):
+            adapter.create_range_index("User", "email")
 
 
 # ---------------------------------------------------------------------------
@@ -259,10 +260,11 @@ class TestFulltextIndex:
         cypher = mock_driver.execute.call_args[0][0]
         assert "DROP INDEX Post IF EXISTS" in cypher
 
-    def test_create_fulltext_swallows_exception(self) -> None:
+    def test_create_fulltext_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("fail")
-        adapter.create_fulltext_index("Post", "body")  # must not raise
+        with pytest.raises(RuntimeError, match="fail"):
+            adapter.create_fulltext_index("Post", "body")
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +322,11 @@ class TestConstraints:
         adapter.create_constraint("EXISTS", "NODE", "User", ["id"])
         mock_driver.execute.assert_not_called()
 
-    def test_create_constraint_swallows_exception(self) -> None:
+    def test_create_constraint_propagates_exception(self) -> None:
         adapter, mock_driver = _make_adapter()
         mock_driver.execute.side_effect = RuntimeError("fail")
-        adapter.create_constraint("UNIQUE", "NODE", "User", ["id"])  # must not raise
+        with pytest.raises(RuntimeError, match="fail"):
+            adapter.create_constraint("UNIQUE", "NODE", "User", ["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +350,15 @@ class TestLifecycle:
         adapter, _ = _make_adapter()
         with pytest.raises(NotImplementedError):
             adapter.restore_snapshot("snap1")
+
+    def test_supports_snapshots_false(self) -> None:
+        adapter, _ = _make_adapter()
+        assert adapter.supports_snapshots() is False
+
+    def test_introspect_schema_raises(self) -> None:
+        adapter, _ = _make_adapter()
+        with pytest.raises(NotImplementedError):
+            adapter.introspect_schema()
 
     def test_snapshot_exists_returns_false(self) -> None:
         adapter, _ = _make_adapter()

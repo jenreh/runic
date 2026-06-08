@@ -97,21 +97,10 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
         entity = f"()-[n:{label}]->()" if rel else f"(n:{label})"
         cypher = f"CREATE INDEX {label}_{prop} IF NOT EXISTS FOR {entity} ON (n.{prop})"
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Neo4j create_range_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(cypher)
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX {label}_{prop} IF EXISTS"
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("Neo4j drop_range_index failed for %s.%s: %s", label, prop, exc)
+        self._execute_ddl(f"DROP INDEX {label}_{prop} IF EXISTS")
 
     def create_fulltext_index(
         self,
@@ -125,21 +114,10 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
             f"CREATE FULLTEXT INDEX {label} IF NOT EXISTS "
             f"FOR (n:{label}) ON EACH [{prop_list}]"
         )
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Neo4j create_fulltext_index failed for %s %s: %s", label, props, exc
-            )
+        self._execute_ddl(cypher)
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:  # noqa: ARG002
-        cypher = f"DROP INDEX {label} IF EXISTS"
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning("Neo4j drop_fulltext_index failed for %s: %s", label, exc)
+        self._execute_ddl(f"DROP INDEX {label} IF EXISTS")
 
     def create_vector_index(
         self,
@@ -165,23 +143,10 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
             f"OPTIONS {{indexConfig: {{`vector.dimensions`: {dimension}, "
             f"`vector.similarity_function`: '{similarity}'}}}}"
         )
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Neo4j create_vector_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(cypher)
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        cypher = f"DROP INDEX {label}_{prop} IF EXISTS"
-        log.info("Neo4j DDL: %s", cypher)
-        try:
-            self.run_query(cypher)
-        except Exception as exc:
-            log.warning(
-                "Neo4j drop_vector_index failed for %s.%s: %s", label, prop, exc
-            )
+        self._execute_ddl(f"DROP INDEX {label}_{prop} IF EXISTS")
 
     # ------------------------------------------------------------------
     # DDL — constraints
@@ -193,17 +158,10 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
             name = f"{label}_{prop}_unique"
-            cypher = (
+            self._execute_ddl(
                 f"CREATE CONSTRAINT {name} IF NOT EXISTS "
                 f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
             )
-            log.info("Neo4j DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "Neo4j create_constraint failed for %s.%s: %s", label, prop, exc
-                )
         else:
             log.warning(
                 "Neo4j create_constraint: unsupported kind=%s entity=%s label=%s props=%s",
@@ -219,14 +177,7 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
         if kind == "UNIQUE" and entity == "NODE" and len(props) == 1:
             prop = props[0]
             name = f"{label}_{prop}_unique"
-            cypher = f"DROP CONSTRAINT {name} IF EXISTS"
-            log.info("Neo4j DDL: %s", cypher)
-            try:
-                self.run_query(cypher)
-            except Exception as exc:
-                log.warning(
-                    "Neo4j drop_constraint failed for %s.%s: %s", label, prop, exc
-                )
+            self._execute_ddl(f"DROP CONSTRAINT {name} IF EXISTS")
         else:
             log.warning(
                 "Neo4j drop_constraint: unsupported kind=%s entity=%s label=%s props=%s",

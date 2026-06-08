@@ -743,12 +743,17 @@ def info_cmd(
         return
 
     # COMPARE (default)
+    from runic.migrate.exceptions import MultipleHeadsError
+    from runic.migrate.script import AmbiguousRevision, RevisionNotFound
+
     all_revs = ctx.get_history()
     try:
         pending = ctx._script_dir.topological_upgrade_path(  # noqa: SLF001
             current_revs or None, "head"
         )
-    except Exception:
+    except (MultipleHeadsError, RevisionNotFound, AmbiguousRevision) as exc:
+        # Don't report a misleading "up to date" status; surface the problem.
+        typer.echo(f"Warning: cannot determine pending revisions: {exc}", err=True)
         pending = []
 
     applied_count = len(all_revs) - len(pending)
@@ -840,9 +845,9 @@ def baseline(
         typer.echo(f"Stamped:   {rev_id}")
 
     if not stamp_only:
-        from runic.migrate.introspect import introspect_graph, render_manifest_code
+        from runic.migrate.introspect import render_manifest_code
 
-        snapshot: SchemaSnapshot = introspect_graph(ctx._adapter._graph)  # noqa: SLF001  # ty:ignore[unresolved-attribute]
+        snapshot: SchemaSnapshot = ctx.adapter.introspect_schema()
         manifest = render_manifest_code(snapshot)
         sep = "─" * 64
         typer.echo(

@@ -1,3 +1,4 @@
+import logging
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -106,6 +107,33 @@ def tmp_two_heads(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _write_snapshot_revision(tmp_path: Path) -> Path:
+    """A single revision that requests a pre-migration snapshot."""
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    rev = "aaaaaaaaaaaa"
+    (versions / f"{rev}_snap.py").write_text(
+        textwrap.dedent(f"""\
+            revision = {rev!r}
+            down_revision = None
+            branch_labels = []
+            depends_on = []
+            irreversible = False
+            snapshot = True
+            message = "snap"
+            from datetime import datetime
+            create_date = datetime(2026, 1, 1)
+
+            def upgrade(op):
+                pass
+
+            def downgrade(op):
+                pass
+        """)
+    )
+    return tmp_path
+
+
 def _make_ctx(
     mock_graph: MagicMock,
     mock_db: MagicMock,
@@ -164,6 +192,34 @@ def test_upgrade_mid_failure_leaves_prior_stamped(
     query_calls = [c[0][0] for c in mock_graph.query.call_args_list]
     stamp_calls = [q for q in query_calls if "v.revisions = $revisions" in q]
     assert len(stamp_calls) == 1
+
+
+def test_upgrade_takes_snapshot_when_supported(
+    mock_graph: MagicMock, mock_db: MagicMock, tmp_path: Path
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    mock_db.list_graphs.return_value = ["test_graph"]
+    ctx = _make_ctx(mock_graph, mock_db, _write_snapshot_revision(tmp_path))
+    ctx.upgrade("head")
+    mock_graph.copy.assert_called_once()
+
+
+def test_upgrade_skips_snapshot_when_unsupported(
+    mock_graph: MagicMock,
+    mock_db: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_graph.query.return_value.result_set = []
+    ctx = _make_ctx(mock_graph, mock_db, _write_snapshot_revision(tmp_path))
+    monkeypatch.setattr(ctx._adapter, "supports_snapshots", lambda: False)  # noqa: SLF001
+
+    with caplog.at_level(logging.WARNING):
+        ctx.upgrade("head")
+
+    mock_graph.copy.assert_not_called()
+    assert "does not support snapshots" in caplog.text
 
 
 def test_downgrade_to_base_clears_version(
@@ -333,7 +389,7 @@ def test_upgrade_relative_invalid_suffix_treated_as_id(
 ) -> None:
     mock_graph.query.return_value.result_set = []
     ctx = _make_ctx(mock_graph, mock_db, tmp_versions)
-    with pytest.raises((RevisionNotFound, Exception)):
+    with pytest.raises(RevisionNotFound):
         ctx.upgrade("+xyz")
 
 

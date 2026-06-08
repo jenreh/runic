@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from runic.migrate.introspect import LiveSchema
+from runic.migrate.introspect import LiveSchema, SchemaSnapshot
 
 
 @runtime_checkable
@@ -37,6 +37,7 @@ class GraphAdapter(Protocol):
 
     # Schema introspection
     def read_live_schema(self) -> LiveSchema: ...
+    def introspect_schema(self) -> SchemaSnapshot: ...
 
     # Schema DDL
     def create_range_index(
@@ -74,6 +75,7 @@ class GraphAdapter(Protocol):
     def delete_graph(self) -> None: ...
 
     # Snapshots
+    def supports_snapshots(self) -> bool: ...
     def snapshot(self, snap_name: str) -> None: ...
     def restore_snapshot(self, snap_name: str) -> None: ...
     def snapshot_exists(self, snap_name: str) -> bool: ...

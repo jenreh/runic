@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
 from runic.orm.driver.bolt import BoltDriver
 from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
@@ -96,10 +98,11 @@ class TestDDL:
         cypher = mock_driver.execute.call_args[0][0]
         assert "Person" in cypher
 
-    def test_create_vertex_type_swallows_error(self) -> None:
+    def test_create_vertex_type_propagates_error(self) -> None:
         adapter, mock_driver = _make_adapter()
-        mock_driver.execute.side_effect = Exception("DDL error")
-        adapter.create_vertex_type("Person")  # should not raise
+        mock_driver.execute.side_effect = RuntimeError("DDL error")
+        with pytest.raises(RuntimeError, match="DDL error"):
+            adapter.create_vertex_type("Person")
 
     def test_create_edge_type_executes(self) -> None:
         adapter, mock_driver = _make_adapter()

@@ -11,6 +11,7 @@ from runic.orm.core.descriptors import Field
 from runic.orm.core.models import Node
 from runic.orm.exceptions import DetachedEntityError, OrmError
 from runic.orm.session.session import Session
+from tests.runic.orm.unit.mock_helpers import empty_result as _empty_result
 
 # ---------------------------------------------------------------------------
 # Test entities
@@ -85,18 +86,6 @@ class _RawNode:
         self.element_id = element_id
         self.labels = labels
         self.properties = properties
-
-
-# ---------------------------------------------------------------------------
-# Mock result helpers — driver-level (.rows shape)
-# ---------------------------------------------------------------------------
-
-
-def _empty_result() -> MagicMock:
-    r = MagicMock()
-    r.rows = []
-    r.columns = []
-    return r
 
 
 def _node_result(

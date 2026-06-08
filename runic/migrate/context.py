@@ -238,14 +238,23 @@ class Runic:
 
         for rev in revisions:
             snap_name = f"{self._adapter.name}__premig_{rev.revision}"
-            if rev.snapshot and not self._preview:
+            take_snapshot = rev.snapshot and not self._preview
+            if take_snapshot and not self._adapter.supports_snapshots():
+                log.warning(
+                    "revision %s requests a snapshot but adapter %r does not "
+                    "support snapshots; proceeding without one",
+                    rev.revision,
+                    self._adapter.name,
+                )
+                take_snapshot = False
+            if take_snapshot:
                 self._ops.snapshot(snap_name)
 
             log.info("upgrading to revision: %s — %s", rev.revision, rev.message)
             try:
                 rev.module.upgrade(self._ops)
             except Exception:
-                if rev.snapshot and not self._preview:
+                if take_snapshot:
                     log.warning(
                         "upgrade failed, restoring snapshot for revision %s",
                         rev.revision,
@@ -428,7 +437,6 @@ class Runic:
         from runic.migrate.introspect import (
             full_downgrade_ops,
             full_upgrade_ops,
-            introspect_graph,
         )
         from runic.migrate.script import render_op_body
 
@@ -441,7 +449,7 @@ class Runic:
         rev_id = ScriptDirectory.generate_revision_id()
 
         if not stamp_only:
-            snapshot = introspect_graph(self._adapter._graph)  # ty:ignore[unresolved-attribute]  # noqa: SLF001
+            snapshot = self._adapter.introspect_schema()
             upgrade_ops = full_upgrade_ops(snapshot)
             downgrade_ops = full_downgrade_ops(snapshot)
             file_path = self._script_dir.create(

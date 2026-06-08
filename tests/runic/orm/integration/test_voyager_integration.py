@@ -843,7 +843,7 @@ class TestSearch:
                 returns=int,
             )
             assert isinstance(count, int)
-            assert count >= 1
+            assert count == 1
 
     def test_find_all_by_ids_for_search_result_enrichment(
         self, graph_driver: Any

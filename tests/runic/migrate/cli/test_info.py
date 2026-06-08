@@ -156,6 +156,30 @@ def test_info_compare_shows_pending_and_applied(tmp_path: Path) -> None:
     assert "my_graph" in result.output
 
 
+def test_info_compare_warns_when_pending_undeterminable(tmp_path: Path) -> None:
+    """A broken revision graph must surface a warning, not a clean status."""
+    env = _stub_env(tmp_path)
+
+    from runic.migrate.exceptions import MultipleHeadsError
+
+    mock_ctx = MagicMock()
+    mock_ctx._version_node.get.return_value = ["aabbcc112233"]
+    mock_ctx.get_history.return_value = []
+    mock_ctx._script_dir.topological_upgrade_path.side_effect = MultipleHeadsError(
+        "multiple heads"
+    )
+    mock_ctx.adapter.name = "g"
+
+    with (
+        patch("runic.migrate.cli._exec_env"),
+        patch("runic.migrate.context.get", return_value=mock_ctx),
+    ):
+        result = runner.invoke(app, ["info", "--config", str(env)])
+
+    assert result.exit_code == 0, result.output
+    assert "cannot determine pending revisions" in result.output
+
+
 def test_info_compare_default_mode(tmp_path: Path) -> None:
     """--mode defaults to COMPARE."""
     env = _stub_env(tmp_path)
