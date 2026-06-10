@@ -24,6 +24,10 @@ export default defineConfigWithTheme<ThemeConfig>({
   base,
   ignoreDeadLinks: true,
 
+  head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: `${base}runic.svg` }],
+  ],
+
   markdown: {
     lineNumbers: true,
     config: (md) => {
