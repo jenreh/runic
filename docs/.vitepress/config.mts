@@ -1,11 +1,24 @@
-import { defineConfig } from 'vitepress'
+import { readFileSync } from 'node:fs'
+import { defineConfigWithTheme } from 'vitepress'
+import type { DefaultTheme } from 'vitepress'
+
+// Extend the default theme config with a `version` field consumed by the
+// custom navbar slot.
+interface ThemeConfig extends DefaultTheme.Config {
+  version: string
+}
 
 // ReadTheDocs serves docs at /en/latest/ (or /en/<version>/); derive base from
 // the canonical URL it injects so asset paths resolve correctly.
 const rtdCanonical = process.env.READTHEDOCS_CANONICAL_URL;
 const base = rtdCanonical ? new URL(rtdCanonical).pathname : "/";
 
-export default defineConfig({
+// Read the package version from pyproject.toml at build time so the navbar
+// badge always matches the released version without manual updates.
+const pyproject = readFileSync(new URL("../../pyproject.toml", import.meta.url), "utf-8");
+const version = pyproject.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? "";
+
+export default defineConfigWithTheme<ThemeConfig>({
   title: "runic",
   description: "Graph schema migrations and OGM for Cypher-based graph databases.",
   base,
@@ -27,6 +40,9 @@ export default defineConfig({
 
   themeConfig: {
     logo: '/runic.svg',
+    // Surfaced in the navbar (right of the social links) via the theme's
+    // `nav-bar-content-after` slot.
+    version,
 
     nav: [
       { text: 'Home', link: '/' },

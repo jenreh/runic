@@ -257,3 +257,19 @@
   color: var(--vp-c-brand-1);
   font-weight: 600;
 }
+
+/* ── Navbar version badge (right of social links) ── */
+.nav-version {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
