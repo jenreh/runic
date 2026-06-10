@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/jenreh/runic/refs/heads/main/docs/source/_static/runic.svg" width="240" alt="Runic logo">
+  <img src="https://raw.githubusercontent.com/jenreh/runic/refs/heads/main/docs/public/runic.svg" width="240" alt="Runic logo">
 
 # Runic
 
