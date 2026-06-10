@@ -230,7 +230,7 @@ class GraphAdapterBase(ABC):
         current = self.get_checksums()
         current[rev_id] = checksum
         current_by = self.get_installed_by()
-        if installed_by:
+        if installed_by is not None:
             current_by[rev_id] = installed_by
         self.run_query(
             _SET_TRACKING_QUERY,

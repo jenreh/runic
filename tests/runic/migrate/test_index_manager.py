@@ -105,6 +105,24 @@ def test_extract_unique_does_not_add_range() -> None:
     assert IndexSpec(label="BothNode", property="code", index_type="RANGE") not in specs
 
 
+def test_extract_unique_takes_priority_over_index_type() -> None:
+    # A field declaring both unique and a fulltext index must emit only UNIQUE;
+    # the documented priority is unique > index > index_type (B19 regression).
+    class UniqueFulltextNode(Node, labels=["UniqueFulltextNode"]):
+        id: str = Field()
+        title: str = Field(unique=True, index_type="FULLTEXT")
+
+    specs = extract_declared_specs(UniqueFulltextNode)
+    assert (
+        IndexSpec(label="UniqueFulltextNode", property="title", index_type="UNIQUE")
+        in specs
+    )
+    assert (
+        IndexSpec(label="UniqueFulltextNode", property="title", index_type="FULLTEXT")
+        not in specs
+    )
+
+
 def test_extract_skips_relationship_fields() -> None:
     class RelEdge(Edge, type="REL_EDGE"):
         weight: float = Field()

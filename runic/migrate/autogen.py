@@ -56,53 +56,53 @@ def _constraint_key(c: UniqueConstraint | MandatoryConstraint) -> tuple:
 
 def _range_create(idx: RangeIndex) -> str:
     rel_arg = ", rel=True" if idx.rel else ""
-    return f'op.create_range_index("{idx.label}", "{idx.prop}"{rel_arg})'
+    return f"op.create_range_index({idx.label!r}, {idx.prop!r}{rel_arg})"
 
 
 def _range_drop(idx: RangeIndex) -> str:
     rel_arg = ", rel=True" if idx.rel else ""
-    return f'op.drop_range_index("{idx.label}", "{idx.prop}"{rel_arg})'
+    return f"op.drop_range_index({idx.label!r}, {idx.prop!r}{rel_arg})"
 
 
 def _fulltext_create(idx: FulltextIndex) -> str:
-    props_args = ", ".join(f'"{p}"' for p in idx.props)
+    props_args = ", ".join(repr(p) for p in idx.props)
     extra: list[str] = []
     if idx.language:
-        extra.append(f'language="{idx.language}"')
+        extra.append(f"language={idx.language!r}")
     if idx.stopwords:
-        sw = "[" + ", ".join(f'"{w}"' for w in idx.stopwords) + "]"
+        sw = "[" + ", ".join(repr(w) for w in idx.stopwords) + "]"
         extra.append(f"stopwords={sw}")
     extra_str = (", " + ", ".join(extra)) if extra else ""
-    return f'op.create_fulltext_index("{idx.label}", {props_args}{extra_str})'
+    return f"op.create_fulltext_index({idx.label!r}, {props_args}{extra_str})"
 
 
 def _fulltext_drop(idx: FulltextIndex) -> str:
-    props_args = ", ".join(f'"{p}"' for p in idx.props)
-    return f'op.drop_fulltext_index("{idx.label}", {props_args})'
+    props_args = ", ".join(repr(p) for p in idx.props)
+    return f"op.drop_fulltext_index({idx.label!r}, {props_args})"
 
 
 def _vector_create(idx: VectorIndex) -> str:
     return (
-        f'op.create_vector_index("{idx.label}", "{idx.prop}", '
-        f'{idx.dimension}, "{idx.similarity}", '
+        f"op.create_vector_index({idx.label!r}, {idx.prop!r}, "
+        f"{idx.dimension}, {idx.similarity!r}, "
         f"m={idx.m}, ef_construction={idx.ef_construction}, ef_runtime={idx.ef_runtime})"
     )
 
 
 def _vector_drop(idx: VectorIndex) -> str:
-    return f'op.drop_vector_index("{idx.label}", "{idx.prop}")'
+    return f"op.drop_vector_index({idx.label!r}, {idx.prop!r})"
 
 
 def _constraint_create(c: UniqueConstraint | MandatoryConstraint) -> str:
     kind = "UNIQUE" if isinstance(c, UniqueConstraint) else "MANDATORY"
-    props_repr = "[" + ", ".join(f'"{p}"' for p in c.props) + "]"
-    return f'op.create_constraint("{kind}", "{c.entity}", "{c.label}", {props_repr})'
+    props_repr = "[" + ", ".join(repr(p) for p in c.props) + "]"
+    return f"op.create_constraint({kind!r}, {c.entity!r}, {c.label!r}, {props_repr})"
 
 
 def _constraint_drop(c: UniqueConstraint | MandatoryConstraint) -> str:
     kind = "UNIQUE" if isinstance(c, UniqueConstraint) else "MANDATORY"
-    props_repr = "[" + ", ".join(f'"{p}"' for p in c.props) + "]"
-    return f'op.drop_constraint("{kind}", "{c.entity}", "{c.label}", {props_repr})'
+    props_repr = "[" + ", ".join(repr(p) for p in c.props) + "]"
+    return f"op.drop_constraint({kind!r}, {c.entity!r}, {c.label!r}, {props_repr})"
 
 
 # ---------------------------------------------------------------------------

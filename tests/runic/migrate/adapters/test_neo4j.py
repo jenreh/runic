@@ -165,25 +165,27 @@ class TestGetExistingSpecs:
         specs = adapter.get_existing_specs()
         assert specs == set()
 
-    def test_indexes_query_failure_returns_partial_results(self) -> None:
+    def test_indexes_query_failure_propagates(self) -> None:
+        # A failed SHOW INDEXES must abort rather than silently return partial
+        # specs (which would make autogenerate treat every index as missing).
         adapter, mock_driver = _make_adapter()
         con_row = ["UNIQUENESS", "NODE", ["User"], ["id"]]
         mock_driver.execute.side_effect = [
             RuntimeError("show indexes unavailable"),
             _row_result(con_row),
         ]
-        specs = adapter.get_existing_specs()
-        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+        with pytest.raises(RuntimeError, match="show indexes unavailable"):
+            adapter.get_existing_specs()
 
-    def test_constraints_query_failure_returns_partial_results(self) -> None:
+    def test_constraints_query_failure_propagates(self) -> None:
         adapter, mock_driver = _make_adapter()
         indexes_row = ["RANGE", "NODE", ["User"], ["email"], "ONLINE"]
         mock_driver.execute.side_effect = [
             _row_result(indexes_row),
             RuntimeError("show constraints unavailable"),
         ]
-        specs = adapter.get_existing_specs()
-        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+        with pytest.raises(RuntimeError, match="show constraints unavailable"):
+            adapter.get_existing_specs()
 
     def test_multi_prop_index_produces_multiple_specs(self) -> None:
         adapter, mock_driver = _make_adapter()

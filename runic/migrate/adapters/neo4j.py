@@ -76,7 +76,7 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
             auth=self._driver.auth,
             database=graph_name,
             dialect=_NEO4J_DIALECT,
-            encrypted=True,
+            encrypted=self._driver.encrypted,
         )
         return Neo4jAdapter(new_driver, graph_name)
 
@@ -213,7 +213,10 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
                         IndexSpec(label=label, property=prop, index_type=idx_type)
                     )
         except Exception as exc:
-            log.warning("Neo4j SHOW INDEXES failed: %s", exc)
+            # Returning empty specs here would make autogenerate treat every
+            # index as missing; abort loudly instead of silently degrading.
+            log.error("Neo4j SHOW INDEXES failed: %s", exc)
+            raise
         try:
             result = self.run_ro_query(
                 "SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties"
@@ -230,5 +233,6 @@ class Neo4jAdapter(GraphAdapterBase, GraphAdapter):
                         IndexSpec(label=label, property=prop, index_type="UNIQUE")
                     )
         except Exception as exc:
-            log.warning("Neo4j SHOW CONSTRAINTS failed: %s", exc)
+            log.error("Neo4j SHOW CONSTRAINTS failed: %s", exc)
+            raise
         return specs

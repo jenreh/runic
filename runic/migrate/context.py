@@ -9,6 +9,7 @@ from runic.migrate.adapters import GraphAdapter
 from runic.migrate.manifest import SchemaManifest
 from runic.migrate.operations import GraphOperations
 from runic.migrate.script import (
+    AmbiguousRevision,
     Revision,
     RevisionInfo,
     RevisionNotFound,
@@ -113,7 +114,9 @@ class Runic:
     def get_revision_message(self, rev_id: str) -> str | None:
         try:
             return self._script_dir.get_revision(rev_id).message
-        except Exception:
+        except RevisionNotFound, AmbiguousRevision:
+            # Expected when the revision is absent or the prefix is ambiguous;
+            # other errors (corrupt scripts, I/O) propagate rather than hide.
             return None
 
     def _resolve_upgrade_target(self, target: str) -> str:

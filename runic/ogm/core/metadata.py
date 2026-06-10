@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from runic.cypher import validate_identifier
 from runic.ogm.core.descriptors import FieldDescriptor, FieldInfo
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ class MetaData:
         """Register a Node subclass; called by Node.__init_subclass__."""
         labels: list[str] = getattr(cls, "_labels", [cls.__name__])
         primary_label: str = getattr(cls, "_primary_label", labels[0])
+        for label in labels:
+            validate_identifier(label, "node label")
+        validate_identifier(primary_label, "primary label")
         fields: list[FieldInfo] = getattr(cls, "_fields", [])
         pk_name = _find_pk_field(fields)
 
@@ -79,6 +83,7 @@ class MetaData:
     def register_edge(self, cls: type) -> None:
         """Register an Edge subclass; called by Edge.__init_subclass__."""
         edge_type: str = getattr(cls, "_edge_type", cls.__name__)
+        validate_identifier(edge_type, "edge type")
         fields: list[FieldInfo] = getattr(cls, "_fields", [])
 
         meta = EdgeMeta(cls=cls, edge_type=edge_type, fields=fields)

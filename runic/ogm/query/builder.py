@@ -12,6 +12,7 @@ See :doc:`/query_builder` for the full API reference and examples.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, TypeVar
@@ -31,6 +32,19 @@ from runic.ogm.query.traversal import TraversalStep
 log = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# A raw-string projection is an escape hatch; restrict it to a bare alias or an
+# ``alias.property`` reference so it cannot inject arbitrary Cypher into RETURN.
+_PROJECTION_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
+
+
+def _validate_projection(expr: str) -> None:
+    if not _PROJECTION_RE.fullmatch(expr):
+        msg = (
+            f"invalid projection {expr!r}; raw-string projections must be a bare "
+            "alias or 'alias.property' reference (use field descriptors for more)"
+        )
+        raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +511,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             # Dict list
             rows = session.query(User).project(User.name, User.age).all_rows()
         """
+        for f in fields:
+            if isinstance(f, str):
+                _validate_projection(f)
         self._project_fields = list(fields)
         return self
 
@@ -552,6 +569,33 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
     # Build (compile to Cypher)
     # ------------------------------------------------------------------
 
+    def _append_where_and_traversals(self, parts: list[str]) -> None:
+        """Append root WHERE, WITH pipeline, traversals, and post-traversal WHERE.
+
+        Shared by :meth:`build` and the fulltext/vector builders so the Cypher
+        clause ordering stays consistent across all three. Root conditions must
+        precede any OPTIONAL MATCH (FalkorDB applies WHERE to the preceding
+        clause), so they are split from traversal-target conditions here.
+        """
+        if self._where_exprs and self._match_clauses:
+            root_exprs, post_exprs = self._split_where_exprs()
+        else:
+            root_exprs = []
+            post_exprs = self._where_exprs
+
+        if root_exprs:
+            parts.append(f"WHERE {self._compile_and(root_exprs)}")
+        if self._with_vars:
+            parts.append(f"WITH {', '.join(self._with_vars)}")
+        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+        if post_exprs:
+            parts.append(f"WHERE {self._compile_and(post_exprs)}")
+
+    def _compile_and(self, exprs: list[Expr]) -> str:
+        """Compile one or more expressions into a single (AND-joined) condition."""
+        expr = exprs[0] if len(exprs) == 1 else CompoundExpr(op="AND", operands=exprs)
+        return self._compile_expr(expr)
+
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile the accumulated builder state to a ``(cypher, params)`` pair.
 
@@ -604,35 +648,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         # and turn root filters into null-producing predicates for non-matching
         # root nodes (FalkorDB applies WHERE to the preceding clause).
         # ─────────────────────────────────────────────────────────────────
-        if self._where_exprs and self._match_clauses:
-            root_exprs, post_exprs = self._split_where_exprs()
-        else:
-            root_exprs = []
-            post_exprs = self._where_exprs
-
-        if root_exprs:
-            cond = self._compile_expr(
-                root_exprs[0]
-                if len(root_exprs) == 1
-                else CompoundExpr(op="AND", operands=root_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        # ── WITH (pipeline — emitted before traversals) ──────────────────
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-
-        # ── Traversal clauses ────────────────────────────────────────────
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
-
-        # ── WHERE (post-traversal conditions on traversal targets / edges)
-        if post_exprs:
-            cond = self._compile_expr(
-                post_exprs[0]
-                if len(post_exprs) == 1
-                else CompoundExpr(op="AND", operands=post_exprs)
-            )
-            parts.append(f"WHERE {cond}")
+        self._append_where_and_traversals(parts)
 
         # ── RETURN ────────────────────────────────────────────────────────
         parts.append(self._compile_return())
@@ -753,15 +769,17 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._return_aliases = None
         self._project_fields = []
 
-        cypher, params = self.build()
-        log.debug("QueryBuilder.count: %s", cypher)
-        result = self._session.execute(cypher, params)
-
-        # Restore
-        self._agg_exprs = saved_agg
-        self._group_by_alias = saved_group
-        self._return_aliases = saved_return
-        self._project_fields = saved_project
+        try:
+            cypher, params = self.build()
+            log.debug("QueryBuilder.count: %s", cypher)
+            result = self._session.execute(cypher, params)
+        finally:
+            # Always restore builder state, even if build()/execute() raises, so
+            # the instance stays reusable.
+            self._agg_exprs = saved_agg
+            self._group_by_alias = saved_group
+            self._return_aliases = saved_return
+            self._project_fields = saved_project
 
         if result.rows:
             return int(result.rows[0][0])
