@@ -108,5 +108,5 @@ Clone the repository and install all dev dependencies:
 ```bash
 git clone https://github.com/jenreh/runic
 cd runic
-uv sync --all-groups
+task init
 ```

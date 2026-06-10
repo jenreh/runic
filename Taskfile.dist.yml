@@ -39,18 +39,18 @@ tasks:
       - uv python install {{.PYTHON_VERSION}}
       - uv python pin {{.PYTHON_VERSION}}
       - echo "📦 Syncing dependencies..."
-      - uv sync
+      - uv sync --all-groups
       - echo "🔒 Installing pre-commit hooks..."
       - uv tool list | grep -q pre-commit || uv tool install pre-commit
       - uv run pre-commit install
 
   install:
     desc: Install all dependencies (including dev extras)
-    cmd: uv sync
+    cmd: uv sync --all-groups
 
   sync:
     desc: Install dependencies using uv
-    cmd: uv sync
+    cmd: uv sync --all-groups
 
   clean:
     desc: Clean cache and build artifacts
