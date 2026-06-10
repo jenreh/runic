@@ -127,7 +127,7 @@ export default defineConfigWithTheme<ThemeConfig>({
     ],
 
     footer: {
-      message: "pantau-alexa — self-hosted Alexa Smart Home backend",
+      message: "runic - Graph schema migrations and OGM for Cypher-based graph databases.",
       copyright: "Copyright © 2026",
     },
 

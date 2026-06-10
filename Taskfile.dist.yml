@@ -17,7 +17,7 @@ includes:
 silent: true
 
 vars:
-  PROJECT: app
+  PROJECT: runic
 
 tasks:
   default:
