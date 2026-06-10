@@ -57,15 +57,24 @@ class AGEAdapter(GraphAdapterBase, GraphAdapter):
         return self._graph_name
 
     def execute(self, cypher: str, params: dict[str, Any]) -> Any:
-        result = self._driver.execute(cypher, params)
-        self._driver.commit()
+        try:
+            result = self._driver.execute(cypher, params)
+            self._driver.commit()
+        except Exception:
+            # Clear the aborted transaction so the adapter remains usable.
+            self._driver.rollback()
+            raise
         return result
 
     def run_query(self, query: str, params: dict | None = None) -> Any:
-        result = self._driver.execute(query, params or {})
         # AGEDriver no longer auto-commits; the adapter owns the transaction
         # lifecycle for write operations (not managed by an OGM Session here).
-        self._driver.commit()
+        try:
+            result = self._driver.execute(query, params or {})
+            self._driver.commit()
+        except Exception:
+            self._driver.rollback()
+            raise
         return result
 
     def run_ro_query(self, query: str) -> Any:

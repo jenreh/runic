@@ -465,6 +465,7 @@ def read_live_schema(graph: Any) -> LiveSchema:
         entity_type: str = row[_IDX_ENTITYTYPE]
         rel = entity_type == "RELATIONSHIP"
 
+        fulltext_props: list[str] = []
         for prop in props:
             prop_types: list[str] = types_dict.get(prop, [])
             if not prop_types:
@@ -473,13 +474,10 @@ def read_live_schema(graph: Any) -> LiveSchema:
             if idx_type == "RANGE":
                 range_indexes.append(RangeIndex(label=label, prop=prop, rel=rel))
             elif idx_type == "FULLTEXT":
-                sw = tuple(stopwords) if stopwords else None
-                lang = language if language and language != "english" else None
-                fulltext_indexes.append(
-                    FulltextIndex(
-                        label=label, props=[prop], language=lang, stopwords=sw
-                    )
-                )
+                # Accumulate all fulltext props of this label into a single
+                # multi-property index so it matches the grouped manifest spec
+                # (one FulltextIndex per label, not one per property).
+                fulltext_props.append(prop)
             elif idx_type == "VECTOR":
                 prop_opts: dict = options_dict.get(prop, {})
                 dimension: int = int(prop_opts.get("dimension", 0))
@@ -502,6 +500,15 @@ def read_live_schema(graph: Any) -> LiveSchema:
                 log.warning(
                     "unknown index type %r for %s.%s — skipping", idx_type, label, prop
                 )
+
+        if fulltext_props:
+            sw = tuple(stopwords) if stopwords else None
+            lang = language if language and language != "english" else None
+            fulltext_indexes.append(
+                FulltextIndex(
+                    label=label, props=fulltext_props, language=lang, stopwords=sw
+                )
+            )
 
     con_result = graph.ro_query("CALL db.constraints()")
     for row in con_result.result_set:

@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Any
 
+from runic.cypher import escape_identifier, escape_string
 from runic.migrate import introspect
 from runic.migrate.adapters import GraphAdapter
 from runic.migrate.adapters._base import _encode_kv_list, _parse_kv_list
@@ -17,6 +18,10 @@ log = logging.getLogger(__name__)
 
 _POLL_RETRIES = 30
 _POLL_INTERVAL = 0.5
+
+# FalkorDB vector index similarity functions are a closed set; reject anything
+# else early rather than interpolate an unknown value into the OPTIONS map.
+_VECTOR_SIMILARITY_FUNCTIONS = frozenset({"euclidean", "cosine"})
 
 _VERSION_LABEL = "_FalkorMigrateVersion"
 _GET_VERSION_QUERY = f"MATCH (v:{_VERSION_LABEL}) RETURN v.revisions, v.revision"
@@ -197,15 +202,17 @@ class FalkorDBAdapter(GraphAdapter):
     # ------------------------------------------------------------------
 
     def create_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:
+        label_id = escape_identifier(label)
+        prop_id = escape_identifier(prop)
         if rel:
-            query = f"CREATE INDEX FOR ()-[r:{label}]->() ON (r.{prop})"
+            query = f"CREATE INDEX FOR ()-[r:{label_id}]->() ON (r.{prop_id})"
         else:
-            query = f"CREATE INDEX FOR (n:{label}) ON (n.{prop})"
+            query = f"CREATE INDEX FOR (n:{label_id}) ON (n.{prop_id})"
         log.info("creating range index on %s.%s", label, prop)
         self._driver.execute(query, {})
 
     def drop_range_index(self, label: str, prop: str, *, rel: bool = False) -> None:  # noqa: ARG002
-        query = f"DROP INDEX ON :{label}({prop})"
+        query = f"DROP INDEX ON :{escape_identifier(label)}({escape_identifier(prop)})"
         log.info("dropping range index on %s.%s", label, prop)
         self._driver.execute(query, {})
 
@@ -220,26 +227,29 @@ class FalkorDBAdapter(GraphAdapter):
         language: str | None = None,
         stopwords: list[str] | None = None,
     ) -> None:
+        props_str = ", ".join(escape_string(p) for p in props)
         if language or stopwords:
-            map_parts = [f"label: '{label}'"]
+            map_parts = [f"label: {escape_string(label)}"]
             if language:
-                map_parts.append(f"language: '{language}'")
+                map_parts.append(f"language: {escape_string(language)}")
             if stopwords:
-                sw = "[" + ", ".join(f"'{w}'" for w in stopwords) + "]"
+                sw = "[" + ", ".join(escape_string(w) for w in stopwords) + "]"
                 map_parts.append(f"stopwords: {sw}")
             map_literal = "{" + ", ".join(map_parts) + "}"
-            props_str = ", ".join(f"'{p}'" for p in props)
             query = f"CALL db.idx.fulltext.createNodeIndex({map_literal}, {props_str})"
         else:
-            props_str = ", ".join(f"'{p}'" for p in props)
-            query = f"CALL db.idx.fulltext.createNodeIndex('{label}', {props_str})"
+            query = (
+                "CALL db.idx.fulltext.createNodeIndex("
+                f"{escape_string(label)}, {props_str})"
+            )
         log.info("creating fulltext index on %s %s", label, list(props))
         self._driver.execute(query, {})
 
     def drop_fulltext_index(self, label: str, *props: str) -> None:
         log.info("dropping fulltext index on %s %s", label, list(props))
+        label_id = escape_identifier(label)
         for prop in props:
-            query = f"DROP FULLTEXT INDEX FOR (n:{label}) ON (n.{prop})"
+            query = f"DROP FULLTEXT INDEX FOR (n:{label_id}) ON (n.{escape_identifier(prop)})"
             self._driver.execute(query, {})
 
     # ------------------------------------------------------------------
@@ -257,16 +267,29 @@ class FalkorDBAdapter(GraphAdapter):
         ef_construction: int = 200,
         ef_runtime: int = 10,
     ) -> None:
+        if similarity not in _VECTOR_SIMILARITY_FUNCTIONS:
+            msg = (
+                f"unsupported vector similarity function {similarity!r}; "
+                f"expected one of {sorted(_VECTOR_SIMILARITY_FUNCTIONS)}"
+            )
+            raise ValueError(msg)
+        label_id = escape_identifier(label)
+        prop_id = escape_identifier(prop)
         options = (
-            f"{{dimension: {dimension}, similarityFunction: '{similarity}', "
+            f"{{dimension: {dimension}, similarityFunction: {escape_string(similarity)}, "
             f"M: {m}, efConstruction: {ef_construction}, efRuntime: {ef_runtime}}}"
         )
-        query = f"CREATE VECTOR INDEX FOR (n:{label}) ON (n.{prop}) OPTIONS {options}"
+        query = (
+            f"CREATE VECTOR INDEX FOR (n:{label_id}) ON (n.{prop_id}) OPTIONS {options}"
+        )
         log.info("creating vector index on %s.%s", label, prop)
         self._driver.execute(query, {})
 
     def drop_vector_index(self, label: str, prop: str) -> None:
-        query = f"DROP VECTOR INDEX FOR (n:{label}) (n.{prop})"
+        query = (
+            f"DROP VECTOR INDEX FOR (n:{escape_identifier(label)}) "
+            f"(n.{escape_identifier(prop)})"
+        )
         log.info("dropping vector index on %s.%s", label, prop)
         self._driver.execute(query, {})
 
@@ -285,7 +308,7 @@ class FalkorDBAdapter(GraphAdapter):
         self._db.execute_command(
             "GRAPH.CONSTRAINT",
             "CREATE",
-            label,
+            self._graph.name,
             kind,
             entity,
             label,
@@ -296,11 +319,18 @@ class FalkorDBAdapter(GraphAdapter):
         self._poll_constraint(label, props)
 
     def _poll_constraint(self, label: str, props: list[str]) -> None:
+        target_props = list(props)
         for _ in range(_POLL_RETRIES):
             result = self._driver.execute("CALL db.constraints()", {})
             for row in result.rows:
-                entry = row[0]
-                status = entry[4] if isinstance(entry, (list, tuple)) else str(entry)
+                # Each row is a flat list of columns, consistent with
+                # introspect.read_live_schema():
+                #   [type, label, properties, entity_type, status]
+                if not isinstance(row, (list, tuple)) or len(row) < 5:
+                    continue
+                if row[1] != label or list(row[2]) != target_props:
+                    continue
+                status = row[4]
                 if status == "FAILED":
                     raise ConstraintFailedError(f"constraint on {label}.{props} failed")
                 if status == "OPERATIONAL":
@@ -318,7 +348,7 @@ class FalkorDBAdapter(GraphAdapter):
         self._db.execute_command(
             "GRAPH.CONSTRAINT",
             "DROP",
-            label,
+            self._graph.name,
             kind,
             entity,
             label,

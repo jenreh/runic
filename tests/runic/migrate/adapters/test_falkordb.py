@@ -56,9 +56,26 @@ def test_create_unique_constraint_also_creates_index(
 def test_polling_raises_on_failed_status(
     adapter: FalkorDBAdapter, mock_graph: MagicMock
 ) -> None:
-    failed_row = ["type", "entity", "label", "props", "FAILED"]
-    mock_graph.query.return_value.result_set = [[failed_row]]
+    # result_set is a flat list of rows; each row is the column list
+    # [type, label, properties, entity_type, status].
+    failed_row = ["UNIQUE", "Person", ["email"], "NODE", "FAILED"]
+    mock_graph.query.return_value.result_set = [failed_row]
     with pytest.raises(ConstraintFailedError):
+        adapter._poll_constraint("Person", ["email"])
+
+
+def test_polling_ignores_unrelated_constraint_rows(
+    adapter: FalkorDBAdapter, mock_graph: MagicMock
+) -> None:
+    # A FAILED status on a *different* constraint must not be attributed to the
+    # one being polled — it should time out rather than raise ConstraintFailed.
+    other_row = ["UNIQUE", "Company", ["name"], "NODE", "FAILED"]
+    mock_graph.query.return_value.result_set = [other_row]
+    with (
+        patch("runic.migrate.adapters.falkordb._POLL_RETRIES", 1),
+        patch("runic.migrate.adapters.falkordb._POLL_INTERVAL", 0),
+        pytest.raises(ConstraintTimeoutError),
+    ):
         adapter._poll_constraint("Person", ["email"])
 
 
@@ -81,6 +98,8 @@ def test_drop_constraint_issues_redis_command(
     args = mock_db.execute_command.call_args[0]
     assert "GRAPH.CONSTRAINT" in args
     assert "DROP" in args
+    # Arg 3 must be the graph key, not the label (GRAPH.CONSTRAINT signature).
+    assert args[:4] == ("GRAPH.CONSTRAINT", "DROP", "test_graph", "UNIQUE")
 
 
 # ---------------------------------------------------------------------------

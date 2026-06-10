@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+from runic.cypher import validate_identifier
 from runic.ogm.driver import GraphResult
 
 log = logging.getLogger(__name__)
@@ -39,6 +40,9 @@ class DataOperations:
     def rename_property(
         self, label: str, old: str, new: str, batch: int = 10_000
     ) -> None:
+        validate_identifier(label, "node label")
+        validate_identifier(old, "property name")
+        validate_identifier(new, "property name")
         if self._preview:
             self._log_preview(f"RENAME PROPERTY: {label}.{old} → {new} batch={batch}")
             return
@@ -56,6 +60,8 @@ class DataOperations:
                 break
 
     def relabel_nodes(self, old: str, new: str, batch: int = 10_000) -> None:
+        validate_identifier(old, "node label")
+        validate_identifier(new, "node label")
         if not getattr(self._executor, "supports_multi_label", True):
             raise NotImplementedError(
                 f"relabel_nodes() requires multi-label Cypher support "
