@@ -2,14 +2,24 @@
 import { h } from 'vue'
 import type { Theme } from 'vitepress'
 import DefaultTheme from 'vitepress/theme'
-import { inBrowser } from 'vitepress'
+import { inBrowser, useData } from 'vitepress'
 import './style.css'
 
 export default {
   extends: DefaultTheme,
   Layout: () => {
+    const { theme } = useData()
     return h(DefaultTheme.Layout, null, {
       // https://vitepress.dev/guide/extending-default-theme#layout-slots
+      // Render the package version right after the social links (GitHub icon).
+      'nav-bar-content-after': () =>
+        theme.value.version
+          ? h(
+              'span',
+              { class: 'nav-version' },
+              `v${theme.value.version}`,
+            )
+          : null,
     })
   },
   enhanceApp({ app, router, siteData }) {
