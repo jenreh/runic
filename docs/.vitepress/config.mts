@@ -1,4 +1,10 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from "vitepress-plugin-mermaid";
+
+// ReadTheDocs serves docs at /en/latest/ (or /en/<version>/); derive base from
+// the canonical URL it injects so asset paths resolve correctly.
+const rtdCanonical = process.env.READTHEDOCS_CANONICAL_URL;
+const base = rtdCanonical ? new URL(rtdCanonical).pathname : "/";
 
 export default defineConfig({
   title: "runic",
@@ -90,8 +96,17 @@ export default defineConfig({
       { icon: 'github', link: 'https://github.com/jenreh/runic' },
     ],
 
+    footer: {
+      message: "pantau-alexa — self-hosted Alexa Smart Home backend",
+      copyright: "Copyright © 2026",
+    },
+
     search: {
       provider: 'local',
+    },
+
+    markdown: {
+      lineNumbers: true,
     },
   },
 })
