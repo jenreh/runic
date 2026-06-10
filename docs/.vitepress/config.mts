@@ -13,6 +13,16 @@ export default defineConfig({
 
   markdown: {
     lineNumbers: true,
+    config: (md) => {
+      const defaultTableOpen = md.renderer.rules.table_open ??
+        ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+      const defaultTableClose = md.renderer.rules.table_close ??
+        ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+      md.renderer.rules.table_open = (...args) =>
+        '<div class="table-scroll">' + defaultTableOpen(...args)
+      md.renderer.rules.table_close = (...args) =>
+        defaultTableClose(...args) + '</div>'
+    },
   },
 
   themeConfig: {
