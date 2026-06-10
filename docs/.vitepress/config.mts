@@ -127,7 +127,7 @@ export default defineConfigWithTheme<ThemeConfig>({
     ],
 
     footer: {
-      message: "runic - Graph schema migrations and OGM for Cypher-based graph databases.",
+      message: `runic - Graph schema migrations and OGM for Cypher-based graph databases. · <a href="${base}impressum">Impressum</a>`,
       copyright: "Copyright © 2026",
     },
 
