@@ -1,6 +1,6 @@
 [project]
 name = "runic-py"
-version = "0.3.5"
+version = "0.3.6"
 description = "Graph schema migrations and OGM for Cypher-based graph databases."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -37,7 +37,7 @@ all = [
 [dependency-groups]
 dev = [
     "bump-my-version==1.3.0",
-    "deepeval==4.0.5",
+    "deepeval==4.0.6",
     "detect-secrets==1.5.0",
     "falkordb>=1.6.1",
     "falkordblite==0.10.0",
@@ -54,7 +54,7 @@ dev = [
     "sphinx-copybutton==0.5.2",
     "sphinx-design==0.7.0",
     "sphinx==9.1.0",
-    "ty==0.0.44",
+    "ty==0.0.47",
 ]
 
 [project.scripts]
@@ -93,7 +93,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.3.5"
+current_version = "0.3.6"
 tag = false
 allow-dirty = false
 
@@ -107,25 +107,6 @@ filename = "README.md"
 search = '![Version](https://img.shields.io/badge/version-{current_version}-blue)'
 replace = '![Version](https://img.shields.io/badge/version-{new_version}-blue)'
 
-[[tool.bumpversion.files]]
-filename = "docs/source/index.rst"
-search = '.. |Github| image:: https://img.shields.io/badge/release-{current_version}-yellow?logo=github'
-replace = '.. |Github| image:: https://img.shields.io/badge/release-{new_version}-yellow?logo=github'
-
-[[tool.bumpversion.files]]
-filename = "docs/source/index.rst"
-search = '   :target: https://github.com/jenreh/runic/tree/v{current_version}'
-replace = '   :target: https://github.com/jenreh/runic/tree/v{new_version}'
-
-[[tool.bumpversion.files]]
-filename = "docs/source/conf.py"
-search = 'version = "{current_version}"'
-replace = 'version = "{new_version}"'
-
-[[tool.bumpversion.files]]
-filename = "docs/source/conf.py"
-search = 'release = "{current_version}"'
-replace = 'release = "{new_version}"'
 
 [tool.ruff]
 cache-dir = ".cache/ruff"
