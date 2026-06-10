@@ -1,12 +1,11 @@
 import { defineConfig } from 'vitepress'
-import { withMermaid } from "vitepress-plugin-mermaid";
 
 // ReadTheDocs serves docs at /en/latest/ (or /en/<version>/); derive base from
 // the canonical URL it injects so asset paths resolve correctly.
 const rtdCanonical = process.env.READTHEDOCS_CANONICAL_URL;
 const base = rtdCanonical ? new URL(rtdCanonical).pathname : "/";
 
-export default withMermaid(defineConfig({
+export default defineConfig({
   title: "runic",
   description: "Graph schema migrations and OGM for Cypher-based graph databases.",
   base,
@@ -111,4 +110,4 @@ export default withMermaid(defineConfig({
     },
 
   },
-}))
+})
