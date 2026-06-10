@@ -1,0 +1,205 @@
+/* Runic docs — VitePress theme
+   Brand colors derived from logo: #354853 / #254855 / #254754
+   Ported from the Sphinx/Furo custom.css
+   ============================================================ */
+
+/* ── Fonts (Geist + Geist Mono + Stack Sans Notch via Google Fonts) ── */
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:ital,wght@0,100..900;1,100..900&family=Geist:ital,wght@0,100..900;1,100..900&family=Stack+Sans+Notch:wght@200..700&display=swap');
+
+/* ── Brand palette — light mode ── */
+:root {
+  --vp-c-brand-1: #354853;
+  --vp-c-brand-2: #46606e;
+  --vp-c-brand-3: #354853;
+  --vp-c-brand-soft: rgba(53, 72, 83, 0.12);
+
+  /* tip → green (matches Sphinx .admonition.tip) */
+  --vp-c-tip-1: #059669;
+  --vp-c-tip-2: #10b981;
+  --vp-c-tip-3: #059669;
+  --vp-c-tip-soft: rgba(5, 150, 105, 0.12);
+
+  /* warning → amber */
+  --vp-c-warning-1: #d97706;
+  --vp-c-warning-2: #f59e0b;
+  --vp-c-warning-3: #d97706;
+  --vp-c-warning-soft: rgba(217, 119, 6, 0.12);
+
+  /* danger → red */
+  --vp-c-danger-1: #dc2626;
+  --vp-c-danger-2: #ef4444;
+  --vp-c-danger-3: #dc2626;
+  --vp-c-danger-soft: rgba(220, 38, 38, 0.12);
+}
+
+/* ── Brand palette — dark mode ── */
+.dark {
+  --vp-c-brand-1: #87afc2;
+  --vp-c-brand-2: #9dc0d1;
+  --vp-c-brand-3: #87afc2;
+  --vp-c-brand-soft: rgba(135, 175, 194, 0.14);
+
+  --vp-c-tip-1: #34d399;
+  --vp-c-tip-2: #6ee7b7;
+  --vp-c-tip-3: #34d399;
+  --vp-c-tip-soft: rgba(52, 211, 153, 0.12);
+
+  --vp-c-warning-1: #fbbf24;
+  --vp-c-warning-2: #fcd34d;
+  --vp-c-warning-3: #fbbf24;
+  --vp-c-warning-soft: rgba(251, 191, 36, 0.12);
+}
+
+/* ── Button ── */
+:root {
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: var(--vp-c-white);
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: var(--vp-c-white);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: var(--vp-c-white);
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+}
+
+/* ── Home hero — name gradient, no background blur ── */
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    #254855 30%,
+    #87afc2
+  );
+
+  --vp-home-hero-image-background-image: none;
+  --vp-home-hero-image-filter: none;
+}
+
+/* ── Custom containers (admonitions) — left border style ── */
+:root {
+  --vp-custom-block-tip-border: var(--vp-c-tip-1);
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-tip-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-tip-soft);
+
+  --vp-custom-block-info-border: var(--vp-c-brand-1);
+  --vp-custom-block-info-bg: var(--vp-c-brand-soft);
+
+  --vp-custom-block-warning-border: var(--vp-c-warning-1);
+  --vp-custom-block-warning-bg: var(--vp-c-warning-soft);
+
+  --vp-custom-block-danger-border: var(--vp-c-danger-1);
+  --vp-custom-block-danger-bg: var(--vp-c-danger-soft);
+}
+
+/* ── Typography — Geist fonts ── */
+:root {
+  --vp-font-family-base: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.VPDoc h1,
+.VPDoc h2,
+.VPDoc h3,
+.VPDoc h4,
+.VPHome h1,
+.VPHome h2 {
+  font-family: 'Stack Sans Notch', 'Geist', sans-serif;
+}
+
+.VPDoc h1 {
+  font-weight: 400;
+  letter-spacing: 0.05em;
+}
+
+.VPDoc h2 {
+  font-weight: 400;
+  letter-spacing: 0.03em;
+}
+
+.VPDoc h3 {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+/* ── Sidebar — light teal tint (matches Furo sidebar) ── */
+:root {
+  --vp-sidebar-bg-color: #f0f7f8;
+}
+
+.dark {
+  --vp-sidebar-bg-color: #0d1e24;
+}
+
+/* ── Tables ── */
+.vp-doc table {
+  font-size: 0.88rem;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.vp-doc table thead tr {
+  background: var(--vp-c-bg-soft);
+  border-bottom: 2px solid var(--vp-c-divider);
+}
+
+.vp-doc table thead th {
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.6rem 0.9rem;
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc table tbody td {
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--vp-c-divider);
+  vertical-align: top;
+}
+
+.vp-doc table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.vp-doc table tbody tr:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+/* ── Code blocks ── */
+.vp-doc div[class*='language-'] {
+  border-radius: 8px;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+}
+
+.vp-doc :not(pre) > code {
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}
+
+/* ── Inline code ── */
+.vp-doc :not(pre, h1, h2, h3, h4, h5, h6) > code {
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-variant-ligatures: none;
+}
+
+/* ── Search ── */
+.DocSearch {
+  --docsearch-primary-color: var(--vp-c-brand-1) !important;
+}
+
+/* ── Nav active link ── */
+.VPNavBarMenuLink.active,
+.VPNavBarMenuLink:hover {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* ── Sidebar active item ── */
+.VPSidebarItem.is-active > .item > .VPLink {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}

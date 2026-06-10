@@ -4,34 +4,30 @@ version: "3"
 
 vars:
   DOCS_DIR: docs
-  SOURCE_DIR: "{{.DOCS_DIR}}/source"
-  BUILD_DIR: "{{.DOCS_DIR}}/build"
 
 tasks:
+  dev:
+    desc: Start the VitePress dev server with live reload
+    dir: "{{.DOCS_DIR}}"
+    cmds:
+      - npm run docs:dev
+
   build:
-    desc: Build the Sphinx HTML documentation
+    desc: Build the VitePress documentation site
+    dir: "{{.DOCS_DIR}}"
     cmds:
-      - sphinx-build -b html "{{.SOURCE_DIR}}" "{{.BUILD_DIR}}/html"
-    sources:
-      - "{{.SOURCE_DIR}}/**/*.rst"
-      - "{{.SOURCE_DIR}}/**/*.py"
-      - "{{.SOURCE_DIR}}/_static/**/*"
+      - npm run docs:build
     generates:
-      - "{{.BUILD_DIR}}/html/index.html"
+      - "{{.DOCS_DIR}}/.vitepress/dist/index.html"
 
-  clean:
-    desc: Clean the built Sphinx documentation
+  preview:
+    desc: Preview the production build locally
+    dir: "{{.DOCS_DIR}}"
     cmds:
-      - rm -rf "{{.BUILD_DIR}}"
+      - npm run docs:preview
 
-  serve:
-    desc: Build and serve the documentation with live-reloading
+  install:
+    desc: Install docs dependencies
+    dir: "{{.DOCS_DIR}}"
     cmds:
-      - sphinx-autobuild "{{.SOURCE_DIR}}" "{{.BUILD_DIR}}/html"
-
-  publish:
-    desc: Publish documentation to gh-pages branch in the current project
-    deps:
-      - build
-    cmds:
-      - uvx ghp-import -n -p -f "{{.BUILD_DIR}}/html"
+      - npm install

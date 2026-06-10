@@ -1,5 +1,4 @@
-CLI Reference
-=============
+# CLI Reference
 
 The runic CLI is installed as the ``runic`` command.  Every command accepts
 ``--config <path>`` (default: ``runic/env.py``) to override the location of
@@ -20,14 +19,13 @@ Commands that **do** require a connection
 ``check``, ``validate``, ``run``, ``info``)
 execute ``env.py`` which calls ``context.configure()``.
 
-----
+---
 
-init
-----
+## init
 
-.. code-block:: bash
-
-   runic init [DIRECTORY] [--force]
+```bash
+runic init [DIRECTORY] [--force]
+```
 
 Scaffold a new runic migration environment.
 
@@ -51,31 +49,30 @@ Scaffold a new runic migration environment.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic init
+Created runic environment at runic/
+  runic/env.py
+  runic/script.py.mako
+  runic/versions/
 
-   $ runic init
-   Created runic environment at runic/
-     runic/env.py
-     runic/script.py.mako
-     runic/versions/
+$ runic init migrations
+Created runic environment at migrations/
+  migrations/env.py
+  migrations/script.py.mako
+  migrations/versions/
+  .runic  (config pointer — commit this file)
 
-   $ runic init migrations
-   Created runic environment at migrations/
-     migrations/env.py
-     migrations/script.py.mako
-     migrations/versions/
-     .runic  (config pointer — commit this file)
+$ runic init migrations --force   # overwrite existing directory
+```
 
-   $ runic init migrations --force   # overwrite existing directory
+---
 
-----
+## revision
 
-revision
---------
-
-.. code-block:: bash
-
-   runic revision -m MESSAGE [OPTIONS]
+```bash
+runic revision -m MESSAGE [OPTIONS]
+```
 
 Create a new migration revision script.
 
@@ -106,20 +103,20 @@ Create a new migration revision script.
     Diff the live schema against ``target_manifest`` set in ``env.py`` and
     fill in ``upgrade``/``downgrade`` bodies automatically.  Requires a
     database connection and ``target_manifest`` to be set.  See
-    :doc:`autogenerate`.
+    [autogenerate](./autogenerate.md).
 
 ``--preview``
     Print the revision file content that *would* be created without writing
     it to disk.  Useful for reviewing the generated script before committing.
 
-    .. code-block:: bash
-
-       $ runic revision --preview -m "add order index"
-       # Would create: a1b2c3d4
-       """add order index
-       ...
-       """
-       ...
+    ```bash
+    $ runic revision --preview -m "add order index"
+    # Would create: a1b2c3d4
+    """add order index
+    ...
+    """
+    ...
+    ```
 
 ``--format``
     Run ``ruff format`` on the generated file after creation (requires ruff
@@ -127,23 +124,22 @@ Create a new migration revision script.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic revision -m "add person email index"
+Created revision: runic/versions/3f9a12c1_add_person_email_index.py
 
-   $ runic revision -m "add person email index"
-   Created revision: runic/versions/3f9a12c1_add_person_email_index.py
+$ runic revision -m "new feature index" --branch-label feature-x
+Created revision: runic/versions/a1b2c3d4_new_feature_index.py
+```
 
-   $ runic revision -m "new feature index" --branch-label feature-x
-   Created revision: runic/versions/a1b2c3d4_new_feature_index.py
+---
 
-----
+## upgrade
 
-upgrade
--------
-
-.. code-block:: bash
-
-   runic upgrade [TARGET] [--config PATH] [--preview]
-                 [--validate-on-migrate] [--installed-by TEXT]
+```bash
+runic upgrade [TARGET] [--config PATH] [--preview]
+              [--validate-on-migrate] [--installed-by TEXT]
+```
 
 Apply migrations up to ``TARGET`` (default: ``head``).
 
@@ -174,31 +170,30 @@ Apply migrations up to ``TARGET`` (default: ``head``).
 
 **Examples**
 
-.. code-block:: bash
+```bash
+$ runic upgrade               # apply all pending revisions
+Upgraded to: 7b3d9e2f
 
-   $ runic upgrade               # apply all pending revisions
-   Upgraded to: 7b3d9e2f
+$ runic upgrade 3f9         # apply up to a specific revision (prefix ok)
+Upgraded to: 3f9a12c1ab4e
 
-   $ runic upgrade 3f9         # apply up to a specific revision (prefix ok)
-   Upgraded to: 3f9a12c1ab4e
+$ runic upgrade +1            # apply the next revision only
+Upgraded to: 7b3d9e2f
 
-   $ runic upgrade +1            # apply the next revision only
-   Upgraded to: 7b3d9e2f
+$ runic upgrade --preview
+CREATE RANGE INDEX: CREATE INDEX FOR (n:Person) ON (n.email) params=None
 
-   $ runic upgrade --preview
-   CREATE RANGE INDEX: CREATE INDEX FOR (n:Person) ON (n.email) params=None
+$ runic upgrade --validate-on-migrate --installed-by "ci-bot"
+Upgraded to: head
+```
 
-   $ runic upgrade --validate-on-migrate --installed-by "ci-bot"
-   Upgraded to: head
+---
 
-----
+## downgrade
 
-downgrade
----------
-
-.. code-block:: bash
-
-   runic downgrade [TARGET] [--config PATH] [--force] [--preview]
+```bash
+runic downgrade [TARGET] [--config PATH] [--force] [--preview]
+```
 
 Revert migrations down by one step, or to ``TARGET``.
 
@@ -221,30 +216,29 @@ Revert migrations down by one step, or to ``TARGET``.
 
 **Examples**
 
-.. code-block:: bash
+```bash
+$ runic downgrade                  # undo last applied revision (default: -1)
+Downgraded to: 3f9a12c1ab4e
 
-   $ runic downgrade                  # undo last applied revision (default: -1)
-   Downgraded to: 3f9a12c1ab4e
+$ runic downgrade base             # revert all
+Downgraded to: base
 
-   $ runic downgrade base             # revert all
-   Downgraded to: base
+$ runic downgrade 3f9              # revert to a specific revision (prefix ok)
+Downgraded to: 3f9a12c1ab4e
 
-   $ runic downgrade 3f9              # revert to a specific revision (prefix ok)
-   Downgraded to: 3f9a12c1ab4e
+$ runic downgrade -2               # undo the last two revisions
+Downgraded to: 3f9a12c1ab4e
 
-   $ runic downgrade -2               # undo the last two revisions
-   Downgraded to: 3f9a12c1ab4e
+$ runic downgrade base --force     # force past irreversible markers
+```
 
-   $ runic downgrade base --force     # force past irreversible markers
+---
 
-----
+## current
 
-current
--------
-
-.. code-block:: bash
-
-   runic current [--config PATH]
+```bash
+runic current [--config PATH]
+```
 
 Print the currently applied revision ID and message.
 
@@ -255,22 +249,21 @@ Print the currently applied revision ID and message.
 
 **Output**
 
-.. code-block:: bash
+```bash
+$ runic current
+7b3d9e2f — add email fulltext index
 
-   $ runic current
-   7b3d9e2f — add email fulltext index
+$ runic current
+<none>   # no revision applied
+```
 
-   $ runic current
-   <none>   # no revision applied
+---
 
-----
+## history
 
-history
--------
-
-.. code-block:: bash
-
-   runic history [--config PATH] [--verbose] [--range START:END]
+```bash
+runic history [--config PATH] [--verbose] [--range START:END]
+```
 
 Print all revisions, newest first.  Requires a database connection —
 the currently applied revision is marked ``(head)`` in the output.
@@ -290,81 +283,78 @@ the currently applied revision is marked ``(head)`` in the output.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic history
+7b3d9e2f         (head)                add email fulltext index
+3f9a12c1                               add person email index
 
-   $ runic history
-   7b3d9e2f         (head)                add email fulltext index
-   3f9a12c1                               add person email index
+$ runic history --verbose
+7b3d9e2f         (head)                add email fulltext index
+    create_date:   2026-05-30 10:00:00+00:00
+    down_revision: 3f9a12c1ab4e
 
-   $ runic history --verbose
-   7b3d9e2f         (head)                add email fulltext index
-       create_date:   2026-05-30 10:00:00+00:00
-       down_revision: 3f9a12c1ab4e
+3f9a12c1                               add person email index
+    create_date:   2026-05-30 09:00:00+00:00
+    down_revision: None
+```
 
-   3f9a12c1                               add person email index
-       create_date:   2026-05-30 09:00:00+00:00
-       down_revision: None
+::: info
+``(head)`` marks the currently applied revision in the database, not the
+tip of the file-based revision chain.  Use ``runic heads`` to see which
+revision is at the tip of the chain.
+:::
 
-.. note::
+---
 
-   ``(head)`` marks the currently applied revision in the database, not the
-   tip of the file-based revision chain.  Use ``runic heads`` to see which
-   revision is at the tip of the chain.
+## heads
 
-----
-
-heads
------
-
-.. code-block:: bash
-
-   runic heads [--config PATH]
+```bash
+runic heads [--config PATH]
+```
 
 Print all head revisions (revisions not referenced as ``down_revision`` by
 any other revision).
 
 **Example**
 
-.. code-block:: bash
-
-   $ runic heads
-   7b3d9e2f  add email fulltext index  (single head)
+```bash
+$ runic heads
+7b3d9e2f  add email fulltext index  (single head)
+```
 
 When multiple heads exist (a branch was created):
 
-.. code-block:: bash
+```bash
+$ runic heads
+c1d2e3f4  add vector index  (MULTIPLE HEADS — use merge to resolve)
+7b3d9e2f  add email index   (MULTIPLE HEADS — use merge to resolve)
+```
 
-   $ runic heads
-   c1d2e3f4  add vector index  (MULTIPLE HEADS — use merge to resolve)
-   7b3d9e2f  add email index   (MULTIPLE HEADS — use merge to resolve)
+---
 
-----
+## branches
 
-branches
---------
-
-.. code-block:: bash
-
-   runic branches [--config PATH]
+```bash
+runic branches [--config PATH]
+```
 
 Print every branch-point revision — revisions that two or more other
 revisions declare as their ``down_revision``.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic branches
+3f9a12c1  add person email index  ['7b3d9e2f', 'c1d2e3f4']
+```
 
-   $ runic branches
-   3f9a12c1  add person email index  ['7b3d9e2f', 'c1d2e3f4']
+---
 
-----
+## stamp
 
-stamp
------
-
-.. code-block:: bash
-
-   runic stamp TARGET [--config PATH] [--purge]
+```bash
+runic stamp TARGET [--config PATH] [--purge]
+```
 
 Set the version pointer without running any migration code.
 
@@ -384,25 +374,24 @@ Set the version pointer without running any migration code.
 
 **Examples**
 
-.. code-block:: bash
+```bash
+$ runic stamp 3f9a12c1
+Stamped: 3f9a12c1
 
-   $ runic stamp 3f9a12c1
-   Stamped: 3f9a12c1
+$ runic stamp base
+Stamped: <none>
 
-   $ runic stamp base
-   Stamped: <none>
+$ runic stamp heads   # after a merge, stamp both heads
+Stamped: heads
+```
 
-   $ runic stamp heads   # after a merge, stamp both heads
-   Stamped: heads
+---
 
-----
+## show
 
-show
-----
-
-.. code-block:: bash
-
-   runic show REV [--config PATH]
+```bash
+runic show REV [--config PATH]
+```
 
 Print full metadata for a single revision.
 
@@ -413,27 +402,26 @@ Print full metadata for a single revision.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic show 3f9
+Revision ID:   3f9a12c1ab4e
+Revises:       <base>
+Message:       add person email index
+Create Date:   2026-05-30 09:00:00+00:00
+Irreversible:  False
+Snapshot:      False
+Branch Labels: []
+Depends On:    []
+Path:          runic/versions/3f9a12c1ab4e_add_person_email_index.py
+```
 
-   $ runic show 3f9
-   Revision ID:   3f9a12c1ab4e
-   Revises:       <base>
-   Message:       add person email index
-   Create Date:   2026-05-30 09:00:00+00:00
-   Irreversible:  False
-   Snapshot:      False
-   Branch Labels: []
-   Depends On:    []
-   Path:          runic/versions/3f9a12c1ab4e_add_person_email_index.py
+---
 
-----
+## test
 
-test
-----
-
-.. code-block:: bash
-
-   runic test REV [--config PATH] [--url URL] [--graph GRAPH]
+```bash
+runic test REV [--config PATH] [--url URL] [--graph GRAPH]
+```
 
 Round-trip test a revision: ``upgrade → downgrade → upgrade`` on an
 ephemeral copy of the graph, then report node/index/constraint counts at
@@ -459,31 +447,30 @@ each phase.
 
 **Output**
 
-.. code-block:: bash
-
-   $ runic test 3f9a12c1
-   runic test 3f9a12c1ab4e
-   ─────────────────────────────────────────────
-   Phase A (upgrade):    ✓  nodes=0  indices=1  constraints=1
-   Phase B (downgrade):  ✓  nodes=0  indices=0  constraints=0
-   Phase C (idempotency):✓  nodes=0  indices=1  constraints=1
-   ─────────────────────────────────────────────
-   PASSED
+```bash
+$ runic test 3f9a12c1
+runic test 3f9a12c1ab4e
+─────────────────────────────────────────────
+Phase A (upgrade):    ✓  nodes=0  indices=1  constraints=1
+Phase B (downgrade):  ✓  nodes=0  indices=0  constraints=0
+Phase C (idempotency):✓  nodes=0  indices=1  constraints=1
+─────────────────────────────────────────────
+PASSED
+```
 
 The test runs on a throw-away graph named
 ``<graph_name>__test_<rev_id>_<token>`` which is deleted regardless of
 whether the test passes or fails.
 
-----
+---
 
-merge
------
+## merge
 
-.. code-block:: bash
+```bash
+runic merge R1 R2 -m MESSAGE [--config PATH] [--branch-label LABEL]
+```
 
-   runic merge R1 R2 -m MESSAGE [--config PATH] [--branch-label LABEL]
-
-Create a merge revision combining two branch heads.  See :doc:`branching`.
+Create a merge revision combining two branch heads.  See [branching](./branching.md).
 
 **Arguments**
 
@@ -505,19 +492,18 @@ Create a merge revision combining two branch heads.  See :doc:`branching`.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic merge 7b3d9e2f c1d2e3f4 -m "merge feature-x into main"
+Created revision: runic/versions/fa2b3c4d_merge_feature_x_into_main.py
+```
 
-   $ runic merge 7b3d9e2f c1d2e3f4 -m "merge feature-x into main"
-   Created revision: runic/versions/fa2b3c4d_merge_feature_x_into_main.py
+---
 
-----
+## validate
 
-validate
---------
-
-.. code-block:: bash
-
-   runic validate [--config PATH]
+```bash
+runic validate [--config PATH]
+```
 
 Verify that the local files for all applied revisions still match the
 checksums recorded at apply-time.  Exits 0 when all checksums are valid;
@@ -533,26 +519,25 @@ applied before checksum tracking was introduced are silently skipped.
 
 **Output**
 
-.. code-block:: bash
+```bash
+# All good:
+$ runic validate
+All checksums valid.
 
-   # All good:
-   $ runic validate
-   All checksums valid.
+# A script was modified after being applied:
+$ runic validate
+  x 3f9a12c1ab4e (add person email index): checksum mismatch — script was modified after being applied
+$ echo $?
+1
+```
 
-   # A script was modified after being applied:
-   $ runic validate
-     x 3f9a12c1ab4e (add person email index): checksum mismatch — script was modified after being applied
-   $ echo $?
-   1
-
-----
-
-run
 ---
 
-.. code-block:: bash
+## run
 
-   runic run SCRIPT [SCRIPT ...] [--config PATH]
+```bash
+runic run SCRIPT [SCRIPT ...] [--config PATH]
+```
 
 Execute one or more Python migration scripts against the database **without**
 recording them in the migration chain.  Useful for one-off operational tasks
@@ -560,7 +545,7 @@ recording them in the migration chain.  Useful for one-off operational tasks
 record.
 
 Each ``SCRIPT`` must be a ``.py`` file that defines an ``upgrade(op)``
-function.  The function receives the same :class:`~runic.migrate.operations.GraphOperations`
+function.  The function receives the same `GraphOperations`
 object as a normal migration.
 
 **Arguments**
@@ -575,23 +560,22 @@ object as a normal migration.
 
 **Example**
 
-.. code-block:: bash
+```bash
+$ runic run patches/backfill_user_roles.py
+Executed: backfill_user_roles.py
 
-   $ runic run patches/backfill_user_roles.py
-   Executed: backfill_user_roles.py
+$ runic run patch_a.py patch_b.py
+Executed: patch_a.py
+Executed: patch_b.py
+```
 
-   $ runic run patch_a.py patch_b.py
-   Executed: patch_a.py
-   Executed: patch_b.py
+---
 
-----
+## info
 
-info
-----
-
-.. code-block:: bash
-
-   runic info [--config PATH] [--mode MODE]
+```bash
+runic info [--config PATH] [--mode MODE]
+```
 
 Show migration status.  Three modes are available:
 
@@ -618,36 +602,35 @@ Show migration status.  Three modes are available:
 
 **Examples**
 
-.. code-block:: bash
+```bash
+# Default COMPARE view:
+$ runic info
+Database : my_graph
+Current  : 7b3d9e2f  add email fulltext index
+Applied  : 2 of 3
+Pending  : 1
 
-   # Default COMPARE view:
-   $ runic info
-   Database : my_graph
-   Current  : 7b3d9e2f  add email fulltext index
-   Applied  : 2 of 3
-   Pending  : 1
+Pending migrations:
+  c1d2e3f4  add vector index
 
-   Pending migrations:
-     c1d2e3f4  add vector index
+# Offline — no database needed:
+$ runic info --mode LOCAL
+Local revisions : 3
+Heads           : 1
+  c1d2e3f4  add vector index
 
-   # Offline — no database needed:
-   $ runic info --mode LOCAL
-   Local revisions : 3
-   Heads           : 1
-     c1d2e3f4  add vector index
+# Database state only:
+$ runic info --mode REMOTE
+Applied : 7b3d9e2f  add email fulltext index
+```
 
-   # Database state only:
-   $ runic info --mode REMOTE
-   Applied : 7b3d9e2f  add email fulltext index
+---
 
-----
+## check
 
-check
------
-
-.. code-block:: bash
-
-   runic check [--config PATH]
+```bash
+runic check [--config PATH]
+```
 
 Exit with code 1 if the live graph schema has drifted from the
 ``target_manifest`` defined in ``env.py``.  Exits 0 when the schema is
@@ -662,17 +645,17 @@ Intended for CI pipelines to catch uncommitted schema changes.
 
 **Example**
 
-.. code-block:: bash
+```bash
+# Schema is up-to-date:
+$ runic check
+Schema up-to-date.
 
-   # Schema is up-to-date:
-   $ runic check
-   Schema up-to-date.
+# Schema has drifted:
+$ runic check
+Pending schema changes (run `runic revision --autogenerate -m "..."` to generate):
+  + op.create_range_index("Order", "placed_at")
+$ echo $?
+1
+```
 
-   # Schema has drifted:
-   $ runic check
-   Pending schema changes (run `runic revision --autogenerate -m "..."` to generate):
-     + op.create_range_index("Order", "placed_at")
-   $ echo $?
-   1
-
-See :doc:`autogenerate` for how to configure ``target_manifest``.
+See [autogenerate](./autogenerate.md) for how to configure ``target_manifest``.
