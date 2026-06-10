@@ -396,6 +396,9 @@ def Relation(  # noqa: N802
                 target="Person",
             )
     """
+    from runic.cypher import validate_identifier
+
+    validate_identifier(relationship, "relationship type")
     return FieldDescriptor(
         relationship=relationship,
         direction=direction,

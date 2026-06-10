@@ -12,7 +12,6 @@ from typing import Any, TypeVar
 
 from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.query.builder import QueryBuilder
-from runic.ogm.query.expressions import CompoundExpr
 
 log = logging.getLogger(__name__)
 
@@ -86,14 +85,17 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         self._return_aliases = None
         self._project_fields = []
 
-        cypher, params = self.build()
-        log.debug("AsyncQueryBuilder.count: %s", cypher)
-        result = await self._session.execute(cypher, params)
-
-        self._agg_exprs = saved_agg
-        self._group_by_alias = saved_group
-        self._return_aliases = saved_return
-        self._project_fields = saved_project
+        try:
+            cypher, params = self.build()
+            log.debug("AsyncQueryBuilder.count: %s", cypher)
+            result = await self._session.execute(cypher, params)
+        finally:
+            # Always restore builder state, even if build()/execute() raises, so
+            # the instance stays reusable.
+            self._agg_exprs = saved_agg
+            self._group_by_alias = saved_group
+            self._return_aliases = saved_return
+            self._project_fields = saved_project
 
         if result.rows:
             return int(result.rows[0][0])
@@ -177,32 +179,7 @@ class FulltextQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         parts: list[str] = [self._dialect.fulltext_call(label, alias, "__fts_query")]
 
         # Extra OPTIONAL MATCHes for traversals (root WHERE + WITH go first)
-        if self._where_exprs and self._match_clauses:
-            root_exprs, post_exprs = self._split_where_exprs()
-        else:
-            root_exprs = []
-            post_exprs = self._where_exprs
-
-        if root_exprs:
-            cond = self._compile_expr(
-                root_exprs[0]
-                if len(root_exprs) == 1
-                else CompoundExpr(op="AND", operands=root_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
-
-        if post_exprs:
-            cond = self._compile_expr(
-                post_exprs[0]
-                if len(post_exprs) == 1
-                else CompoundExpr(op="AND", operands=post_exprs)
-            )
-            parts.append(f"WHERE {cond}")
+        self._append_where_and_traversals(parts)
 
         parts.append(self._compile_return())
 
@@ -297,32 +274,7 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
             self._dialect.vector_knn_start(alias, labels_str, type_name, field_name)
         ]
 
-        if self._where_exprs and self._match_clauses:
-            root_exprs, post_exprs = self._split_where_exprs()
-        else:
-            root_exprs = []
-            post_exprs = self._where_exprs
-
-        if root_exprs:
-            cond = self._compile_expr(
-                root_exprs[0]
-                if len(root_exprs) == 1
-                else CompoundExpr(op="AND", operands=root_exprs)
-            )
-            parts.append(f"WHERE {cond}")
-
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
-
-        if post_exprs:
-            cond = self._compile_expr(
-                post_exprs[0]
-                if len(post_exprs) == 1
-                else CompoundExpr(op="AND", operands=post_exprs)
-            )
-            parts.append(f"WHERE {cond}")
+        self._append_where_and_traversals(parts)
 
         # KNN return includes the distance score
         return_part = self._compile_return()

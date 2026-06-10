@@ -124,29 +124,31 @@ class Mapper:
 
         return cypher, {"__pk": pk_val}
 
-    def build_get_query(self, cls: type, pk: Any) -> tuple[str, dict[str, Any]]:
-        """Return ``(cypher, params)`` for a single-entity MATCH by primary key."""
-        node_meta = self._require_node_meta(cls)
-        generated = self._is_generated_pk(node_meta)
+    def _pk_match_clause(self, node_meta: NodeMeta) -> str:
+        """Return the ``MATCH (n:...) [WHERE ...]`` clause that selects by ``$__pk``.
+
+        Handles generated vs. natural primary keys and optional subtype
+        filtering. Callers append their own ``RETURN`` projection.
+        """
         labels_str = self.labels_clause(node_meta.labels)
         subtype_filter = self.subtype_where("n", node_meta.labels)
 
-        if generated:
+        if self._is_generated_pk(node_meta):
             id_where = self._dialect.generated_id_where("n", "__pk")
             if subtype_filter:
                 id_where = f"WHERE {subtype_filter} AND {id_where[6:]}"
-            cypher = f"MATCH (n:{labels_str}) {id_where} RETURN n"
-        else:
-            pk_name = node_meta.pk_field_name
-            if subtype_filter:
-                cypher = (
-                    f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) "
-                    f"WHERE {subtype_filter} RETURN n"
-                )
-            else:
-                cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN n"
+            return f"MATCH (n:{labels_str}) {id_where}"
 
-        return cypher, {"__pk": pk}
+        pk_name = node_meta.pk_field_name
+        match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
+        if subtype_filter:
+            return f"{match} WHERE {subtype_filter}"
+        return match
+
+    def build_get_query(self, cls: type, pk: Any) -> tuple[str, dict[str, Any]]:
+        """Return ``(cypher, params)`` for a single-entity MATCH by primary key."""
+        node_meta = self._require_node_meta(cls)
+        return f"{self._pk_match_clause(node_meta)} RETURN n", {"__pk": pk}
 
     def build_find_all_query(
         self, cls: type, skip: int = 0, limit: int | None = None
@@ -171,18 +173,16 @@ class Mapper:
     ) -> tuple[str, dict[str, Any]]:
         """Return ``(cypher, params)`` to MATCH a batch of entities by primary key."""
         node_meta = self._require_node_meta(cls)
-        generated = self._is_generated_pk(node_meta)
         labels_str = self.labels_clause(node_meta.labels)
         subtype_filter = self.subtype_where("n", node_meta.labels)
+        where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
 
-        if generated:
-            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
-            cypher = f"MATCH (n:{labels_str}) {where}id(n) IN $__pks RETURN n"
+        if self._is_generated_pk(node_meta):
+            id_match = "id(n) IN $__pks"
         else:
-            pk_name = node_meta.pk_field_name
-            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
-            cypher = f"MATCH (n:{labels_str}) {where}n.{pk_name} IN $__pks RETURN n"
+            id_match = f"n.{node_meta.pk_field_name} IN $__pks"
 
+        cypher = f"MATCH (n:{labels_str}) {where}{id_match} RETURN n"
         return cypher, {"__pks": pks}
 
     def build_count_query(self, cls: type) -> tuple[str, dict[str, Any]]:
@@ -196,26 +196,7 @@ class Mapper:
     def build_exists_query(self, cls: type, pk: Any) -> tuple[str, dict[str, Any]]:
         """Return ``(cypher, params)`` to test whether an entity with *pk* exists."""
         node_meta = self._require_node_meta(cls)
-        generated = self._is_generated_pk(node_meta)
-        labels_str = self.labels_clause(node_meta.labels)
-        subtype_filter = self.subtype_where("n", node_meta.labels)
-
-        if generated:
-            id_where = self._dialect.generated_id_where("n", "__pk")
-            if subtype_filter:
-                id_where = f"WHERE {subtype_filter} AND {id_where[6:]}"
-            cypher = f"MATCH (n:{labels_str}) {id_where} RETURN count(n)"
-        else:
-            pk_name = node_meta.pk_field_name
-            if subtype_filter:
-                cypher = (
-                    f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) "
-                    f"WHERE {subtype_filter} RETURN count(n)"
-                )
-            else:
-                cypher = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) RETURN count(n)"
-
-        return cypher, {"__pk": pk}
+        return f"{self._pk_match_clause(node_meta)} RETURN count(n)", {"__pk": pk}
 
     # ------------------------------------------------------------------
     # Decoding

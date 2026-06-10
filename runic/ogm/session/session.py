@@ -55,6 +55,13 @@ class Session(_SessionBase):
         *,
         log_cypher: bool = False,
     ) -> None:
+        """Create a session.
+
+        Security note: ``log_cypher=True`` emits every query *and its bound
+        parameters* at DEBUG level.  Parameters carry raw entity property values
+        (which may include PII or secrets), so enable it only for local
+        debugging — never in production where DEBUG logs are persisted.
+        """
         from runic.ogm.driver import TransactionalGraphDriver
 
         self._init_state(driver, mapper, log_cypher=log_cypher)
@@ -152,11 +159,13 @@ class Session(_SessionBase):
         database transaction so all flushed writes become durable and visible.
         """
         self.flush()
-        self._pending.clear()
-        self._deleted.clear()
         if self._in_transaction:
             self._driver.commit()
             self._in_transaction = False
+        # Clear only after the driver commit succeeds so a failed commit does
+        # not leave the session believing the writes were persisted.
+        self._pending.clear()
+        self._deleted.clear()
         log.debug("Session committed")
 
     def rollback(self) -> None:
@@ -524,9 +533,11 @@ class Session(_SessionBase):
             pk = self._mapper.get_pk_value(entity)
             entity.__dict__["_session"] = weakref.ref(self)
             self._identity_map[(type(entity), pk)] = entity
+            # Drop the entity as soon as its CREATE succeeds so a failure later
+            # in the loop cannot re-create it (a durable duplicate on FalkorDB)
+            # when the caller retries flush().
+            self._pending.remove(entity)
             log.debug("Created %r pk=%r", entity, pk)
-
-        self._pending.clear()
 
     def _flush_dirty(self) -> None:
         """MERGE/SET all dirty persistent entities."""
@@ -559,9 +570,10 @@ class Session(_SessionBase):
             pk = self._mapper.get_pk_value(entity)
             self._identity_map.pop((cls, pk), None)
             entity.__dict__.pop("_session", None)
+            # Drop per-entity so a failure later in the loop does not re-issue a
+            # DELETE for an already-deleted entity when the caller retries.
+            self._deleted.remove(entity)
             log.debug("Deleted %s pk=%r", cls.__name__, pk)
-
-        self._deleted.clear()
 
     def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         """Re-query a single entity from the graph and update it in-place."""

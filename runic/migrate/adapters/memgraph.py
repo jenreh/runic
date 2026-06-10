@@ -76,7 +76,7 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
             auth=self._driver.auth,
             database=graph_name,
             dialect=_MEMGRAPH_DIALECT,
-            encrypted=False,
+            encrypted=self._driver.encrypted,
         )
         return MemgraphAdapter(new_driver, graph_name)
 
@@ -196,7 +196,10 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
                 if idx_type == "label+property" and prop:
                     specs.add(IndexSpec(label=label, property=prop, index_type="RANGE"))
         except Exception as exc:
-            log.warning("Memgraph SHOW INDEX INFO failed: %s", exc)
+            # Returning empty specs here would make autogenerate treat every
+            # index as missing; abort loudly instead of silently degrading.
+            log.error("Memgraph SHOW INDEX INFO failed: %s", exc)
+            raise
         try:
             result = self.run_ro_query("SHOW CONSTRAINT INFO")
             for row in result.rows:
@@ -214,5 +217,6 @@ class MemgraphAdapter(GraphAdapterBase, GraphAdapter):
                 for prop in prop_list:
                     specs.add(IndexSpec(label=label, property=prop, index_type=kind))
         except Exception as exc:
-            log.warning("Memgraph SHOW CONSTRAINT INFO failed: %s", exc)
+            log.error("Memgraph SHOW CONSTRAINT INFO failed: %s", exc)
+            raise
         return specs

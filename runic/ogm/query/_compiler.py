@@ -97,7 +97,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
         if expr.op in ("IN", "NOT IN"):
             prefix = "NOT " if (expr.negate or expr.op == "NOT IN") else ""
-            return f"{prefix}{alias}.{expr.prop} IN ${param_name}"
+            return f"{prefix}{alias}.{expr.prop} IN {param_ref}"
 
         if expr.negate:
             return f"NOT ({alias}.{expr.prop} {expr.op} {param_ref})"

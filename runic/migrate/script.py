@@ -22,6 +22,16 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _docstring_safe(text: str) -> str:
+    """Neutralise sequences that would break out of a ``\"\"\"`` docstring.
+
+    The migration ``message`` is interpolated raw into the generated module's
+    docstring.  Escaping every double-quote run prevents a crafted message from
+    terminating the docstring early and injecting executable code.
+    """
+    return text.replace('"', '\\"')
+
+
 class RevisionNotFound(Exception):
     pass
 
@@ -439,6 +449,7 @@ class ScriptDirectory:
             branch_labels=branch_labels or [],
             depends_on=depends_on or [],
             message=message,
+            doc_message=_docstring_safe(message),
             create_date=datetime.now(UTC),
             upgrade_body=upgrade_body,
             downgrade_body=downgrade_body,
