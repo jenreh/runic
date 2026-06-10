@@ -48,7 +48,7 @@ def extract_declared_specs(entity_class: type) -> set[IndexSpec]:
             specs.add(IndexSpec(label=label, property=fi.name, index_type="UNIQUE"))
         elif f.index:
             specs.add(IndexSpec(label=label, property=fi.name, index_type="RANGE"))
-        if f.index_type == "FULLTEXT":
+        elif f.index_type == "FULLTEXT":
             specs.add(IndexSpec(label=label, property=fi.name, index_type="FULLTEXT"))
         elif f.index_type == "VECTOR":
             specs.add(IndexSpec(label=label, property=fi.name, index_type="VECTOR"))

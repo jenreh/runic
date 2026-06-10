@@ -26,6 +26,23 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# AGE graph names become PostgreSQL schema identifiers and cannot be bound as
+# query parameters to the cypher() function, so they are interpolated into SQL.
+# Restrict them to a safe identifier charset to prevent SQL injection.
+_GRAPH_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_graph_name(graph_name: str) -> str:
+    """Return ``graph_name`` if it is a safe AGE/PostgreSQL identifier."""
+    if not _GRAPH_NAME_RE.fullmatch(graph_name):
+        msg = (
+            f"invalid AGE graph name {graph_name!r}; must match "
+            f"{_GRAPH_NAME_RE.pattern} (letters, digits, underscore)"
+        )
+        raise ValueError(msg)
+    return graph_name
+
+
 # ---------------------------------------------------------------------------
 # Agtype data structures
 # ---------------------------------------------------------------------------
@@ -475,7 +492,7 @@ class AGEDriver:
 
     def __init__(self, conn: Any, graph_name: str) -> None:
         self._conn = conn
-        self._graph_name = graph_name
+        self._graph_name = _validate_graph_name(graph_name)
 
     @property
     def dialect(self) -> AGEDialect:
@@ -571,6 +588,7 @@ def create_age_driver(
     """
     import psycopg
 
+    _validate_graph_name(graph)
     conn = psycopg.connect(
         host=host,
         port=port,
@@ -578,5 +596,9 @@ def create_age_driver(
         user=username,
         password=password,
     )
-    _setup_age_connection(conn, graph)
+    try:
+        _setup_age_connection(conn, graph)
+    except Exception:
+        conn.close()
+        raise
     return AGEDriver(conn, graph)

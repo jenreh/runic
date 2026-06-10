@@ -144,25 +144,27 @@ class TestGetExistingSpecs:
         specs = adapter.get_existing_specs()
         assert IndexSpec(label="User", property="email", index_type="UNIQUE") in specs
 
-    def test_index_query_failure_returns_partial_results(self) -> None:
+    def test_index_query_failure_propagates(self) -> None:
+        # A failed SHOW INDEX INFO must abort rather than silently return
+        # partial specs (which would make autogenerate treat indexes as missing).
         adapter, mock_driver = _make_adapter()
         con_row = ["unique", "User", ["id"]]
         mock_driver.execute.side_effect = [
             RuntimeError("show index info unavailable"),
             _row_result(con_row),
         ]
-        specs = adapter.get_existing_specs()
-        assert IndexSpec(label="User", property="id", index_type="UNIQUE") in specs
+        with pytest.raises(RuntimeError, match="show index info unavailable"):
+            adapter.get_existing_specs()
 
-    def test_constraint_query_failure_returns_partial_results(self) -> None:
+    def test_constraint_query_failure_propagates(self) -> None:
         adapter, mock_driver = _make_adapter()
         index_row = ["label+property", "User", "email", 42]
         mock_driver.execute.side_effect = [
             _row_result(index_row),
             RuntimeError("show constraint info unavailable"),
         ]
-        specs = adapter.get_existing_specs()
-        assert IndexSpec(label="User", property="email", index_type="RANGE") in specs
+        with pytest.raises(RuntimeError, match="show constraint info unavailable"):
+            adapter.get_existing_specs()
 
 
 # ---------------------------------------------------------------------------

@@ -115,6 +115,11 @@ class BoltDriver:
         return self._uri
 
     @property
+    def encrypted(self) -> bool:
+        """Whether this connection uses TLS, derived from the URI scheme."""
+        return self._uri.startswith(("bolt+s://", "bolt+ssc://"))
+
+    @property
     def auth(self) -> tuple[str, str]:
         return self._auth
 
@@ -136,8 +141,15 @@ class BoltDriver:
                 "BoltDriver: transaction already active; "
                 "call commit() or rollback() before beginning a new one."
             )
-        self._bolt_session = self._neo4j_driver.session(database=self._database)
-        self._tx = self._bolt_session.begin_transaction()
+        session = self._neo4j_driver.session(database=self._database)
+        try:
+            self._tx = session.begin_transaction()
+        except Exception:
+            # begin_transaction() failed: close the session we just opened so it
+            # is not leaked (commit()/rollback() short-circuit when _tx is None).
+            session.close()
+            raise
+        self._bolt_session = session
         log.debug("BoltDriver: begun transaction")
 
     def commit(self) -> None:

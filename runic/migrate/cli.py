@@ -35,10 +35,30 @@ def _resolve_config(config: Path) -> Path:
         return config
     if config == _DEFAULT_CONFIG and _MARKER_FILE.exists():
         candidate = Path(_MARKER_FILE.read_text().strip())
-        if candidate.exists():
+        if _is_safe_marker_target(candidate):
             log.debug("resolved config from .runic: %s", candidate)
             return candidate
     return config
+
+
+def _is_safe_marker_target(candidate: Path) -> bool:
+    """Return True if *candidate* is a regular file inside the project root.
+
+    The .runic marker is treated as a path that is later ``exec``-ed, so a
+    candidate escaping the project root (e.g. ``/etc/passwd`` or a symlink) is
+    rejected to prevent arbitrary-file execution via a tampered marker.
+    """
+    project_root = Path.cwd().resolve()
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(project_root)
+    except OSError, ValueError:
+        log.warning("ignoring .runic target outside project root: %s", candidate)
+        return False
+    if not resolved.is_file():
+        log.warning("ignoring .runic target that is not a regular file: %s", candidate)
+        return False
+    return True
 
 
 _DB_CONNECTION_ERROR_NAMES = frozenset(

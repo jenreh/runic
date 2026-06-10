@@ -50,7 +50,11 @@ class DatetimeConverter(TypeConverter):
         if value is None:
             return None
         if isinstance(value, str):
-            return datetime.fromisoformat(value)
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError as exc:
+                msg = f"cannot decode graph value to datetime: {value!r}"
+                raise ValueError(msg) from exc
         return value
 
 
@@ -73,7 +77,11 @@ class EnumConverter(TypeConverter):
     def from_graph(self, value: Any) -> Any:
         if value is None:
             return None
-        return self._enum_class(value)
+        try:
+            return self._enum_class(value)
+        except ValueError as exc:
+            msg = f"cannot decode graph value {value!r} to {self._enum_class.__name__}"
+            raise ValueError(msg) from exc
 
 
 class Vector(list):

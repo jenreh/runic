@@ -46,6 +46,13 @@ class AsyncSession(_SessionBase):
         *,
         log_cypher: bool = False,
     ) -> None:
+        """Create an async session.
+
+        Security note: ``log_cypher=True`` emits every query *and its bound
+        parameters* at DEBUG level.  Parameters carry raw entity property values
+        (which may include PII or secrets), so enable it only for local
+        debugging — never in production where DEBUG logs are persisted.
+        """
         self._init_state(driver, mapper, log_cypher=log_cypher)
 
     # ------------------------------------------------------------------
@@ -89,6 +96,7 @@ class AsyncSession(_SessionBase):
         entity = self._mapper.decode_node(raw_node, cls)
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
+        log.debug("Loaded %s pk=%r from graph", cls.__name__, actual_pk)
         return entity
 
     def load_relationship(self, entity: Any, field_name: str) -> Any:  # noqa: ARG002
@@ -365,11 +373,13 @@ class AsyncSession(_SessionBase):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        if exc_type is None:
-            await self.commit()
-        else:
-            await self.rollback()
-        await self.close()
+        try:
+            if exc_type is None:
+                await self.commit()
+            else:
+                await self.rollback()
+        finally:
+            await self.close()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -393,6 +403,7 @@ class AsyncSession(_SessionBase):
         actual_pk = self._mapper.get_pk_value(entity)
         self._register_entity(entity, cls, actual_pk)
         self._inject_session_into(related)
+        log.debug("Loaded %s pk=%r with fetch=%r", cls.__name__, actual_pk, fetch)
         return entity
 
     async def _flush_pending(self) -> None:
@@ -410,8 +421,10 @@ class AsyncSession(_SessionBase):
             pk = self._mapper.get_pk_value(entity)
             entity.__dict__["_session"] = weakref.ref(self)
             self._identity_map[(type(entity), pk)] = entity
-
-        self._pending.clear()
+            # Drop per-entity so a failure later in the loop cannot re-create an
+            # already-created entity when the caller retries flush().
+            self._pending.remove(entity)
+            log.debug("Created %r pk=%r", entity, pk)
 
     async def _flush_dirty(self) -> None:
         for (_cls, _pk), entity in list(self._identity_map.items()):
@@ -431,6 +444,8 @@ class AsyncSession(_SessionBase):
             else:
                 entity.__dict__["_dirty"] = False
 
+            log.debug("Updated %s", type(entity).__name__)
+
     async def _flush_deleted(self) -> None:
         for entity in list(self._deleted):
             cypher, params = self._mapper.build_delete_query(entity)
@@ -440,8 +455,10 @@ class AsyncSession(_SessionBase):
             pk = self._mapper.get_pk_value(entity)
             self._identity_map.pop((cls, pk), None)
             entity.__dict__.pop("_session", None)
-
-        self._deleted.clear()
+            # Drop per-entity so a failure later in the loop does not re-issue a
+            # DELETE for an already-deleted entity when the caller retries.
+            self._deleted.remove(entity)
+            log.debug("Deleted %s pk=%r", cls.__name__, pk)
 
     async def _reload(self, entity: Any, cls: type, pk: Any) -> None:
         cypher, params = self._mapper.build_get_query(cls, pk)
