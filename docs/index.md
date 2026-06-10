@@ -60,4 +60,6 @@ with Session(driver) as session:
     print(repo.count())   # 1
 ```
 
+## Documentation
+
 See the [OGM Quickstart](/ogm/quickstart) or [Migration Quickstart](/migration/quickstart) to get up and running.
