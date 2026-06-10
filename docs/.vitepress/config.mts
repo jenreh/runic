@@ -6,10 +6,15 @@ import { withMermaid } from "vitepress-plugin-mermaid";
 const rtdCanonical = process.env.READTHEDOCS_CANONICAL_URL;
 const base = rtdCanonical ? new URL(rtdCanonical).pathname : "/";
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: "runic",
   description: "Graph schema migrations and OGM for Cypher-based graph databases.",
+  base,
   ignoreDeadLinks: true,
+
+  markdown: {
+    lineNumbers: true,
+  },
 
   themeConfig: {
     logo: '/runic.svg',
@@ -105,8 +110,5 @@ export default defineConfig({
       provider: 'local',
     },
 
-    markdown: {
-      lineNumbers: true,
-    },
   },
-})
+}))
