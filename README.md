@@ -5,7 +5,7 @@
 
 **Graph schema migrations and OGM for Cypher-based graph databases.**
 
-![Version](https://img.shields.io/badge/version-0.3.5-blue)
+![Version](https://img.shields.io/badge/version-0.3.6-blue)
 [![PyPI](https://img.shields.io/pypi/v/runic-py.svg)](https://pypi.org/project/runic-py/)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
