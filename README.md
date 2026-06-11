@@ -3,90 +3,211 @@
 
 # Runic
 
-**Graph schema migrations and OGM for Cypher-based graph databases.**
+**A type-safe OGM for Cypher graph databases.<br>
+Define your models once, run them on any backend.**
 
 ![Version](https://img.shields.io/badge/version-0.3.6-blue)
 [![PyPI](https://img.shields.io/pypi/v/runic-py.svg)](https://pypi.org/project/runic-py/)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-[Features](#features) • [Installation](#installation) • [Migrations](#migrations) • [ORM](#runicorm) • [Documentation](#documentation)
+[Why Runic](#why-runic) • [The OGM](#the-ogm) • [Migrations](#migrations) • [Installation](#installation) • [Docs](https://runic.rehpoehler.de)
 
 </div>
 
 ---
 
-**Runic** is a Python toolkit for Cypher-based graph databases that covers two layers:
+Runic maps Python classes to graph nodes and edges. You declare typed `Node` and `Edge` models
+and get change tracking, lazy and eager relationships, a composable query API, and schema
+migrations — on top of a pluggable driver layer that runs the same model code on FalkorDB,
+Neo4j, Memgraph, ArcadeDB, and Apache AGE.
 
-- **`runic.migrate`** — Alembic-style schema migrations with revision tracking, a CLI, and rollback snapshots.
-- **`runic.ogm`** — A lightweight graph OGM: declare `Node` and `Edge` models, manage sessions, traverse relationships, and sync indexes — all via a pluggable driver layer supporting FalkorDB, ArcadeDB, and any Bolt-compatible database.
+## Why Runic
 
-## Features
+- **Backend-agnostic.** One model definition runs on five backends. Switching from FalkorDB to
+  Neo4j means changing the arguments to `create_driver()`; your models, queries, and application
+  code don't change.
+- **Typed models, no metaclass magic.** `Node` and `Edge` are plain classes with typed `Field`
+  descriptors — IDE autocomplete works, and `Author.name == "Alice"` builds a query predicate.
+- **Change tracking.** Mutate an object and call `commit()`; the unit-of-work session computes
+  the diff and writes only what changed. No manual dirty flags, no hand-written `SET` clauses.
+- **First-class relationships.** Declare `Relation` fields for `INCOMING`/`OUTGOING` edges,
+  with edge-property models, and choose lazy loading or single-round-trip eager fetch.
+- **Native graph types.** `Vector` (vecf32), `GeoLocation` (point), interned strings, and
+  automatic converters for `datetime` and `Enum` — stored without writing serialization code.
+- **Migrations included.** A migration tool with versioned revisions, a CLI, and rollback
+  snapshots. Revision state lives inside the graph, so there's no external state table.
+- **Sync and async.** `Session`/`Repository` and `AsyncSession`/`AsyncRepository` share one API.
 
-### Migration CLI
+## The OGM
 
-- **Alembic-Style Workflow** — Familiar CLI verbs: `init`, `revision`, `upgrade`, `downgrade`, `current`, `baseline`.
-- **Graph-Native** — Migration state stored inside dedicated graph nodes; no external state table needed.
-- **Idempotent Cypher** — Explicit, guarded migration steps; safe to replay on an empty graph.
-- **Offline & Dry Run** — Review generated Cypher scripts before running them in production.
-- **Rollback Snapshots** — Optional snapshot-based rollback for high-risk, non-reversible migrations.
+The two examples below build on one domain — `Author`, `Article`, and an `AUTHORED` edge —
+and cover the features you'll reach for most.
 
-### Graph ORM
+### 1. Model a domain, persist it, and wire up relationships
 
-- **Declarative Models** — `Node` and `Edge` subclasses with typed `Field` descriptors; no metaclass magic.
-- **Pluggable Driver Layer** — `GraphDriver` / `GraphDialect` protocols; built-in drivers for FalkorDB, ArcadeDB (via Bolt), and any Bolt-compatible DB. Switch backends without changing model code.
-- **Session & Repository** — Unit-of-work session with change tracking; typed `Repository` for queries and offset reads.
-- **Relationships** — `Relation` field for INCOMING / OUTGOING edges; lazy and eager loading; edge property models.
-- **Schema Management** — `IndexManager` and `SchemaManager` to create, validate, and sync RANGE, FULLTEXT, and UNIQUE indexes.
-- **Native Graph Types** — First-class `Vector` (vecf32), `GeoLocation` (point), interned strings, and auto-converters for `datetime` and `Enum`.
-- **Async Support** — `AsyncSession`, `AsyncRepository`, and `AsyncConnectionManager` for async-first applications.
+Declare typed `Node` and `Edge` classes. Constraints and indexes go inline on `Field`; native
+graph types (`Vector`, `GeoLocation`, `datetime`, `Enum`) get their converters assigned
+automatically; and `Relation` declares a traversal with an optional edge-property model.
+`SchemaManager` reconciles those declarations with the live graph, a `Session` handles writes
+with automatic change tracking, and `session.relate()` creates the edges between nodes.
 
-## Installation
+```python
+from datetime import UTC, datetime
+from enum import StrEnum
 
-Install the core package, then add the optional extra for your database backend:
+from runic.ogm import (
+    Edge,
+    Field,
+    GeoLocation,
+    Node,
+    Relation,
+    SchemaManager,
+    Session,
+    Vector,
+    create_driver,
+)
 
-| Backend | Extra | Package installed |
-| --- | --- | --- |
-| FalkorDB | `falkordb` | `falkordb` |
-| Neo4j | `neo4j` | `neo4j` |
-| Memgraph | `memgraph` | `neo4j` (Bolt) |
-| ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
-| Apache AGE | `age` | `psycopg[binary]` |
-| All backends | `all` | all of the above |
 
-```bash
-# FalkorDB
-uv add "runic-py[falkordb]"
+class Status(StrEnum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
 
-# Neo4j
-uv add "runic-py[neo4j]"
 
-# Memgraph or ArcadeDB (both use the Neo4j Bolt driver)
-uv add "runic-py[memgraph]"
-uv add "runic-py[arcadedb]"
+class Article(Node, labels=["Article"]):
+    id: str = Field(primary_key=True)
+    title: str = Field(index_type="FULLTEXT")    # fulltext search: FalkorDB/Neo4j/Memgraph
+    category: str = Field(interned=True)         # intern() dedup — FalkorDB only, no-op elsewhere
+    status: Status = Status.DRAFT                # EnumConverter auto-assigned
+    published_at: datetime | None = None         # DatetimeConverter auto-assigned
+    embedding: Vector | None = None              # KNN via vecf32() on FalkorDB; Neo4j/Memgraph
+                                                 #   need a pre-created VECTOR INDEX
+    origin: GeoLocation | None = None            # point(); updates unsupported on ArcadeDB
 
-# Apache AGE (PostgreSQL extension)
-uv add "runic-py[age]"
 
-# All backends at once
-uv add "runic-py[all]"
+class AuthoredEdge(Edge, type="AUTHORED"):
+    created_at: datetime
+
+
+class Author(Node, labels=["Author"]):
+    id: str = Field(primary_key=True)
+    email: str = Field(unique=True)
+    name: str
+    articles: list[Article] = Relation(
+        relationship="AUTHORED",
+        direction="OUTGOING",
+        target="Article",
+        edge_model=AuthoredEdge,
+    )
+
+
+# Pick a backend here — nothing else in this file changes.
+driver = create_driver("falkordb", host="localhost", port=6379, graph="blog")
+
+# Reconcile declared indexes/constraints with the live graph.
+schema = SchemaManager(driver)
+schema.sync_schema([Author, Article], drop_extra=False)  # create missing; keep extras
+
+with Session(driver) as session:
+    alice = Author(id="alice", email="alice@example.com", name="Alice")
+    intro = Article(id="a1", title="Graphs 101", category="intro", status=Status.PUBLISHED)
+    session.add_all([alice, intro])
+    session.commit()
+
+    # Create the AUTHORED edge, writing properties onto the relationship itself.
+    # relate() is MERGE-based: idempotent, and re-calling updates the edge props.
+    session.relate(alice, Author.articles, intro, edge=AuthoredEdge(created_at=datetime.now(UTC)))
+    session.commit()
+
+with Session(driver) as session:
+    alice = session.get(Author, "alice")
+    alice.name = "Alice Smith"   # tracked automatically — no explicit dirty flag
+    session.commit()             # only the diff is written
 ```
 
-> [!NOTE]
-> Runic requires Python 3.14+. The core package has no graph-driver dependency — install only the extra for your backend.
+### 2. Query and traverse the graph
+
+Read data back with composable, type-safe statements, multi-hop traversals, paginated
+repositories, or your own Cypher. `select()` builds a statement independently of any session,
+so you can assemble it from conditional filters and reuse it across sessions. `.traverse()`
+walks a single relationship; `.repeat()` walks one to any depth for real-world graph queries.
+
+```python
+from runic.ogm import Repository, Session, select
+
+
+# Compose a query dynamically, then run it three ways.
+stmt = select(Article).where(Article.status == Status.PUBLISHED)
+if category:
+    stmt = stmt.where(Article.category == category)
+
+with Session(driver) as session:
+    articles: list[Article] = session.scalars(stmt)  # list[Article]
+    latest: Article | None = session.scalar(stmt)    # Article | None
+    n: int = session.count(stmt)                      # int
+
+    # Single-hop traversal with an edge-property filter — published articles
+    # Alice authored after a cutoff date.
+    recent = (
+        session.query(Author)
+        .alias("a")
+        .where(Author.id == "alice")
+        .traverse(Author.articles, edge_alias="e")
+        .alias("art")
+        .where(AuthoredEdge.created_at >= cutoff, on="e")
+        .where(Article.status == Status.PUBLISHED, on="art")
+        .return_target("art")
+        .all()
+    )
+
+    # Variable-length traversal — every article reachable within 3 AUTHORED hops
+    # (e.g. co-authorship chains). max_hops=None means unbounded.
+    network = (
+        session.query(Author)
+        .alias("a")
+        .where(Author.id == "alice")
+        .repeat(Author.articles, min_hops=1, max_hops=3)
+        .alias("reached")
+        .all()
+    )
+
+    # Paginate through a repository.
+    page = Repository(session, Article).find_all(skip=0, limit=20)
+
+    # Or load relationships off an entity: lazy by default, eager on request.
+    author = session.get(Author, "alice")
+    author.articles                                   # lazy — queried on first access
+    eager = session.get(Author, "alice", fetch=["articles"])
+    eager.articles                                    # already loaded, no extra query
+
+
+# Subclass Repository to drop down to typed Cypher when you need it.
+class ArticleRepository(Repository[Article]):
+    def by_author_email(self, email: str) -> list[Article]:
+        return self.cypher(
+            "MATCH (:Author {email: $email})-[:AUTHORED]->(a:Article) RETURN a",
+            {"email": email},
+            returns=Article,
+        )
+```
+
+> [!TIP]
+> Every pattern above has an async twin. `AsyncSession`, `AsyncRepository`, and
+> `AsyncConnectionManager` share the same API for async-first applications.
 
 ---
 
 ## Migrations
 
-Initialize your project and generate a new revision:
+`runic.migrate` is a migration tool with a CLI for versioned schema evolution. It stores
+revision state inside the graph, so there's no external state table to manage.
 
 ```bash
 runic init
 runic revision -m "create user index"
 ```
 
-Open the generated file in `runic/versions/` and define your upgrade and downgrade:
+Edit the generated file in `runic/versions/`:
 
 ```python
 revision = "1975ea83b712"
@@ -109,22 +230,17 @@ runic downgrade          # roll back one step
 runic downgrade 1975e    # roll back to a specific revision (prefix is enough)
 ```
 
-### Baselining an existing graph
-
-Bring an existing graph under runic control without re-running anything:
+**Baseline an existing graph** without re-running anything — introspect, generate a root
+revision, and stamp it. The generated revision rebuilds the full schema on an empty graph,
+so it's safe to replay for CI, cloning, or new tenants:
 
 ```bash
 runic baseline -m "baseline"   # introspect, generate root revision, stamp it
 runic current                  # verify it is now tracked
+runic upgrade head             # rebuild full schema on a fresh graph
 ```
 
-The generated revision recreates all indexes from scratch — safe to replay on a fresh graph (CI, cloning, new tenants):
-
-```bash
-runic upgrade head   # rebuilds full schema on an empty graph
-```
-
-### Programmatic SDK
+**Programmatic SDK** — drive migrations from code, against any backend:
 
 ```python
 from pathlib import Path
@@ -133,192 +249,52 @@ from runic.migrate.adapters import create_adapter
 
 init(Path("runic/"))
 
-# Any supported backend — swap the adapter name and kwargs
 adapter = create_adapter(
     "falkordb", url="falkor://localhost:6379", graph_name="my_graph"
 )
-# adapter = create_adapter("neo4j", host="localhost", port=7687, database="neo4j", username="neo4j", password="secret")
+# adapter = create_adapter("neo4j", host="localhost", port=7687,
+#                          database="neo4j", username="neo4j", password="secret")
 
 runic = Runic(adapter, script_location=Path("runic/"))
 runic.migrate.upgrade("head")
-
 print("current:", runic.migrate.current())
 ```
 
 ---
 
-## runic.ogm
+## Installation
 
-### Defining models
+Install the core package plus the extra for your backend. The core has **no graph-driver
+dependency** — you only pull in what you use.
 
-```python
-from runic.ogm import Field, Node, Edge, Relation
+| Backend | Extra | Driver installed |
+| --- | --- | --- |
+| FalkorDB | `falkordb` | `falkordb` |
+| Neo4j | `neo4j` | `neo4j` |
+| Memgraph | `memgraph` | `neo4j` (Bolt) |
+| ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
+| Apache AGE | `age` | `psycopg[binary]` |
+| All backends | `all` | all of the above |
 
-
-class User(Node, labels=["User"]):
-    id: str
-    email: str = Field(unique=True)
-    name: str
-
-
-class Post(Node, labels=["Post"]):
-    id: str
-    title: str = Field(index_type="FULLTEXT")
-    published: bool = False
-
-
-class AuthoredEdge(Edge, type="AUTHORED"):
-    created_at: str  # ISO-8601
-
-
-class Author(Node, labels=["Author"]):
-    id: str
-    name: str
-    posts: list[Post] = Relation(
-        relationship="AUTHORED",
-        direction="OUTGOING",
-        target="Post",
-        edge_model=AuthoredEdge,
-    )
+```bash
+uv add "runic-py[falkordb]"   # FalkorDB
+uv add "runic-py[neo4j]"      # Neo4j
+uv add "runic-py[memgraph]"   # Memgraph (Bolt)
+uv add "runic-py[arcadedb]"   # ArcadeDB (Bolt)
+uv add "runic-py[age]"        # Apache AGE (PostgreSQL extension)
+uv add "runic-py[all]"        # everything
 ```
 
-### Session-based CRUD
-
-`Session` accepts any `GraphDriver`. Use `create_driver()` to build one for your backend:
-
-```python
-from runic.ogm import Session, Repository, create_driver
-
-# Pick your backend — the rest of the code is identical
-driver = create_driver("falkordb", host="localhost", port=6379, graph="myapp")
-
-with Session(driver) as session:
-    session.add_all([
-        User(id="alice", email="alice@example.com", name="Alice"),
-        User(id="bob", email="bob@example.com", name="Bob"),
-    ])
-    session.commit()
-
-with Session(driver) as session:
-    repo = Repository(session, User)
-    alice = session.get(User, "alice")
-    alice.name = "Alice Smith"  # change tracking — no explicit dirty flag
-    session.commit()
-
-with Session(driver) as session:
-    user = session.get(User, "bob")
-    session.delete(user)
-    session.commit()
-```
-
-### Relationships
-
-```python
-# Lazy load (default) — triggers a query on first access
-with Session(driver) as session:
-    author = session.get(Author, "alice")
-    posts = author.posts  # query executed here
-
-# Eager load — single round-trip
-with Session(driver) as session:
-    author = session.get(Author, "alice", fetch=["posts"])
-    posts = author.posts  # already loaded, no extra query
-```
-
-### Pagination and custom queries
-
-```python
-from runic.ogm import Repository
-
-with Session(driver) as session:
-    repo = Repository(session, User)
-    first_page = repo.find_all(skip=0, limit=20)
-    next_page = repo.find_all(skip=20, limit=20)
-```
-
-Extend `Repository` to add typed Cypher helpers:
-
-```python
-class UserRepository(Repository[User]):
-    def find_by_email(self, email: str) -> User | None:
-        return self.cypher_one(
-            "MATCH (u:User {email: $email}) RETURN u",
-            {"email": email},
-            returns=User,
-        )
-```
-
-### Composable queries
-
-`select()` creates a query statement independently of any session, enabling
-dynamic query composition (e.g. conditional UI filters) before execution:
-
-```python
-from runic.ogm import select
-
-stmt = select(User).where(User.active == True)
-if min_age > 0:
-    stmt = stmt.where(User.age >= min_age)
-
-with Session(driver) as session:
-    users: list[User] = session.scalars(stmt)  # list[User]
-    user: User | None = session.scalar(stmt)  # User | None
-    n: int = session.count(stmt)  # int
-```
-
-The same `stmt` is reusable — pass it to multiple sessions or execute it
-multiple times.  The older `session.query(User).where(...).all()` pattern is
-still fully supported.
-
-### Schema management
-
-Declare indexes inline on `Field`, then let `SchemaManager` keep the live graph in sync:
-
-```python
-from runic.ogm import Field, IndexManager, Node, SchemaManager
-
-
-class Place(Node, labels=["Place"]):
-    id: str
-    name: str = Field(index_type="FULLTEXT")
-    slug: str = Field(unique=True)
-    lat: float = Field(index=True)
-    lon: float = Field(index=True)
-
-
-schema = SchemaManager(driver)
-schema.sync_schema([Place], drop_extra=False)  # create missing; leave extras alone
-
-result = schema.validate_schema([Place])
-print("valid:", result.is_valid)
-```
-
-### Native graph types
-
-`Vector`, `GeoLocation`, `datetime`, and `Enum` fields get their converters assigned automatically — no `converter=` argument needed:
-
-```python
-from datetime import UTC, datetime
-from enum import StrEnum
-from runic.ogm import Field, GeoLocation, Node, Vector
-
-
-class Status(StrEnum):
-    DRAFT = "draft"
-    PUBLISHED = "published"
-
-
-class Article(Node, labels=["Article"]):
-    id: str = Field(primary_key=True)
-    category: str = Field(interned=True)  # intern() deduplication
-    status: Status  # EnumConverter auto-assigned
-    published_at: datetime | None = None  # DatetimeConverter auto-assigned
-    embedding: Vector | None = None  # VectorConverter → vecf32()
-    origin: GeoLocation | None = None  # GeoLocationConverter → point()
-```
+> [!NOTE]
+> Runic requires Python 3.14+.
 
 ---
 
 ## Documentation
 
-Full conceptual overview, async usage, advanced CLI flags, and API reference at the complete [Runic Documentation](https://runic.rehpoehler.de).
+Full conceptual overview, async usage, advanced CLI flags, and the complete API reference live
+at the **[Runic Documentation](https://runic.rehpoehler.de)**.
+
+## License
+
+Released under the [MIT License](LICENSE.md).
