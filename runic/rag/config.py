@@ -3,7 +3,9 @@
 All ``RUNIC_RAG_*`` environment variables map onto :class:`RagSettings`
 field names (env_prefix ``RUNIC_RAG_``). ``OPENAI_API_KEY`` and
 ``OLLAMA_BASE_URL`` are read UNPREFIXED so they match the conventions of the
-underlying OpenAI / Ollama clients. Defaults mirror ``.env.example`` exactly.
+underlying OpenAI / Ollama clients (the ``RUNIC_RAG_``-prefixed form and direct
+keyword init are also accepted via ``populate_by_name``). Defaults mirror
+``.env.example`` exactly.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ class RagSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     # ── LLM provider ────────────────────────────────────────────────────────

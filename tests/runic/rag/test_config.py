@@ -75,11 +75,17 @@ def test_openai_api_key_reads_unprefixed(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.openai_api_key == "sk-from-env"
 
 
-def test_openai_api_key_ignores_prefixed(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The prefixed form must NOT populate openai_api_key (alias is unprefixed).
+def test_openai_api_key_reads_prefixed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # populate_by_name=True also accepts the RUNIC_RAG_-prefixed field name.
     monkeypatch.setenv("RUNIC_RAG_OPENAI_API_KEY", "sk-prefixed")
     settings = RagSettings()
-    assert settings.openai_api_key is None
+    assert settings.openai_api_key == "sk-prefixed"
+
+
+def test_openai_api_key_accepts_kwarg() -> None:
+    # populate_by_name=True lets the field be set by name, not only its alias.
+    settings = RagSettings(openai_api_key="sk-kwarg")
+    assert settings.openai_api_key == "sk-kwarg"
 
 
 def test_ollama_base_url_reads_unprefixed(monkeypatch: pytest.MonkeyPatch) -> None:
