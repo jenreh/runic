@@ -115,7 +115,8 @@ graph: the same nodes, edges, and indexes you would model by hand, created via
 the OGM's `SchemaManager` and managed with migrations. Because persistence lives
 in the OGM, the same code is **backend-portable** across FalkorDB, Neo4j, and
 the other supported drivers. Every pipeline stage is a default adapter that you
-can swap — batteries included, nothing welded shut.
+can swap — batteries included, nothing welded shut (see
+[writing custom ports](./custom-ports.md)).
 
 The pipeline has two lanes — one to **build** the graph, one to **query** it:
 

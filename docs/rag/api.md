@@ -381,7 +381,8 @@ relation between two entities.
 Every collaborator the services depend on is a `typing.Protocol` (all
 `@runtime_checkable`), enabling constructor injection and trivial fakes in
 tests. Pass your own implementation through the `GraphRAG` constructor to swap a
-stage.
+stage — see [Writing custom ports](./custom-ports.md) for the how-to and the
+contract each port must honour.
 
 | Port | Method | Description |
 |---|---|---|

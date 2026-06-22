@@ -15,6 +15,7 @@ expansion) retrieval and inline citations. The whole pipeline sits behind one
 - [Designing & optimizing ontologies](./ontologies.md) — Tune the entity vocabulary to your domain for sharper extraction and retrieval.
 - [Evaluating quality](./evaluation.md) — Measure faithfulness, relevancy, and recall with deepeval before you ship.
 - [Configuration & deployment](./configuration.md) — Every `RagSettings` knob, backend selection, and the dev-to-prod schema lifecycle.
+- [Writing custom ports](./custom-ports.md) — Swap any pipeline stage — chunker, extractor, retriever, synthesizer — with your own adapter, and what to keep in mind when you do.
 - [API Reference](./api.md) — `runic.rag` — the facade, domain objects, ports, and default adapters.
 
 ---
