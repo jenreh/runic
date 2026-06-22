@@ -1,0 +1,165 @@
+[project]
+name = "runic-rag-docling"
+version = "0.1.0"
+description = "Optional Docling adapters implementing the runic.rag DocumentParser/DocumentChunker ports."
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [{ name = "Jens Rehpoehler" }]
+
+dependencies = [
+    "runic-py[graphrag]>=0.3.7",
+    "pydantic-settings>=2.14.2",
+]
+
+[project.optional-dependencies]
+local = ["docling>=2.59.0"]
+server = ["httpx>=0.27", "docling-core[chunking]>=2.0.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "pytest-httpserver>=1.1.5",
+    "httpx>=0.27",
+    "ruff>=0.15",
+    "ty>=0.0.51",
+]
+
+[tool.uv]
+# The ``local`` and ``server`` install extras are mutually exclusive (full
+# ``docling`` + torch vs. the light ``docling-core`` client); declaring them as
+# conflicting lets uv resolve each in its own fork instead of together (ADR-022).
+conflicts = [[{ extra = "local" }, { extra = "server" }]]
+
+# Docling and docling-core transitively pin ``typer<0.25``, while the core
+# ``runic-py`` pins ``typer>=0.26`` — an upstream incompatibility (concept §12).
+# These extras are opt-in and never installed for the unit/dev suite (the
+# integration test ``importorskip``s docling), so we force ``typer`` to the
+# core's range to keep the universal lock solvable; the override is inert unless
+# a heavy extra is actually installed against a future, compatible docling.
+override-dependencies = ["typer>=0.26.0,<1.0.0"]
+
+[tool.uv.sources]
+runic-py = { path = "../..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["runic_rag_docling"]
+
+[tool.pytest.ini_options]
+# ``tests`` is a package; put the package root on the path so ``tests.fakes``
+# imports resolve regardless of the invocation directory.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+markers = [
+    "integration: opt-in tests that require a real 'docling' install (skipped otherwise)",
+]
+
+[tool.ruff]
+indent-width = 4
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = [
+    "EM101",
+    "EM102",
+    "ISC001",
+    "N811",
+    "N818",
+    "PLR0913",
+    "PT011",
+    "PT012",
+    "RUF012",
+    "RUF100",
+    "SIM300",
+    "E501",
+    "B008",
+    "PYI034",
+    "S101",
+    "PLR0912",
+    "PLR0915",
+    "ARG001",
+    "PLR2004",
+    "PLW0603",
+    "PLC0415",
+    "SIM105",
+    "PLW2901",
+    "PLR0911",
+    "B017",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+select = [
+    "A",
+    "ANN001",
+    "ANN201",
+    "ARG",
+    "B",
+    "C4",
+    "E",
+    "EM",
+    "EXE",
+    "F",
+    "FIX",
+    "G",
+    "ICN",
+    "LOG",
+    "N",
+    "PERF",
+    "PIE",
+    "PL",
+    "PT",
+    "PTH",
+    "PYI",
+    "Q",
+    "RET",
+    "RUF",
+    "S",
+    "SIM",
+    "SLF",
+    "T20",
+    "TID",
+    "UP",
+    "W",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "I001"]
+"test_**.py" = [
+    "S101",
+    "PLR2004",
+    "ANN001",
+    "S106",
+    "SLF001",
+    "RET504",
+    "PERF401",
+    "E402",
+    "ARG002",
+    "ARG005",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.rules]
+# The lazy ``# ty: ignore[unresolved-import]`` directives on optional imports
+# (docling, docling-core, httpx) are intentional: they keep the gate clean when
+# those packages are absent. When a dev env *does* have one installed (e.g.
+# httpx via the dev group), ty would otherwise flag the directive as unused —
+# so we silence that meta-rule rather than churn the directives per environment.
+unused-ignore-comment = "ignore"

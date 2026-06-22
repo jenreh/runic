@@ -131,6 +131,7 @@ extend-exclude = [
     "build",
     "dist",
     "docs",
+    "packages",
     "skill",
 ]
 
@@ -261,6 +262,7 @@ exclude = [
     "build",
     "dist",
     "examples",
+    "packages",
     "skill",
     "tests/evals",
 ]

@@ -53,6 +53,8 @@ from runic.rag.models import Chunk as ChunkNode
 from runic.rag.ontology import Ontology
 from runic.rag.ports import (
     Chunker,
+    DocumentChunker,
+    DocumentParser,
     Embedder,
     EntityResolver,
     Extractor,
@@ -113,6 +115,8 @@ __all__ = [  # noqa: RUF022
     "VectorRetriever",
     # Ports + store
     "Chunker",
+    "DocumentChunker",
+    "DocumentParser",
     "Embedder",
     "EntityResolver",
     "Extractor",

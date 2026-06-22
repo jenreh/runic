@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     from runic.rag.config import RagSettings
     from runic.rag.ports import (
         Chunker,
+        DocumentChunker,
+        DocumentParser,
         Embedder,
         EntityResolver,
         Extractor,
@@ -106,6 +108,17 @@ class IngestionService:
     ontology:
         The entity-type vocabulary handed to the extractor. Defaults to the
         generic built-in ontology.
+    document_parser:
+        Optional :class:`~runic.rag.ports.DocumentParser`. When set (and it
+        :meth:`~runic.rag.ports.DocumentParser.supports` the path) it parses
+        documents to text in :meth:`ingest_document`; otherwise the built-in
+        loaders are used. Never touched by :meth:`ingest`.
+    document_chunker:
+        Optional :class:`~runic.rag.ports.DocumentChunker`. When set (and it
+        :meth:`~runic.rag.ports.DocumentChunker.supports` the path) it parses
+        AND chunks documents directly in :meth:`ingest_document`, taking
+        precedence over *document_parser*. Both default to ``None`` → the
+        existing built-in document path is unchanged.
     """
 
     def __init__(
@@ -119,6 +132,8 @@ class IngestionService:
         *,
         budget_guard: BudgetGuard | None = None,
         ontology: Ontology | None = None,
+        document_parser: DocumentParser | None = None,
+        document_chunker: DocumentChunker | None = None,
     ) -> None:
         self._store = store
         self._chunker = chunker
@@ -127,6 +142,8 @@ class IngestionService:
         self._resolver = resolver
         self._settings = settings
         self._ontology = ontology or Ontology.default()
+        self._document_parser = document_parser
+        self._document_chunker = document_chunker
         self._budget = budget_guard or BudgetGuard(
             max_llm_calls=settings.max_llm_calls,
             max_tokens=settings.max_tokens,
@@ -144,6 +161,51 @@ class IngestionService:
         so counts stay stable and no duplicates are created.
         """
         chunks = self._chunker.split(text, source=source)
+        return self._ingest_chunks(chunks, source=source)
+
+    def ingest_document(self, path: str | Path) -> IngestionReport:
+        """Load a document at *path* and ingest it; return the write counts.
+
+        Three-stage dispatch (additive, backward-compatible): an injected
+        :class:`~runic.rag.ports.DocumentChunker` that :meth:`supports` the path
+        parses AND chunks it directly (fused, structure-aware); else an injected
+        :class:`~runic.rag.ports.DocumentParser` that supports it parses to text
+        for the regular :class:`~runic.rag.ports.Chunker`; else the dependency-
+        light built-in loaders handle it (the unchanged default). ``source`` is
+        the string form of *path*.
+        """
+        spec = str(path)
+        if self._document_chunker is not None and self._document_chunker.supports(spec):
+            chunks = self._document_chunker.chunk_document(path, source=spec)
+            return self._ingest_chunks(chunks, source=spec)
+        if self._document_parser is not None and self._document_parser.supports(spec):
+            return self.ingest(self._document_parser.parse(path), source=spec)
+        return self.ingest(self._load_builtin(path), source=spec)
+
+    @staticmethod
+    def _load_builtin(path: str | Path) -> str:
+        """Load *path* with the dependency-light built-in document loaders.
+
+        PDFs go through PyMuPDF; ``.md`` / ``.markdown`` through the Markdown
+        loader; everything else is read as plain text.
+        """
+        from runic.rag.adapters import documents
+
+        lowered = str(path).lower()
+        if lowered.endswith(".pdf"):
+            return documents.load_pdf(path)
+        if lowered.endswith((".md", ".markdown")):
+            return documents.load_markdown(path)
+        return documents.load_text(path)
+
+    def _ingest_chunks(self, chunks: list[Chunk], *, source: str) -> IngestionReport:
+        """Run the extract/embed/write pipeline over already-split *chunks*.
+
+        Shared tail of :meth:`ingest` and :meth:`ingest_document`: chunks have
+        already been produced (by the text :class:`~runic.rag.ports.Chunker` or a
+        :class:`~runic.rag.ports.DocumentChunker`), so this stage only extracts,
+        embeds, and writes. Idempotent like :meth:`ingest`.
+        """
         if not chunks:
             log.debug("No chunks produced for source %s; nothing to ingest", source)
             return IngestionReport()
@@ -175,25 +237,6 @@ class IngestionService:
             report.mentions,
         )
         return report
-
-    def ingest_document(self, path: str | Path) -> IngestionReport:
-        """Load a document at *path* (text/markdown/PDF) and ingest it.
-
-        Thin convenience wrapper over :meth:`ingest` using
-        :mod:`runic.rag.adapters.documents` for extraction; ``source`` is the
-        string form of *path*.
-        """
-        from runic.rag.adapters import documents
-
-        spec = str(path)
-        lowered = spec.lower()
-        if lowered.endswith(".pdf"):
-            content = documents.load_pdf(path)
-        elif lowered.endswith((".md", ".markdown")):
-            content = documents.load_markdown(path)
-        else:
-            content = documents.load_text(path)
-        return self.ingest(content, source=spec)
 
     # ── Stage 2: parallel extract, then batched embed (cached/budgeted/limited) ─
 

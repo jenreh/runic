@@ -36,6 +36,8 @@ def with_defaults(
     *,
     settings: RagSettings | None = None,
     ontology: Ontology | None = None,
+    document_parser: DocumentParser | None = None,
+    document_chunker: DocumentChunker | None = None,
 ) -> GraphRAG: ...
 ```
 
@@ -46,6 +48,10 @@ optional — the driverless form is the documented default:
   localhost by default, otherwise Neo4j/Memgraph/ArcadeDB/AGE).
 - `settings` — `None` calls `load_settings()` (reads the environment + `.env`).
 - `ontology` — `None` uses `Ontology.default()`.
+- `document_parser`, `document_chunker` — `None` (the default) keeps the
+  built-in `ingest_document` path. Pass already-built file-oriented ports
+  (e.g. from the [runic-rag-docling](./docling.md) add-on) to parse/chunk
+  documents structure-aware. This path imports no document backend.
 
 ```python
 from runic.rag import GraphRAG, RagSettings
@@ -75,6 +81,8 @@ def __init__(
     synthesizer: Synthesizer,
     settings: RagSettings,
     budget: BudgetGuard | None = None,
+    document_parser: DocumentParser | None = None,
+    document_chunker: DocumentChunker | None = None,
 ) -> None: ...
 ```
 
@@ -82,7 +90,9 @@ Every collaborator is an injected port, so the whole pipeline is swappable and
 unit-testable with fakes. `driver_or_store` may be an OGM driver (wrapped in a
 `GraphStore`) or an already-built store. `retrievers` maps a retriever name to a
 `Retriever`; the planner expects the keys `"vector"`, `"fulltext"`, `"local"`,
-and `"highlevel"`.
+and `"highlevel"`. `document_parser` and `document_chunker` are the optional
+file-oriented ingestion ports (both default `None`); they are forwarded to the
+ingestion service and only consulted by `ingest_document` — see [Ports](#ports).
 
 ### Verbs
 
@@ -387,6 +397,8 @@ contract each port must honour.
 | Port | Method | Description |
 |---|---|---|
 | `Chunker` | `split(text: str, *, source: str) -> list[Chunk]` | Split raw text into ordered domain chunks. |
+| `DocumentParser` | `supports(source: str) -> bool`; `parse(path: str \| Path) -> str` | Optional, file-oriented: turn a document file into normalized text fed to the `Chunker`. |
+| `DocumentChunker` | `supports(source: str) -> bool`; `chunk_document(path: str \| Path, *, source: str \| None = None) -> list[Chunk]` | Optional, file-oriented: read a document file once and emit ordered chunks directly. |
 | `Extractor` | `extract(chunk: Chunk, *, entity_types: list[str]) -> Extraction` | Extract entities and relations from one chunk. |
 | `Embedder` | `dimension -> int` (property); `embed(text: str) -> list[float]`; `embed_batch(texts: list[str]) -> list[list[float]]` | Turn text into dense vectors; batch order matches input. |
 | `EntityResolver` | `canonical_key(entity: ExtractedEntity) -> str`; `find_duplicate(entity, embedding, store) -> str \| None` | Decide canonical identity and detect existing duplicates. |
@@ -395,6 +407,12 @@ contract each port must honour.
 | `Synthesizer` | `synthesize(query: str, context: RetrievalContext) -> Answer` | Produce a cited answer from context. |
 | `Writer` | `add_chunk(chunk_node)`; `upsert_entity(key, name, type, description, embedding)`; `relate(src_key, rel_type, dst_key, description, confidence, source_chunk)`; `mention(chunk_id, entity_key)` | One graph unit-of-work; changes commit when the context manager exits. |
 | `GraphStore` | `bootstrap_schema()`; `writer() -> AbstractContextManager[Writer]`; `vector_search(...)`; `fulltext_search(...)`; `get_entities(keys)`; `expand(keys, *, max_hops)`; `chunks_for_entities(keys, *, limit)` | The backend-isolating graph port; hides dialect differences. |
+
+`DocumentParser` and `DocumentChunker` are **optional**, file-oriented ports
+consulted by `ingest_document` in the order `document_chunker`, then
+`document_parser`, then the built-in loader — the first one whose `supports()`
+returns `True` wins, and `ingest_text()` never touches them. Both default to
+`None`; the core imports no document backend.
 
 The concrete `GraphStore` adapter is also exported as `GraphStoreAdapter`
 (`= runic.rag.store.GraphStore`) for advanced wiring.
@@ -427,6 +445,11 @@ constructor to override any of them.
 they are **not** wired by `with_defaults()`. Pass them to the constructor (or
 set `RUNIC_RAG_EMBEDDING_PROVIDER=ollama` for the embedder) to use them.
 :::
+
+The `DocumentParser` and `DocumentChunker` ports have **no built-in core
+adapter** — they are provided by the optional
+[runic-rag-docling](./docling.md) add-on and injected via the `document_parser`
+/ `document_chunker` parameters.
 
 ---
 

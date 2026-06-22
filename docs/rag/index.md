@@ -16,6 +16,7 @@ expansion) retrieval and inline citations. The whole pipeline sits behind one
 - [Evaluating quality](./evaluation.md) — Measure faithfulness, relevancy, and recall with deepeval before you ship.
 - [Configuration & deployment](./configuration.md) — Every `RagSettings` knob, backend selection, and the dev-to-prod schema lifecycle.
 - [Writing custom ports](./custom-ports.md) — Swap any pipeline stage — chunker, extractor, retriever, synthesizer — with your own adapter, and what to keep in mind when you do.
+- [Document parsing with Docling](./docling.md) — Optional structure-aware parsing of PDF/DOCX/PPTX/XLSX/HTML and scanned images, in-process or via `docling-serve`.
 - [API Reference](./api.md) — `runic.rag` — the facade, domain objects, ports, and default adapters.
 
 ---
