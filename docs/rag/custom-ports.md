@@ -17,7 +17,7 @@ a stage you call the constructor directly with your own port in its place.
 
 ---
 
-## The nine ports
+## The eleven ports
 
 All ports live in `runic.rag.ports` and are exported from `runic.rag`. Each is
 `@runtime_checkable`, so `isinstance(obj, Chunker)` works as a coarse sanity
@@ -34,9 +34,31 @@ check (it tests for method *presence*, not signatures).
 | `Synthesizer` | `synthesize(query, context) -> Answer` | change the answer prompt, model, or format |
 | `GraphStore` | `bootstrap_schema()`, `writer()`, `vector_search()`, `fulltext_search()`, `get_entities()`, `expand()`, `chunks_for_entities()` | an entirely different persistence layer (rarely needed) |
 | `Writer` | `add_chunk()`, `upsert_entity()`, `relate()`, `mention()` | the unit-of-work yielded by a custom `GraphStore` |
+| `DocumentParser` | `supports(source)`; `parse(path) -> str` | a structure-aware parse of a document *file* into text/markdown, which then feeds the existing `Chunker` |
+| `DocumentChunker` | `supports(source)`; `chunk_document(path, *, source) -> list[Chunk]` | a fused parse + chunk of a document *file*, fully structure-aware |
 
 The full method signatures and the value objects they exchange are in the
 [API reference](./api.md#ports).
+
+The last two ports are **optional** and **file-oriented**, and they behave
+differently from the other nine. Both default to `None`, so the stock pipeline
+never has them; you opt in by injecting one through the constructor. They are
+consulted **only by `ingest_document(path)`** — the `ingest_text(text, *,
+source)` path always uses the plain `Chunker` and is completely unchanged.
+When you supply them, `ingest_document` tries them in a fixed order: the
+`DocumentChunker` first (fused parse + chunk), then the `DocumentParser` (parse
+to text, then hand off to the `Chunker`), and finally the built-in loader for
+any path neither `supports`. Each `supports(source)` decides per file extension
+(`.pdf`, `.docx`, …) whether that adapter claims the file; unclaimed suffixes
+fall through to the next stage, so wiring one in never disturbs the formats it
+does not handle.
+
+::: info
+`DocumentParser` and `DocumentChunker` exist because some parsers are natively
+*document → text* or *document → chunks*, not *text → chunks* like `Chunker`.
+The next section shows the canonical case — Docling — and why forcing it through
+`Chunker` would throw away the very structure it extracts.
+:::
 
 ---
 
@@ -172,6 +194,126 @@ def synthesize(self, query: str, context: RetrievalContext) -> Answer:
         self._budget.record(llm_calls=1, tokens=estimate_tokens(query))
     ...
 ```
+
+---
+
+## Example: document-aware ports with Docling
+
+The two document ports are not academic — they exist for exactly one shape of
+problem, and [Docling](https://github.com/docling-project/docling) is the
+canonical case. Docling parses PDF, DOCX, PPTX, XLSX, HTML, and images into a
+structured `DoclingDocument` — preserving layout, tables, and heading hierarchy
+— and then chunks *that structure* with its `HybridChunker`. It is natively
+*document → chunks*, never *text → chunks*.
+
+That is why it needs `DocumentChunker` rather than the text `Chunker`. To drive
+Docling through `Chunker.split(text)` you would first flatten the
+`DoclingDocument` to Markdown, then re-parse that Markdown back into chunks —
+discarding the table and heading structure Docling just worked to recover, and
+parsing the document twice. The dedicated port lets Docling parse the original
+**once** and emit `Chunk` objects **directly** from the structured document, with
+no round-trip. (See ADR-019 for the port decision and ADR-021 for the fused,
+no-re-parse adapter.)
+
+Here is the shape of a `DocumentChunker` backed by Docling. It claims files by
+suffix, parses each one once into a `DoclingDocument`, walks the
+`HybridChunker`, contextualizes every raw chunk (headings and captions are
+prepended), and wraps the result in a domain `Chunk` with the same stable,
+content-addressed id the built-in chunker uses:
+
+```python
+import logging
+from pathlib import Path
+from typing import Any
+
+from runic.rag import Chunk, RagError
+
+log = logging.getLogger(__name__)
+
+# Lowercase suffixes Docling parses structure-aware; `str.endswith` takes a tuple.
+_SUPPORTED_SUFFIXES = (".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md")
+_ID_TEXT_PREFIX = 64
+
+
+class DoclingChunker:
+    """Fused parse + chunk via Docling. Implements runic.rag DocumentChunker."""
+
+    def __init__(self, *, converter: Any, hybrid_chunker: Any) -> None:
+        self._converter = converter        # injected: DoclingDocument from a path (DIP)
+        self._hybrid = hybrid_chunker      # injected: Docling HybridChunker
+
+    def supports(self, source: str) -> bool:
+        return source.lower().endswith(_SUPPORTED_SUFFIXES)
+
+    def chunk_document(self, path: str | Path, *, source: str | None = None) -> list[Chunk]:
+        src = source or str(path)
+        try:
+            doc = self._converter.document_from_path(path)  # ORIGINAL → DoclingDocument
+        except Exception as exc:  # wrap provider failures as a typed error
+            raise RagError(f"docling failed to parse {src}") from exc
+        chunks: list[Chunk] = []
+        for seq, raw in enumerate(self._hybrid.chunk(doc)):  # directly on the structure
+            body = self._hybrid.contextualize(raw)           # prepend headings/captions
+            chunks.append(
+                Chunk(id=_make_chunk_id(src, seq, body), text=body, seq=seq, source=src)
+            )
+        log.debug("docling chunked %s into %d chunks", src, len(chunks))
+        return chunks
+
+
+def _make_chunk_id(source: str, seq: int, text: str) -> str:
+    """Mirror the runic.rag default id scheme byte-for-byte → idempotent re-ingest."""
+    import hashlib
+
+    payload = f"{source}|{seq}|{text[:_ID_TEXT_PREFIX]}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+```
+
+This reuses the same contract points as every other port on this page: a
+**stable, content-addressed id** (identical to the default formula, so a
+re-ingested file `MERGE`s onto the same chunk nodes instead of duplicating),
+chunks emitted in **reading order**, sizes bounded by the chunker's
+`max_tokens`, **typed errors** (`RagError`, wrapping the provider exception),
+and house style throughout — annotated methods, `logger.debug`, no f-strings in
+log calls.
+
+You wire it in through the same constructor seam, but as the `document_chunker`
+argument rather than `chunker`. The plain `Chunker` stays in place for the
+`ingest_text` path; `DoclingChunker` is consulted only when you call
+`ingest_document` with a file it `supports`:
+
+```python
+rag = GraphRAG(
+    store,
+    ontology=ontology,
+    chunker=ParagraphChunker(settings),            # ingest_text path (raw strings) — unchanged
+    document_chunker=DoclingChunker(               # ← opt-in, file path → structure-aware chunks
+        converter=converter,
+        hybrid_chunker=hybrid,
+    ),
+    extractor=PydanticAIExtractor(settings),
+    embedder=embedder,
+    resolver=TwoStageResolver(settings),
+    retrievers=retrievers,
+    reranker=RRFReranker(),
+    synthesizer=PydanticAISynthesizer(settings, budget=budget),
+    settings=settings,
+    budget=budget,
+)
+rag.bootstrap_schema()
+report = rag.ingest_document("whitepaper.pdf")     # Docling parses + chunks the original directly
+```
+
+::: tip
+You do not have to write this adapter yourself. It ships, production-ready, as
+the optional **`runic-rag-docling`** package — including a `DoclingParser`
+(the `DocumentParser` variant for *parse-only* use with the built-in
+`ParagraphChunker`), a local-or-server converter strategy, and a
+`build_graphrag(...)` one-liner that wires Docling into the default stack. The
+sketch above is deliberately trimmed to show the *port contract*; see
+[Docling integration](./docling.md) for setup, the local-vs-server modes, and
+operational best practices.
+:::
 
 ---
 
@@ -380,6 +522,7 @@ guarantee comes from asserting the contract, as above.
 ::: info See also
 
 - [API Reference](./api.md#ports) — every port's exact signature and the value objects they exchange.
+- [Docling integration](./docling.md) — the document ports in production: structure-aware parsing, local vs. server, best practices.
 - [Ingesting documents](./ingestion.md) — how the chunker, extractor, embedder, and resolver compose at ingest time.
 - [Retrieval & answers](./retrieval.md) — how the retrievers, reranker, and synthesizer compose at query time.
 - [Configuration & deployment](./configuration.md) — swapping providers and backends without writing a port at all.

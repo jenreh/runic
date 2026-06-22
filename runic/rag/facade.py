@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from runic.rag.domain import Answer
     from runic.rag.ports import (
         Chunker,
+        DocumentChunker,
+        DocumentParser,
         Embedder,
         EntityResolver,
         Extractor,
@@ -72,6 +74,12 @@ class GraphRAG:
         Retrieval-side ports.
     settings:
         Runtime configuration shared by both services.
+    document_parser, document_chunker:
+        Optional file-oriented ingestion ports forwarded to
+        :class:`~runic.rag.services.IngestionService`. Both default to ``None``
+        (the unchanged built-in :meth:`ingest_document` path); inject e.g. the
+        ``runic-rag-docling`` adapters here to parse/chunk documents
+        structure-aware. The core imports no document backend.
     """
 
     def __init__(
@@ -88,6 +96,8 @@ class GraphRAG:
         synthesizer: Synthesizer,
         settings: RagSettings,
         budget: BudgetGuard | None = None,
+        document_parser: DocumentParser | None = None,
+        document_chunker: DocumentChunker | None = None,
     ) -> None:
         self._settings = settings
         self._ontology = ontology
@@ -101,6 +111,8 @@ class GraphRAG:
             settings,
             budget_guard=budget,
             ontology=ontology,
+            document_parser=document_parser,
+            document_chunker=document_chunker,
         )
         self._retrieval = RetrievalService(
             store=self._store,
@@ -133,6 +145,8 @@ class GraphRAG:
         *,
         settings: RagSettings | None = None,
         ontology: Ontology | None = None,
+        document_parser: DocumentParser | None = None,
+        document_chunker: DocumentChunker | None = None,
     ) -> GraphRAG:
         """Build a fully-wired :class:`GraphRAG` with the production adapters.
 
@@ -142,6 +156,12 @@ class GraphRAG:
         stack is the paragraph chunker, the pydantic-ai extractor, the OpenAI
         embedder, the two-stage resolver, the four retrievers (vector, fulltext,
         local, high-level), the RRF reranker, and the pydantic-ai synthesizer.
+
+        *document_parser* / *document_chunker* are optional, already-built
+        file-oriented ports forwarded to the constructor; both default to
+        ``None`` (the unchanged built-in document path). This path imports no
+        document backend — an add-on (e.g. ``runic-rag-docling``) builds the
+        port and passes it in, so the default stack stays dependency-light.
         """
         settings = settings or load_settings()
         ontology = ontology or Ontology.default()
@@ -185,6 +205,8 @@ class GraphRAG:
             synthesizer=PydanticAISynthesizer(settings, budget=budget),
             settings=settings,
             budget=budget,
+            document_parser=document_parser,
+            document_chunker=document_chunker,
         )
 
     @staticmethod

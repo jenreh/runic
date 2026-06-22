@@ -23,10 +23,13 @@ from runic.rag.domain import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Any
 
 __all__ = [
     "Chunker",
+    "DocumentChunker",
+    "DocumentParser",
     "Embedder",
     "EntityResolver",
     "Extractor",
@@ -45,6 +48,49 @@ class Chunker(Protocol):
 
     def split(self, text: str, *, source: str) -> list[Chunk]:
         """Return ordered chunks for *text* tagged with *source*."""
+        ...
+
+
+@runtime_checkable
+class DocumentParser(Protocol):
+    """Parses a document file into normalized text (e.g. Markdown).
+
+    Unlike :class:`Chunker` (text → chunks), this is file-oriented: it turns an
+    original document (PDF/DOCX/…) into text that then feeds the existing
+    :class:`Chunker`. Only consulted by ``ingest_document`` for paths it
+    :meth:`supports`.
+    """
+
+    def supports(self, source: str) -> bool:
+        """Return whether this parser handles the file at *source*."""
+        ...
+
+    def parse(self, path: str | Path) -> str:
+        """Return the normalized text of the document at *path*."""
+        ...
+
+
+@runtime_checkable
+class DocumentChunker(Protocol):
+    """Parses AND chunks a document file into ordered Chunks (fused).
+
+    A structure-aware, file-oriented port: it reads an original document
+    (PDF/DOCX/…) once and emits ordered :class:`~runic.rag.domain.Chunk`
+    objects directly, without a text re-parse. Only consulted by
+    ``ingest_document`` for paths it :meth:`supports`.
+    """
+
+    def supports(self, source: str) -> bool:
+        """Return whether this chunker handles the file at *source*."""
+        ...
+
+    def chunk_document(
+        self, path: str | Path, *, source: str | None = None
+    ) -> list[Chunk]:
+        """Return ordered chunks for the document at *path*.
+
+        *source* tags the resulting chunks; it defaults to ``str(path)``.
+        """
         ...
 
 

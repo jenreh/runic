@@ -87,6 +87,13 @@ the same pipeline. `source` is set to the string form of `path`.
 report = rag.ingest_document("docs/whitepaper.pdf")
 ```
 
+::: tip
+For structure-aware parsing — complex PDFs, tables, scanned pages, or Office
+formats — the optional [Docling add-on](./docling.md) implements the
+file-oriented `DocumentParser` / `DocumentChunker` ports and plugs straight into
+`ingest_document()`, while the core stays dependency-light for plain text.
+:::
+
 Both verbs return an `IngestionReport` — a frozen value object with the counts
 written this run:
 
@@ -292,6 +299,7 @@ The full environment-variable table (`RUNIC_RAG_*`) lives in
 ::: info See also
 
 - [Retrieval & answers](./retrieval.md) — how questions are answered, retrieval modes, and `answer.context`
+- [Document parsing with Docling](./docling.md) — structure-aware parsing of complex PDFs, tables, and scans
 - [Designing & optimizing ontologies](./ontologies.md) — tune what the extractor pulls out of each chunk
 - [Configuration & deployment](./configuration.md) — the full `RUNIC_RAG_*` settings reference
 - [API Reference](./api.md) — `IngestionReport`, `documents.load_pdf_pages`, and the rest of the surface
