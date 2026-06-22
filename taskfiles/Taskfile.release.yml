@@ -32,3 +32,21 @@ tasks:
         NEW_VERSION=v$(grep '^version = ' pyproject.toml | cut -d '"' -f2)
         uv run python scripts/generate_changelog.py "$NEW_VERSION" > /tmp/runic_changelog.md
         gh release create "$NEW_VERSION" --title "$NEW_VERSION" --notes-file /tmp/runic_changelog.md
+
+  build-docling:
+    desc: |
+      Usage: task release:build-docling -- [major|minor|patch], defaults to 'patch'.
+      Bumps the runic-rag-docling package version, commits, and creates a
+      package-scoped GitHub release.
+    dir: packages/runic-rag-docling
+    cmds:
+      - uvx bump-my-version bump {{.CLI_ARGS | default "patch"}}
+      - uv sync
+      - git add -A
+      - 'git diff --cached --quiet || git commit -m "chore: release runic-rag-docling v$(grep ''^version = '' pyproject.toml | cut -d ''"'' -f2)"'
+      - git push
+      - |
+        NEW_VERSION=$(grep '^version = ' pyproject.toml | cut -d '"' -f2)
+        TAG=runic-rag-docling-v$NEW_VERSION
+        gh release create "$TAG" --title "runic-rag-docling v$NEW_VERSION" \
+          --notes "Release runic-rag-docling v$NEW_VERSION"
