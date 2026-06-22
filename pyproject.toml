@@ -1,6 +1,6 @@
 [project]
 name = "runic-py"
-version = "0.3.7"
+version = "0.4.1"
 description = "Graph schema migrations and OGM for Cypher-based graph databases."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -34,10 +34,15 @@ all = [
     "neo4j>=6.2.0,<7.0.0",
     "psycopg[binary]>=3.3.4,<4.0.0",
 ]
+graphrag = [
+    "pydantic-ai-slim[openai]>=1.107.0",
+    "pydantic-settings>=2.14.2",
+    "pymupdf>=1.27.2.3",
+]
 [dependency-groups]
 dev = [
-    "bump-my-version==1.3.0",
-    "deepeval==4.0.6",
+    "bump-my-version==1.4.1",
+    "deepeval==4.0.7",
     "detect-secrets==1.5.0",
     "falkordb>=1.6.1",
     "falkordblite==0.10.0",
@@ -45,16 +50,19 @@ dev = [
     "neo4j==6.2.0",
     "pre-commit==4.6.0",
     "psycopg[binary]==3.3.4",
+    "pydantic-ai-slim[openai]>=1.107.0",
+    "pymupdf>=1.27.2.3",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pytest-httpserver==1.1.5",
-    "pytest==9.0.3",
+    "pytest==9.1.1",
     "python-dotenv==1.2.2",
-    "ruff==0.15.16",
+    "ruff==0.15.18",
     "sphinx-copybutton==0.5.2",
     "sphinx-design==0.7.0",
     "sphinx==9.1.0",
-    "ty==0.0.47",
+    "tiktoken>=0.13.0",
+    "ty==0.0.51",
 ]
 
 [project.scripts]
@@ -93,7 +101,7 @@ exclude = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.3.7"
+current_version = "0.4.1"
 tag = false
 allow-dirty = false
 
@@ -123,6 +131,7 @@ extend-exclude = [
     "build",
     "dist",
     "docs",
+    "packages",
     "skill",
 ]
 
@@ -253,6 +262,7 @@ exclude = [
     "build",
     "dist",
     "examples",
+    "packages",
     "skill",
     "tests/evals",
 ]
