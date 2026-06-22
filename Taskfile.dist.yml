@@ -69,4 +69,6 @@ tasks:
     cmds:
       - uv build
       - uv publish
+      - uv build --directory packages/runic-rag-docling
+      - uv publish --directory packages/runic-rag-docling
       - echo "✅ All modules published successfully"

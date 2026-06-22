@@ -42,7 +42,7 @@ graphrag = [
 [dependency-groups]
 dev = [
     "bump-my-version==1.4.1",
-    "deepeval==4.0.6",
+    "deepeval==4.0.7",
     "detect-secrets==1.5.0",
     "falkordb>=1.6.1",
     "falkordblite==0.10.0",

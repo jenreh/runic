@@ -6,6 +6,13 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Jens Rehpoehler" }]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+]
 
 dependencies = [
     "runic-py[graphrag]>=0.3.7",
@@ -16,14 +23,30 @@ dependencies = [
 local = ["docling>=2.59.0"]
 server = ["httpx>=0.27", "docling-core[chunking]>=2.0.0"]
 
+[project.urls]
+Homepage = "https://runic.rehpoehler.de"
+Repository = "https://github.com/jenreh/runic"
+
 [dependency-groups]
 dev = [
+    "bump-my-version==1.4.1",
     "pytest>=9",
     "pytest-httpserver>=1.1.5",
     "httpx>=0.27",
     "ruff>=0.15",
     "ty>=0.0.51",
 ]
+
+[tool.bumpversion]
+commit = false
+current_version = "0.1.0"
+tag = false
+allow-dirty = false
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
 
 [tool.uv]
 # The ``local`` and ``server`` install extras are mutually exclusive (full
