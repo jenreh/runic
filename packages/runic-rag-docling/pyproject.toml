@@ -41,7 +41,10 @@ dev = [
 commit = false
 current_version = "0.2.0"
 tag = false
-allow-dirty = false
+# This package lives in the shared ``runic`` monorepo, whose working tree
+# routinely carries unrelated sibling changes and whose ``v*`` tags belong to
+# ``runic-py``; allow a dirty tree so the package-scoped bump isn't blocked.
+allow_dirty = true
 
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
@@ -71,6 +74,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["runic_rag_docling"]
+
+[tool.hatch.build.targets.sdist]
+# Ship only the source package and metadata; never the local virtualenv
+# (``.venv.mac``), caches, or build artefacts, which break ``uv build`` with
+# "external symlinks are not allowed".
+include = ["/runic_rag_docling", "/README.md", "/pyproject.toml"]
+exclude = [".venv*"]
 
 [tool.pytest.ini_options]
 # ``tests`` is a package; put the package root on the path so ``tests.fakes``
