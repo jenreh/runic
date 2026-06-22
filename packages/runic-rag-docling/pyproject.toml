@@ -1,6 +1,6 @@
 [project]
 name = "runic-rag-docling"
-version = "0.1.0"
+version = "0.2.0"
 description = "Optional Docling adapters implementing the runic.rag DocumentParser/DocumentChunker ports."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -39,7 +39,7 @@ dev = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.1.0"
+current_version = "0.2.0"
 tag = false
 allow-dirty = false
 
