@@ -11,7 +11,7 @@ Define your models once, run them on any backend.**
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-[Why Runic](#why-runic) • [The OGM](#the-ogm) • [Migrations](#migrations) • [Installation](#installation) • [Docs](https://runic.rehpoehler.de)
+[Why Runic](#why-runic) • [The OGM](#the-ogm) • [Migrations](#migrations) • [Graph-RAG](#graph-rag) • [Installation](#installation) • [Docs](https://runic.rehpoehler.de)
 
 </div>
 
@@ -20,7 +20,8 @@ Define your models once, run them on any backend.**
 Runic maps Python classes to graph nodes and edges. You declare typed `Node` and `Edge` models
 and get change tracking, lazy and eager relationships, a composable query API, and schema
 migrations — on top of a pluggable driver layer that runs the same model code on FalkorDB,
-Neo4j, Memgraph, ArcadeDB, and Apache AGE.
+Neo4j, Memgraph, ArcadeDB, and Apache AGE. A built-in [Graph-RAG SDK](#graph-rag) layers
+document ingestion and cited, knowledge-graph-grounded question answering on top of the OGM.
 
 ## Why Runic
 
@@ -262,6 +263,55 @@ print("current:", runic.migrate.current())
 
 ---
 
+## Graph-RAG
+
+`runic.rag` turns unstructured text into a knowledge graph and answers questions over it with
+citations — chunking, entity/relation extraction, embedding, storage, and hybrid (vector +
+fulltext + graph-expansion) retrieval are handled for you. It builds on the same OGM and driver
+layer, so it runs on any supported backend. OpenAI is the default for the LLM and embeddings;
+point it at Ollama for a fully local run.
+
+```python
+from runic.ogm import create_driver
+from runic.rag import GraphRAG, Ontology, RagSettings
+
+settings = RagSettings()
+driver = create_driver(
+    "falkordb", host="localhost", port=6379, graph=settings.falkordb_graph
+)
+
+# with_defaults() wires the full adapter stack from your environment:
+# paragraph chunker, extractor, embedder, resolver, retrievers, reranker, synthesizer.
+rag = GraphRAG.with_defaults(driver, settings=settings, ontology=Ontology.default())
+rag.bootstrap_schema()   # create entity types + indexes (idempotent)
+
+# Ingest: chunk -> extract entities/relations -> embed -> resolve -> write the graph.
+rag.ingest_text(
+    "Ada Lovelace worked with Charles Babbage on the Analytical Engine in London.",
+    source="inline-demo",
+)
+
+# mode="auto" classifies the question and picks the retrieval strategy automatically.
+answer = rag.query("Who worked on the Analytical Engine?")
+print(answer.text)
+for citation in answer.citations:
+    print(f"  - [{citation.source}] {citation.text[:80]}...")
+```
+
+Every stage is a port with a default adapter you can swap — custom ontologies, chunkers,
+extractors, or retrievers — and the optional **`runic-rag-docling`** add-on plugs Docling in for
+layout-aware parsing and chunking of PDFs and office documents.
+
+```bash
+uv add "runic-py[graphrag,falkordb]"   # Graph-RAG extras + a backend driver
+```
+
+> [!NOTE]
+> Set `OPENAI_API_KEY` (or place it in a local `.env`) before running, or set
+> `RUNIC_RAG_LLM_PROVIDER=ollama` and `RUNIC_RAG_EMBEDDING_PROVIDER=ollama` to run fully local.
+
+---
+
 ## Installation
 
 Install the core package plus the extra for your backend. The core has **no graph-driver
@@ -275,6 +325,7 @@ dependency** — you only pull in what you use.
 | ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
 | Apache AGE | `age` | `psycopg[binary]` |
 | All backends | `all` | all of the above |
+| Graph-RAG | `graphrag` | `pydantic-ai`, `pymupdf` (combine with a backend) |
 
 ```bash
 uv add "runic-py[falkordb]"   # FalkorDB
@@ -283,6 +334,7 @@ uv add "runic-py[memgraph]"   # Memgraph (Bolt)
 uv add "runic-py[arcadedb]"   # ArcadeDB (Bolt)
 uv add "runic-py[age]"        # Apache AGE (PostgreSQL extension)
 uv add "runic-py[all]"        # everything
+uv add "runic-py[graphrag,falkordb]"   # Graph-RAG SDK + a backend driver
 ```
 
 > [!NOTE]
@@ -292,8 +344,8 @@ uv add "runic-py[all]"        # everything
 
 ## Documentation
 
-Full conceptual overview, async usage, advanced CLI flags, and the complete API reference live
-at the **[Runic Documentation](https://runic.rehpoehler.de)**.
+Full conceptual overview, async usage, advanced CLI flags, the Graph-RAG guides, and the
+complete API reference live at the **[Runic Documentation](https://runic.rehpoehler.de)**.
 
 ## License
 
