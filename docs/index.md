@@ -18,6 +18,9 @@ hero:
     - theme: alt
       text: Migration Quickstart
       link: /migration/quickstart
+    - theme: alt
+      text: Graph-RAG Quickstart
+      link: /rag/quickstart
 
 features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-waypoints-icon lucide-waypoints"><circle cx="12" cy="4.5" r="2.5"/><path d="m10.2 6.3-3.9 3.9"/><circle cx="4.5" cy="12" r="2.5"/><path d="M7 12h10"/><circle cx="19.5" cy="12" r="2.5"/><path d="m13.8 17.7 3.9-3.9"/><circle cx="12" cy="19.5" r="2.5"/></svg>'
@@ -38,6 +41,9 @@ features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search-icon lucide-search"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>'
     title: Vector & fulltext search
     details: Native Vector KNN and fulltext search operations. Declare vector indexes in your model, query with .knn() — no raw Cypher needed.
+  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-network-icon lucide-network"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>'
+    title: Graph-RAG
+    details: Turn documents into a knowledge graph, then answer questions over it with citations. Pluggable chunking, extraction, embedding, and retrieval — OpenAI by default or fully local via Ollama.
 ---
 
 ## Quick look — OGM
@@ -106,6 +112,41 @@ runic current                                 # 3f9a12c1 — add person email in
 runic downgrade base                          # roll back to an empty schema
 ```
 
+## Quick look — Graph-RAG
+
+Turn unstructured text into a knowledge graph, then ask questions and get
+answers grounded in cited source chunks — extraction, embedding, storage, and
+hybrid retrieval handled for you:
+
+```bash
+uv add "runic-py[graphrag,falkordb]"   # Graph-RAG extras + a backend driver
+```
+
+```python
+from runic.ogm import create_driver
+from runic.rag import GraphRAG, Ontology, RagSettings
+
+settings = RagSettings()
+driver = create_driver(
+    "falkordb", host="localhost", port=6379, graph=settings.falkordb_graph
+)
+
+rag = GraphRAG.with_defaults(driver, settings=settings, ontology=Ontology.default())
+rag.bootstrap_schema()
+rag.ingest_text(
+    "Ada Lovelace worked with Charles Babbage on the Analytical Engine.",
+    source="inline-demo",
+)
+
+answer = rag.query("Who worked on the Analytical Engine?")
+print(answer.text)
+for citation in answer.citations:
+    print(f"  - [{citation.source}] {citation.text[:80]}...")
+```
+
+Set `OPENAI_API_KEY` first (or point runic.rag at Ollama for a fully local
+run). `mode="auto"` picks a focused or broad retrieval strategy per question.
+
 ## There's more under the surface
 
 These snippets barely scratch it. runic is built for the hard parts of
@@ -130,6 +171,7 @@ Start with a quickstart and you'll have something running in five minutes:
 
 - [OGM Quickstart](/ogm/quickstart) — model, query, and persist your first graph
 - [Migration Quickstart](/migration/quickstart) — version your schema from zero
+- [Graph-RAG Quickstart](/rag/quickstart) — turn documents into a cited, queryable knowledge graph
 
 Then go deep:
 
@@ -137,5 +179,6 @@ Then go deep:
 - [Query Builder](/ogm/query-builder) — traversals, aggregation, the Cypher behind every call
 - [Async](/ogm/async) — the full async surface
 - [Operations Reference](/migration/operations-reference) — every `op.*` call at a glance
+- [Designing & optimizing ontologies](/rag/ontologies) — the highest-leverage knob for Graph-RAG quality
 
 > Bring your own backend. Write your models once. runic handles the Cypher.

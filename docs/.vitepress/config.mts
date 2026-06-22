@@ -80,6 +80,19 @@ export default defineConfigWithTheme<ThemeConfig>({
           { text: 'API Reference', link: '/migration/api' },
         ],
       },
+      {
+        text: 'Graph-RAG',
+        items: [
+          { text: 'What is Graph-RAG?', link: '/rag/concepts' },
+          { text: 'Quickstart', link: '/rag/quickstart' },
+          { text: 'Ingesting documents', link: '/rag/ingestion' },
+          { text: 'Retrieval & answers', link: '/rag/retrieval' },
+          { text: 'Designing & optimizing ontologies', link: '/rag/ontologies' },
+          { text: 'Evaluating quality', link: '/rag/evaluation' },
+          { text: 'Configuration & deployment', link: '/rag/configuration' },
+          { text: 'API Reference', link: '/rag/api' },
+        ],
+      },
     ],
 
     sidebar: {
@@ -113,6 +126,22 @@ export default defineConfigWithTheme<ThemeConfig>({
             { text: 'Testing Migrations', link: '/migration/testing' },
             { text: 'Limitations', link: '/migration/limitations' },
             { text: 'API Reference', link: '/migration/api' },
+          ],
+        },
+      ],
+      '/rag/': [
+        {
+          text: 'Graph-RAG',
+          link: '/rag/',
+          items: [
+            { text: 'What is Graph-RAG?', link: '/rag/concepts' },
+            { text: 'Quickstart', link: '/rag/quickstart' },
+            { text: 'Ingesting documents', link: '/rag/ingestion' },
+            { text: 'Retrieval & answers', link: '/rag/retrieval' },
+            { text: 'Designing & optimizing ontologies', link: '/rag/ontologies' },
+            { text: 'Evaluating quality', link: '/rag/evaluation' },
+            { text: 'Configuration & deployment', link: '/rag/configuration' },
+            { text: 'API Reference', link: '/rag/api' },
           ],
         },
       ],
