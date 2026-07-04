@@ -1623,7 +1623,7 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'graphrag'", specifier = ">=2.14.0" },
     { name = "pymupdf", marker = "extra == 'graphrag'", specifier = ">=1.27.1" },
     { name = "shellingham", specifier = ">=1.5.0,<2.0.0" },
-    { name = "typer", specifier = ">=0.24.0,<0.25.0" },
+    { name = "typer", specifier = ">=0.24.0,<0.27.0" },
 ]
 provides-extras = ["falkordb", "neo4j", "memgraph", "arcadedb", "age", "age-binary", "all", "graphrag"]
 
