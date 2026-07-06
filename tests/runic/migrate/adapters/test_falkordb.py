@@ -103,6 +103,43 @@ def test_drop_constraint_issues_redis_command(
 
 
 # ---------------------------------------------------------------------------
+# Vector index DDL — CREATE / DROP round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestVectorIndex:
+    def test_create_vector_index_emits_on_keyword(
+        self, adapter: FalkorDBAdapter, mock_graph: MagicMock
+    ) -> None:
+        adapter.create_vector_index("Article", "embedding", 128, "cosine")
+        query: str = mock_graph.query.call_args[0][0]
+        assert (
+            "CREATE VECTOR INDEX FOR (n:`Article`) ON (n.`embedding`) OPTIONS" in query
+        )
+
+    def test_drop_vector_index_emits_on_keyword(
+        self, adapter: FalkorDBAdapter, mock_graph: MagicMock
+    ) -> None:
+        # Regression: DROP must mirror CREATE and include the `ON` keyword,
+        # otherwise FalkorDB rejects the statement with a parser error and any
+        # downgrade that drops a vector index fails.
+        adapter.drop_vector_index("Article", "embedding")
+        query: str = mock_graph.query.call_args[0][0]
+        assert query == "DROP VECTOR INDEX FOR (n:`Article`) ON (n.`embedding`)"
+
+    def test_create_then_drop_share_pattern(
+        self, adapter: FalkorDBAdapter, mock_graph: MagicMock
+    ) -> None:
+        adapter.create_vector_index("Article", "embedding", 128, "cosine")
+        create_query: str = mock_graph.query.call_args[0][0]
+        adapter.drop_vector_index("Article", "embedding")
+        drop_query: str = mock_graph.query.call_args[0][0]
+        pattern = "FOR (n:`Article`) ON (n.`embedding`)"
+        assert pattern in create_query
+        assert pattern in drop_query
+
+
+# ---------------------------------------------------------------------------
 # Version tracking — FalkorDB Cypher specifics
 # ---------------------------------------------------------------------------
 

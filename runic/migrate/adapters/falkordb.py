@@ -288,7 +288,7 @@ class FalkorDBAdapter(GraphAdapter):
     def drop_vector_index(self, label: str, prop: str) -> None:
         query = (
             f"DROP VECTOR INDEX FOR (n:{escape_identifier(label)}) "
-            f"(n.{escape_identifier(prop)})"
+            f"ON (n.{escape_identifier(prop)})"
         )
         log.info("dropping vector index on %s.%s", label, prop)
         self._driver.execute(query, {})
