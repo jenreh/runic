@@ -128,8 +128,8 @@ class IngestionService:
         extractor: Extractor,
         embedder: Embedder,
         resolver: EntityResolver,
-        settings: RagSettings,
         *,
+        settings: RagSettings,
         budget_guard: BudgetGuard | None = None,
         ontology: Ontology | None = None,
         document_parser: DocumentParser | None = None,
@@ -468,6 +468,6 @@ class IngestionService:
                 dst_key,
                 relation.description,
                 relation.confidence,
-                work.chunk.id,
+                source_chunk=work.chunk.id,
             )
             written.add(edge)

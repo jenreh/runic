@@ -218,8 +218,8 @@ class BoltDriver:
         database: str,
         username: str,
         password: str,
-        dialect: GraphDialect,
         *,
+        dialect: GraphDialect,
         encrypted: bool = True,
     ) -> BoltDriver:
         uri = f"bolt://{host}:{port}"

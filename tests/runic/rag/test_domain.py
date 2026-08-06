@@ -23,7 +23,7 @@ from runic.rag.domain import (
 def test_chunk_is_frozen() -> None:
     chunk = Chunk(id="c1", text="hello", seq=0, source="doc.txt")
     with pytest.raises(ValidationError):
-        chunk.text = "changed"  # type: ignore[misc]
+        chunk.text = "changed"  # ty: ignore[invalid-assignment]
 
 
 def test_extracted_entity_defaults() -> None:
