@@ -1,6 +1,6 @@
 [project]
 name = "runic-rag-docling"
-version = "0.2.1"
+version = "0.2.2"
 description = "Optional Docling adapters implementing the runic.rag DocumentParser/DocumentChunker ports."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -40,7 +40,7 @@ dev = [
 
 [tool.bumpversion]
 commit = false
-current_version = "0.2.1"
+current_version = "0.2.2"
 tag = false
 # This package lives in the shared ``runic`` monorepo, whose working tree
 # routinely carries unrelated sibling changes and whose ``v*`` tags belong to
