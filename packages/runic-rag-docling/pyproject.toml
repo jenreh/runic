@@ -34,7 +34,8 @@ dev = [
     "pytest-httpserver>=1.1.5",
     "httpx>=0.27",
     "ruff>=0.16.1",
-    "ty>=0.0.68",
+    "setuptools>=83.0.0",
+    "ty>=0.0.69",
 ]
 
 [tool.bumpversion]

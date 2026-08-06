@@ -41,6 +41,7 @@ graphrag = [
 ]
 [dependency-groups]
 dev = [
+    "aiohttp>=3.14.3",
     "bump-my-version==1.5.0",
     "deepeval==4.1.5",
     "detect-secrets==1.5.0",
@@ -48,7 +49,7 @@ dev = [
     "falkordblite==0.10.0",
     "furo==2025.12.19",
     "neo4j==6.2.0",
-    "pre-commit==4.6.0",
+    "pre-commit==4.6.1",
     "psycopg[binary]==3.3.4",
     "pydantic-ai-slim[openai]>=2.25.0",
     "pymupdf>=1.28.0",
@@ -58,8 +59,9 @@ dev = [
     "pytest==9.1.1",
     "python-dotenv==1.2.2",
     "ruff==0.16.1",
+    "setuptools>=83.0.0",
     "tiktoken>=0.13.0",
-    "ty==0.0.68",
+    "ty==0.0.69",
 ]
 
 [project.scripts]
