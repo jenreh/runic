@@ -6,7 +6,7 @@
 **A type-safe OGM for Cypher graph databases.<br>
 Define your models once, run them on any backend.**
 
-![Version](https://img.shields.io/badge/version-0.4.3-blue)
+![Version](https://img.shields.io/badge/version-0.4.5-blue)
 [![PyPI](https://img.shields.io/pypi/v/runic-py.svg)](https://pypi.org/project/runic-py/)
 [![Python](https://img.shields.io/badge/python-3.14%2B-orange)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
@@ -77,13 +77,17 @@ class Status(StrEnum):
 
 class Article(Node, labels=["Article"]):
     id: str = Field(primary_key=True)
-    title: str = Field(index_type="FULLTEXT")    # fulltext search: FalkorDB/Neo4j/Memgraph
-    category: str = Field(interned=True)         # intern() dedup — FalkorDB only, no-op elsewhere
-    status: Status = Status.DRAFT                # EnumConverter auto-assigned
-    published_at: datetime | None = None         # DatetimeConverter auto-assigned
-    embedding: Vector | None = None              # KNN via vecf32() on FalkorDB; Neo4j/Memgraph
-                                                 #   need a pre-created VECTOR INDEX
-    origin: GeoLocation | None = None            # point(); updates unsupported on ArcadeDB
+    title: str = Field(
+        index_type="FULLTEXT"
+    )  # fulltext search: FalkorDB/Neo4j/Memgraph
+    category: str = Field(
+        interned=True
+    )  # intern() dedup — FalkorDB only, no-op elsewhere
+    status: Status = Status.DRAFT  # EnumConverter auto-assigned
+    published_at: datetime | None = None  # DatetimeConverter auto-assigned
+    embedding: Vector | None = None  # KNN via vecf32() on FalkorDB; Neo4j/Memgraph
+    #   need a pre-created VECTOR INDEX
+    origin: GeoLocation | None = None  # point(); updates unsupported on ArcadeDB
 
 
 class AuthoredEdge(Edge, type="AUTHORED"):
@@ -111,19 +115,23 @@ schema.sync_schema([Author, Article], drop_extra=False)  # create missing; keep 
 
 with Session(driver) as session:
     alice = Author(id="alice", email="alice@example.com", name="Alice")
-    intro = Article(id="a1", title="Graphs 101", category="intro", status=Status.PUBLISHED)
+    intro = Article(
+        id="a1", title="Graphs 101", category="intro", status=Status.PUBLISHED
+    )
     session.add_all([alice, intro])
     session.commit()
 
     # Create the AUTHORED edge, writing properties onto the relationship itself.
     # relate() is MERGE-based: idempotent, and re-calling updates the edge props.
-    session.relate(alice, Author.articles, intro, edge=AuthoredEdge(created_at=datetime.now(UTC)))
+    session.relate(
+        alice, Author.articles, intro, edge=AuthoredEdge(created_at=datetime.now(UTC))
+    )
     session.commit()
 
 with Session(driver) as session:
     alice = session.get(Author, "alice")
-    alice.name = "Alice Smith"   # tracked automatically — no explicit dirty flag
-    session.commit()             # only the diff is written
+    alice.name = "Alice Smith"  # tracked automatically — no explicit dirty flag
+    session.commit()  # only the diff is written
 ```
 
 ### 2. Query and traverse the graph
@@ -144,8 +152,8 @@ if category:
 
 with Session(driver) as session:
     articles: list[Article] = session.scalars(stmt)  # list[Article]
-    latest: Article | None = session.scalar(stmt)    # Article | None
-    n: int = session.count(stmt)                      # int
+    latest: Article | None = session.scalar(stmt)  # Article | None
+    n: int = session.count(stmt)  # int
 
     # Single-hop traversal with an edge-property filter — published articles
     # Alice authored after a cutoff date.
@@ -177,9 +185,9 @@ with Session(driver) as session:
 
     # Or load relationships off an entity: lazy by default, eager on request.
     author = session.get(Author, "alice")
-    author.articles                                   # lazy — queried on first access
+    author.articles  # lazy — queried on first access
     eager = session.get(Author, "alice", fetch=["articles"])
-    eager.articles                                    # already loaded, no extra query
+    eager.articles  # already loaded, no extra query
 
 
 # Subclass Repository to drop down to typed Cypher when you need it.
@@ -283,7 +291,7 @@ driver = create_driver(
 # with_defaults() wires the full adapter stack from your environment:
 # paragraph chunker, extractor, embedder, resolver, retrievers, reranker, synthesizer.
 rag = GraphRAG.with_defaults(driver, settings=settings, ontology=Ontology.default())
-rag.bootstrap_schema()   # create entity types + indexes (idempotent)
+rag.bootstrap_schema()  # create entity types + indexes (idempotent)
 
 # Ingest: chunk -> extract entities/relations -> embed -> resolve -> write the graph.
 rag.ingest_text(

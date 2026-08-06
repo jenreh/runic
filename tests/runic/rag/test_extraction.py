@@ -74,17 +74,20 @@ def test_output_type_constrains_entity_types_to_enum() -> None:
 
 def test_output_type_empty_vocab_uses_free_string() -> None:
     out = _build_output_type(())
-    # Parsing an arbitrary type string succeeds (no enum restriction).
-    parsed = out(entities=[{"name": "X", "type": "Anything", "description": ""}])
-    # `out` is a dynamically-built pydantic model, so its fields are unknown to
-    # the static type checker.
+    # `out` is a dynamically-built pydantic model, so its fields (and thus this
+    # call's kwargs) are unknown to the static type checker.
+    parsed = out(  # ty: ignore[pydantic-discarded-extra-argument]
+        entities=[{"name": "X", "type": "Anything", "description": ""}]
+    )
     assert parsed.entities[0].type == "Anything"  # ty: ignore[unresolved-attribute]
 
 
 def test_output_type_rejects_unknown_entity_type() -> None:
     out = _build_output_type(("Person",))
     with pytest.raises(Exception):  # noqa: B017,PT011 - pydantic ValidationError
-        out(entities=[{"name": "X", "type": "Robot", "description": ""}])
+        out(  # ty: ignore[pydantic-discarded-extra-argument]
+            entities=[{"name": "X", "type": "Robot", "description": ""}]
+        )
 
 
 def test_coerce_type_handles_enum_and_str() -> None:

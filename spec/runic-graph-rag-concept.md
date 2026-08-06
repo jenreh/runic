@@ -102,20 +102,26 @@ Hexagonal (Ports & Adapters). Der Domänenkern kennt weder Pydantic AI noch Falk
 from typing import Protocol
 from .domain import Chunk, Extraction, ExtractedEntity, RetrievalContext
 
+
 class Chunker(Protocol):
     def split(self, text: str) -> list[Chunk]: ...
 
+
 class Extractor(Protocol):
-    def extract(self, chunk: Chunk) -> Extraction: ...        # via Agent.run_sync()
+    def extract(self, chunk: Chunk) -> Extraction: ...  # via Agent.run_sync()
+
 
 class Embedder(Protocol):
     def embed(self, text: str) -> list[float]: ...
 
+
 class EntityResolver(Protocol):
     def resolve_key(self, entity: ExtractedEntity) -> str: ...
 
+
 class Retriever(Protocol):
     def retrieve(self, query: str, *, top_k: int) -> RetrievalContext: ...
+
 
 class Reranker(Protocol):
     def rerank(self, contexts: list[RetrievalContext]) -> RetrievalContext: ...
@@ -148,20 +154,25 @@ Polymorphe `Entity`-Hierarchie (= loose Ontologie) + generische `RELATES_TO`-Kan
 # runic_graph_rag/models.py
 from runic.ogm import Edge, Field, Node, Relation
 
+
 class Chunk(Node, labels=["Chunk"]):
     id: str = Field(primary_key=True, generated=True)
     text: str = Field(index_type="FULLTEXT")
     embedding: list[float] | None = Field(index_type="VECTOR", default=None)
-    source: str = Field(index=True)              # Provenance: Dokument/Episode
+    source: str = Field(index=True)  # Provenance: Dokument/Episode
     mentions: list["Entity"] = Relation(
-        relationship="MENTIONS", direction="OUTGOING", target="Entity",
+        relationship="MENTIONS",
+        direction="OUTGOING",
+        target="Entity",
     )
 
+
 class RelationEdge(Edge, type="RELATES_TO"):
-    rel_type: str = Field()                      # weicher Relationstyp
+    rel_type: str = Field()  # weicher Relationstyp
     description: str = Field(default="")
     confidence: float = Field(default=1.0)
-    source_chunk: str = Field(default="")        # Provenance
+    source_chunk: str = Field(default="")  # Provenance
+
 
 class Entity(Node, labels=["Entity"], primary_label="Entity"):
     canonical_key: str = Field(primary_key=True)
@@ -169,13 +180,22 @@ class Entity(Node, labels=["Entity"], primary_label="Entity"):
     description: str = Field(default="")
     embedding: list[float] | None = Field(index_type="VECTOR", default=None)
     related: list["Entity"] = Relation(
-        relationship="RELATES_TO", direction="OUTGOING",
-        target="Entity", edge_model=RelationEdge,
+        relationship="RELATES_TO",
+        direction="OUTGOING",
+        target="Entity",
+        edge_model=RelationEdge,
     )
 
+
 class Person(Entity, labels=["Entity", "Person"], primary_label="Entity"): ...
+
+
 class Project(Entity, labels=["Entity", "Project"], primary_label="Entity"): ...
+
+
 class Technology(Entity, labels=["Entity", "Technology"], primary_label="Entity"): ...
+
+
 class Concept(Entity, labels=["Entity", "Concept"], primary_label="Entity"): ...
 ```
 
@@ -247,7 +267,7 @@ driver = create_driver("falkordb", host="localhost", port=6379, graph="kb")
 # driver = create_driver("neo4j", uri="bolt://localhost:7687", auth=("neo4j", "..."))
 
 rag = GraphRAG.with_defaults(driver, ontology=Ontology.default())
-rag.bootstrap_schema()                       # SchemaManager.sync_schema() intern
+rag.bootstrap_schema()  # SchemaManager.sync_schema() intern
 rag.ingest_text(open("doc.md").read())
 answer = rag.query("Was sind die Hauptthemen?", mode="auto")
 print(answer.text, answer.citations)
@@ -258,7 +278,7 @@ print(answer.text, answer.citations)
 ```python
 rag = GraphRAG(
     driver,
-    ontology=my_ontology,                    # eigene Entity-/Relation-Typen
+    ontology=my_ontology,  # eigene Entity-/Relation-Typen
     extractor=MyExtractor(model="ollama:gemma3"),
     embedder=OllamaEmbedder(dim=1024),
     retrievers=[VectorRetriever(...), FulltextRetriever(...)],
