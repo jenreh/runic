@@ -108,7 +108,7 @@ class GraphRAG:
             extractor,
             embedder,
             resolver,
-            settings,
+            settings=settings,
             budget_guard=budget,
             ontology=ontology,
             document_parser=document_parser,

@@ -217,6 +217,7 @@ class Writer(Protocol):
         dst_key: str,
         description: str,
         confidence: float,
+        *,
         source_chunk: str,
     ) -> None:
         """Create a typed relation edge between two entities."""

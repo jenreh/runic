@@ -149,6 +149,7 @@ class _RecordingWriter:
         dst_key: str,
         description: str,
         confidence: float,
+        *,
         source_chunk: str,
     ) -> None:
         self.relations.append((src_key, rel_type, dst_key))

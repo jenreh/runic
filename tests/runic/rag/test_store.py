@@ -72,10 +72,20 @@ def populated(
         w.upsert_entity("org:acme", "Acme", "Organization", "A company.", distinct_c)
         w.upsert_entity("loc:berlin", "Berlin", "Location", "A city.", distinct_d)
         w.relate(
-            "person:alice", "FOUNDED", "org:acme", "Alice founded Acme.", 0.9, "c0"
+            "person:alice",
+            "FOUNDED",
+            "org:acme",
+            "Alice founded Acme.",
+            0.9,
+            source_chunk="c0",
         )
         w.relate(
-            "org:acme", "LOCATED_IN", "loc:berlin", "Acme is in Berlin.", 0.8, "c0"
+            "org:acme",
+            "LOCATED_IN",
+            "loc:berlin",
+            "Acme is in Berlin.",
+            0.8,
+            source_chunk="c0",
         )
         w.mention("c0", "person:alice")
         w.mention("c0", "org:acme")

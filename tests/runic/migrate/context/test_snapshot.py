@@ -59,6 +59,7 @@ _REV_A = "aaaaaaaaaaaa"
 def _write_revision(
     versions_dir: Path,
     rev: str,
+    *,
     down_revision: str | None = None,
     snapshot: bool = False,
     upgrade_body: str = "pass",

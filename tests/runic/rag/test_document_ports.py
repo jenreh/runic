@@ -105,6 +105,7 @@ class _RecordingWriter:
         dst_key: str,
         description: str,
         confidence: float,
+        *,
         source_chunk: str,
     ) -> None:  # pragma: no cover - no relations in these fakes
         return None
