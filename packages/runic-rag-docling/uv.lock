@@ -1895,7 +1895,7 @@ wheels = [
 
 [[package]]
 name = "runic-py"
-version = "0.4.3"
+version = "0.4.5"
 source = { editable = "../../" }
 dependencies = [
     { name = "mako" },
@@ -1957,7 +1957,7 @@ dev = [
 
 [[package]]
 name = "runic-rag-docling"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic-settings" },
