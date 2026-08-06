@@ -182,6 +182,7 @@ def revision(
     message: Annotated[
         str, typer.Option("-m", "--message", help="Short description of this revision")
     ],
+    *,
     config: Annotated[Path, typer.Option("--config")] = _DEFAULT_CONFIG,
     head: Annotated[str | None, typer.Option("--head")] = None,
     rev_id: Annotated[str | None, typer.Option("--rev-id")] = None,

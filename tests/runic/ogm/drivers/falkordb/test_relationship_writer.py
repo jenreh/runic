@@ -113,17 +113,17 @@ def test_node_match_clause_generated_pk() -> None:
 
 
 def test_rel_clause_merge_outgoing() -> None:
-    clause = _rel_clause("MERGE", "a", "b", "WORKS_FOR", "OUTGOING", "r")
+    clause = _rel_clause("MERGE", "a", "b", "WORKS_FOR", "OUTGOING", alias="r")
     assert clause == "MERGE (a)-[r:WORKS_FOR]->(b)"
 
 
 def test_rel_clause_match_incoming() -> None:
-    clause = _rel_clause("MATCH", "a", "b", "MANAGED_BY", "INCOMING", "r")
+    clause = _rel_clause("MATCH", "a", "b", "MANAGED_BY", "INCOMING", alias="r")
     assert clause == "MATCH (a)<-[r:MANAGED_BY]-(b)"
 
 
 def test_rel_clause_both() -> None:
-    clause = _rel_clause("MATCH", "a", "b", "LINKED", "BOTH", "r")
+    clause = _rel_clause("MATCH", "a", "b", "LINKED", "BOTH", alias="r")
     assert clause == "MATCH (a)-[r:LINKED]-(b)"
 
 

@@ -107,7 +107,9 @@ Replace the `self._script_dir.iterate_revisions(current, resolved_target)` call 
 
 ```python
 from_revs = self._version_node.get()  # list[str], empty at base
-revisions = self._script_dir.topological_upgrade_path(from_revs or None, resolved_target)
+revisions = self._script_dir.topological_upgrade_path(
+    from_revs or None, resolved_target
+)
 ```
 
 After upgrading a merge revision to `M` (where `M.down_revision` is a tuple),
@@ -196,12 +198,14 @@ class RangeIndex:
     prop: str
     rel: bool = False
 
+
 @dataclass
 class FulltextIndex:
     label: str
     props: list[str]
     language: str | None = None
     stopwords: list[str] | None = None
+
 
 @dataclass
 class VectorIndex:
@@ -213,11 +217,13 @@ class VectorIndex:
     ef_construction: int = 200
     ef_runtime: int = 10
 
+
 @dataclass
 class UniqueConstraint:
-    entity: str   # "NODE" | "RELATIONSHIP"
+    entity: str  # "NODE" | "RELATIONSHIP"
     label: str
     props: list[str]
+
 
 @dataclass
 class MandatoryConstraint:
@@ -225,12 +231,15 @@ class MandatoryConstraint:
     label: str
     props: list[str]
 
+
 @dataclass
 class SchemaManifest:
     range_indexes: list[RangeIndex] = field(default_factory=list)
     fulltext_indexes: list[FulltextIndex] = field(default_factory=list)
     vector_indexes: list[VectorIndex] = field(default_factory=list)
-    constraints: list[UniqueConstraint | MandatoryConstraint] = field(default_factory=list)
+    constraints: list[UniqueConstraint | MandatoryConstraint] = field(
+        default_factory=list
+    )
 ```
 
 Export all names from `runic/__init__.py`.
@@ -248,6 +257,7 @@ class LiveSchema:
     fulltext_indexes: list[FulltextIndex]
     vector_indexes: list[VectorIndex]
     constraints: list[UniqueConstraint | MandatoryConstraint]
+
 
 def read_live_schema(graph: Any) -> LiveSchema: ...
 ```
@@ -273,8 +283,9 @@ Implementation:
 @dataclass
 class DiffOp:
     action: Literal["create", "drop"]
-    op_call: str        # Python source line, e.g. 'op.create_range_index("Person", "email")'
-    inverse_call: str   # Corresponding reverse op for downgrade body
+    op_call: str  # Python source line, e.g. 'op.create_range_index("Person", "email")'
+    inverse_call: str  # Corresponding reverse op for downgrade body
+
 
 def diff_schema(manifest: SchemaManifest, live: LiveSchema) -> list[DiffOp]: ...
 def render_upgrade_body(ops: list[DiffOp]) -> str: ...
