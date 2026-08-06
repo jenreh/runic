@@ -264,9 +264,9 @@ class _TransactionalStubDriver:
 
     def __init__(self) -> None:
         self.dialect = MagicMock()
-        self.begin = MagicMock()  # ty: ignore[invalid-assignment]
-        self.commit = MagicMock()  # ty: ignore[invalid-assignment]
-        self.rollback = MagicMock()  # ty: ignore[invalid-assignment]
+        self.begin = MagicMock()
+        self.commit = MagicMock()
+        self.rollback = MagicMock()
         self.execute = MagicMock()
         self.close = MagicMock()
         _empty = MagicMock()

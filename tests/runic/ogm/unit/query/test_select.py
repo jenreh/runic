@@ -81,7 +81,7 @@ def _make_session(result: Any | None = None) -> Session:
     # Session checks isinstance(driver, TransactionalGraphDriver) — make it False
     driver.__class__ = type("FakeDriver", (), {})
     sess = Session(driver)
-    sess._run_query = MagicMock(return_value=r)  # ty: ignore[invalid-assignment]
+    sess._run_query = MagicMock(return_value=r)
     return sess
 
 
