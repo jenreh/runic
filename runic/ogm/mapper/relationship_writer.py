@@ -52,7 +52,9 @@ class RelationshipWriter:
         dialect = self._mapper.dialect
         match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen, dialect)
         match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen, dialect)
-        merge_rel = _rel_clause("MERGE", "a", "b", rel_type, direction, "r", dialect)
+        merge_rel = _rel_clause(
+            "MERGE", "a", "b", rel_type, direction, alias="r", dialect=dialect
+        )
 
         params: dict[str, Any] = {"__src_pk": src_pk, "__tgt_pk": tgt_pk}
         clauses = [match_a, match_b, merge_rel]
@@ -87,7 +89,7 @@ class RelationshipWriter:
         dialect = self._mapper.dialect
         match_a = _node_match_clause("a", src_meta, "__src_pk", src_gen, dialect)
         match_b = _node_match_clause("b", tgt_meta, "__tgt_pk", tgt_gen, dialect)
-        match_rel = _rel_clause("MATCH", "a", "b", rel_type, direction, "r")
+        match_rel = _rel_clause("MATCH", "a", "b", rel_type, direction, alias="r")
 
         params: dict[str, Any] = {"__src_pk": src_pk, "__tgt_pk": tgt_pk}
         cypher = f"{match_a}\n{match_b}\n{match_rel}\nDELETE r"
@@ -143,6 +145,7 @@ def _rel_clause(
     tgt: str,
     rel_type: str | None,
     direction: str,
+    *,
     alias: str,
     dialect: Any = None,
 ) -> str:

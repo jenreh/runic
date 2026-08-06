@@ -230,17 +230,21 @@ prepend_sys_path = .
 from falkormigrate import context
 from falkordb import FalkorDB
 
+
 def run_migrations_online():
     cfg = context.config
     db = FalkorDB.from_url(cfg.get("falkordb.url"))
     graph = db.select_graph(cfg.get("falkordb.graph"))
-    context.configure(connection=db, graph=graph,
-                      version_strategy=cfg.get("version_strategy", "node"))
+    context.configure(
+        connection=db, graph=graph, version_strategy=cfg.get("version_strategy", "node")
+    )
     context.run_migrations()
 
+
 if context.is_preview_mode():
-    context.configure(url=context.config.get("falkordb.url"),
-                      output_buffer=context.preview_stream)
+    context.configure(
+        url=context.config.get("falkordb.url"), output_buffer=context.preview_stream
+    )
     context.run_migrations()
 else:
     run_migrations_online()
@@ -277,13 +281,18 @@ Example:
 
 ```python
 def upgrade():
-    op.create_range_index("Person", "email")                       # CREATE INDEX FOR (p:Person) ON (p.email)
-    op.create_constraint("UNIQUE", "NODE", "Person", ["email"])    # auto-ensures the index first
-    op.rename_property("Person", "fname", "first_name")            # batched, idempotent
+    op.create_range_index("Person", "email")  # CREATE INDEX FOR (p:Person) ON (p.email)
+    op.create_constraint(
+        "UNIQUE", "NODE", "Person", ["email"]
+    )  # auto-ensures the index first
+    op.rename_property("Person", "fname", "first_name")  # batched, idempotent
+
 
 def downgrade():
     op.rename_property("Person", "first_name", "fname")
-    op.drop_constraint("UNIQUE", "NODE", "Person", ["email"])      # drop constraint BEFORE index
+    op.drop_constraint(
+        "UNIQUE", "NODE", "Person", ["email"]
+    )  # drop constraint BEFORE index
     op.drop_range_index("Person", "email")
 ```
 

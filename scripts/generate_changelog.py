@@ -377,6 +377,7 @@ def _assemble(
     contributors: list[str],
     version: str,
     previous_tag: str,
+    *,
     repo_url: str,
 ) -> str:
     """Build the markdown string from pre-fetched data. Pure — no I/O."""
@@ -447,7 +448,9 @@ def generate(
     commits = get_commits(previous_tag)
     summary = ai_summary(commits, version, previous_tag, backend) if not skip_ai else ""
     contributors = get_contributors(previous_tag)
-    return _assemble(commits, summary, contributors, version, previous_tag, repo_url)
+    return _assemble(
+        commits, summary, contributors, version, previous_tag, repo_url=repo_url
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -549,7 +552,7 @@ def main(
 
         progress.update(task, description="Assembling release notes...")
         result = _assemble(
-            commits, summary, contributors, version, previous_tag, repo_url
+            commits, summary, contributors, version, previous_tag, repo_url=repo_url
         )
         progress.advance(task)
 

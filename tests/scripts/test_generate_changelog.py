@@ -200,13 +200,13 @@ def _commit(
 
 
 def test_assemble_empty_commits() -> None:
-    result = _assemble([], "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble([], "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert result == "## v1.0.0\n\nNo changes recorded."
 
 
 def test_assemble_basic_structure() -> None:
     commits = [_commit("feat: add login")]
-    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert "## What's Changed" in result
     assert "### Features" in result
     assert "Add login" in result
@@ -214,7 +214,7 @@ def test_assemble_basic_structure() -> None:
 
 def test_assemble_with_summary() -> None:
     commits = [_commit("fix: patch bug")]
-    result = _assemble(commits, "Great release!", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "Great release!", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert result.startswith("Great release!")
 
 
@@ -223,7 +223,7 @@ def test_assemble_breaking_changes_section() -> None:
         _commit("feat!: drop old API"),
         _commit("fix: patch bug"),
     ]
-    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert "## Breaking Changes" in result
     breaking_pos = result.index("## Breaking Changes")
     whats_changed_pos = result.index("## What's Changed")
@@ -232,25 +232,27 @@ def test_assemble_breaking_changes_section() -> None:
 
 def test_assemble_single_contributor() -> None:
     commits = [_commit("feat: add thing")]
-    result = _assemble(commits, "", ["Alice"], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", ["Alice"], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert "Thanks to Alice" in result
 
 
 def test_assemble_multiple_contributors() -> None:
     commits = [_commit("feat: add thing")]
-    result = _assemble(commits, "", ["Alice", "Bob", "Carol"], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(
+        commits, "", ["Alice", "Bob", "Carol"], "v1.0.0", "v0.9.0", repo_url=REPO
+    )
     assert "Alice, Bob and Carol" in result
 
 
 def test_assemble_no_previous_tag_omits_compare_link() -> None:
     commits = [_commit("feat: first release")]
-    result = _assemble(commits, "", [], "v1.0.0", "", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "", repo_url=REPO)
     assert "Full Changelog" not in result
 
 
 def test_assemble_with_previous_tag_includes_compare_link() -> None:
     commits = [_commit("feat: add thing")]
-    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert f"**Full Changelog**: {REPO}/compare/v0.9.0...v1.0.0" in result
 
 
@@ -260,7 +262,7 @@ def test_assemble_type_ordering() -> None:
         _commit("fix: patch bug", hash_="bbb0000000"),
         _commit("feat: new thing", hash_="ccc0000000"),
     ]
-    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     feat_pos = result.index("### Features")
     fix_pos = result.index("### Bug Fixes")
     chore_pos = result.index("### Chores")
@@ -269,6 +271,6 @@ def test_assemble_type_ordering() -> None:
 
 def test_assemble_feature_alias_normalized() -> None:
     commits = [_commit("feature: add thing")]
-    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", REPO)
+    result = _assemble(commits, "", [], "v1.0.0", "v0.9.0", repo_url=REPO)
     assert "### Features" in result
     assert "### feature" not in result.lower() or "Features" in result

@@ -251,6 +251,7 @@ class _Writer:
         dst_key: str,
         description: str,
         confidence: float,
+        *,
         source_chunk: str,
     ) -> None:
         """MERGE an idempotent RELATES_TO edge carrying relation metadata."""

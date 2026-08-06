@@ -55,8 +55,8 @@ keine eigene OCR-/Tokenizer-Abstraktion.
 ```python
 from docling.document_converter import DocumentConverter
 
-doc = DocumentConverter().convert("doc.pdf").document   # DoclingDocument
-markdown = doc.export_to_markdown()                       # verlustarm
+doc = DocumentConverter().convert("doc.pdf").document  # DoclingDocument
+markdown = doc.export_to_markdown()  # verlustarm
 ```
 
 - Eingabeformate: PDF, DOCX, PPTX, XLSX, HTML, Markdown, AsciiDoc, EPUB, Bilder.
@@ -69,8 +69,8 @@ markdown = doc.export_to_markdown()                       # verlustarm
 from docling.chunking import HybridChunker
 
 chunker = HybridChunker(max_tokens=512, merge_peers=True)
-for raw in chunker.chunk(doc):          # arbeitet auf dem DoclingDocument
-    text = chunker.contextualize(raw)   # stellt Überschriften/Kontext voran
+for raw in chunker.chunk(doc):  # arbeitet auf dem DoclingDocument
+    text = chunker.contextualize(raw)  # stellt Überschriften/Kontext voran
 ```
 
 - `HybridChunker` braucht das `DoclingDocument` (nicht reinen Text) — genau dafür
@@ -135,14 +135,19 @@ Additiv und rückwärtskompatibel — der Default (`builtin`) bleibt exakt wie h
 @runtime_checkable
 class DocumentParser(Protocol):
     """Parst eine Dokumentdatei in normalisierten Text (z. B. Markdown)."""
+
     def supports(self, source: str) -> bool: ...
     def parse(self, path: str | Path) -> str: ...
+
 
 @runtime_checkable
 class DocumentChunker(Protocol):
     """Parst UND chunkt eine Dokumentdatei zu geordneten Chunks (fused)."""
+
     def supports(self, source: str) -> bool: ...
-    def chunk_document(self, path: str | Path, *, source: str | None = None) -> list[Chunk]: ...
+    def chunk_document(
+        self, path: str | Path, *, source: str | None = None
+    ) -> list[Chunk]: ...
 ```
 
 `supports(source)` entscheidet per Extension, ob der Adapter die Datei übernimmt
@@ -164,11 +169,13 @@ Built-in-Loader zurück. Beide Namen in `runic/rag/ports.py:__all__` **und**
 def ingest_document(self, path: str | Path) -> IngestionReport:
     spec = str(path)
     if self._document_chunker is not None and self._document_chunker.supports(spec):
-        chunks = self._document_chunker.chunk_document(path, source=spec)   # fused, kein Workaround
+        chunks = self._document_chunker.chunk_document(
+            path, source=spec
+        )  # fused, kein Workaround
         return self._ingest_chunks(chunks, source=spec)
     if self._document_parser is not None and self._document_parser.supports(spec):
         return self.ingest(self._document_parser.parse(path), source=spec)
-    return self.ingest(self._load_builtin(path), source=spec)               # Default unverändert
+    return self.ingest(self._load_builtin(path), source=spec)  # Default unverändert
 ```
 
 ### 4.3 Facade — `runic/rag/facade.py`
@@ -212,23 +219,28 @@ packages/runic-rag-docling/            # eigenständige Distribution, schwere Do
 ### 5.1 `DoclingChunker` — implementiert `DocumentChunker` (kein Workaround)
 
 ```python
-from runic.rag import Chunk, RagError          # nur öffentliche Kern-API
+from runic.rag import Chunk, RagError  # nur öffentliche Kern-API
+
 
 class DoclingChunker:
     """Fused Parse+Chunk via Docling. Implementiert runic.rag DocumentChunker."""
-    def __init__(self, settings=None, *, converter=None, hybrid_chunker=None) -> None: ...
+
+    def __init__(
+        self, settings=None, *, converter=None, hybrid_chunker=None
+    ) -> None: ...
 
     def supports(self, source: str) -> bool:
         return source.lower().endswith(_SUPPORTED_SUFFIXES)
 
     def chunk_document(self, path, *, source=None) -> list[Chunk]:
         src = source or str(path)
-        doc = self._converter.document_from_path(path)        # ORIGINAL -> DoclingDocument
+        doc = self._converter.document_from_path(path)  # ORIGINAL -> DoclingDocument
         out: list[Chunk] = []
-        for seq, raw in enumerate(self._hybrid.chunk(doc)):   # direkt auf der Struktur
+        for seq, raw in enumerate(self._hybrid.chunk(doc)):  # direkt auf der Struktur
             body = self._hybrid.contextualize(raw)
-            out.append(Chunk(id=make_chunk_id(src, seq, body),
-                             text=body, seq=seq, source=src))
+            out.append(
+                Chunk(id=make_chunk_id(src, seq, body), text=body, seq=seq, source=src)
+            )
         return out
 ```
 
@@ -270,13 +282,13 @@ Adapter akzeptieren `DoclingSettings` **oder** explizite kwargs:
 class DoclingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RUNIC_DOCLING_", env_file=".env")
     mode: Literal["local", "server"] = "local"
-    server_url: str | None = None        # http://localhost:5001
-    api_key: str | None = None           # X-Api-Key
-    max_tokens: int = 512                 # HybridChunker
-    tokenizer: str | None = None          # HF-ID; None -> Docling-Default
+    server_url: str | None = None  # http://localhost:5001
+    api_key: str | None = None  # X-Api-Key
+    max_tokens: int = 512  # HybridChunker
+    tokenizer: str | None = None  # HF-ID; None -> Docling-Default
     merge_peers: bool = True
-    ocr: bool = False                     # lokales PDF-OCR
-    timeout: float = 120.0               # Server-HTTP-Timeout (s)
+    ocr: bool = False  # lokales PDF-OCR
+    timeout: float = 120.0  # Server-HTTP-Timeout (s)
 ```
 
 ---
@@ -320,36 +332,64 @@ Spiegelt das Scaffold aus `custom-ports.md`, ergänzt den dokumentbasierten Port
 
 ```python
 from runic.ogm import create_driver
-from runic.rag import (GraphRAG, GraphStoreAdapter, Ontology, OpenAIEmbedder,
-                       ParagraphChunker, PydanticAIExtractor, PydanticAISynthesizer,
-                       RagSettings, RRFReranker, TwoStageResolver, VectorRetriever,
-                       FulltextRetriever, LocalRetriever, HighLevelRetriever)
+from runic.rag import (
+    GraphRAG,
+    GraphStoreAdapter,
+    Ontology,
+    OpenAIEmbedder,
+    ParagraphChunker,
+    PydanticAIExtractor,
+    PydanticAISynthesizer,
+    RagSettings,
+    RRFReranker,
+    TwoStageResolver,
+    VectorRetriever,
+    FulltextRetriever,
+    LocalRetriever,
+    HighLevelRetriever,
+)
 from runic.rag.concurrency import BudgetGuard
-from runic_rag_docling import DoclingChunker, DoclingSettings   # ← Add-on
+from runic_rag_docling import DoclingChunker, DoclingSettings  # ← Add-on
 
 settings = RagSettings(falkordb_graph="docling_demo")
 ontology = Ontology.default()
-driver = create_driver("falkordb", host=settings.falkordb_host,
-                       port=settings.falkordb_port, graph=settings.falkordb_graph)
+driver = create_driver(
+    "falkordb",
+    host=settings.falkordb_host,
+    port=settings.falkordb_port,
+    graph=settings.falkordb_graph,
+)
 store = GraphStoreAdapter(driver, settings, schema_models=ontology.schema_models())
 embedder = OpenAIEmbedder(settings)
-budget = BudgetGuard(max_llm_calls=settings.max_llm_calls, max_tokens=settings.max_tokens)
+budget = BudgetGuard(
+    max_llm_calls=settings.max_llm_calls, max_tokens=settings.max_tokens
+)
 
 rag = GraphRAG(
-    store, ontology=ontology,
-    chunker=ParagraphChunker(settings),                          # ingest_text-Pfad (roher String)
-    document_chunker=DoclingChunker(DoclingSettings(mode="local")),  # ← neuer Kern-Port, fused
-    extractor=PydanticAIExtractor(settings), embedder=embedder,
+    store,
+    ontology=ontology,
+    chunker=ParagraphChunker(settings),  # ingest_text-Pfad (roher String)
+    document_chunker=DoclingChunker(
+        DoclingSettings(mode="local")
+    ),  # ← neuer Kern-Port, fused
+    extractor=PydanticAIExtractor(settings),
+    embedder=embedder,
     resolver=TwoStageResolver(settings),
-    retrievers={"vector": VectorRetriever(store, embedder, settings),
-                "fulltext": FulltextRetriever(store, settings),
-                "local": LocalRetriever(store, embedder, settings),
-                "highlevel": HighLevelRetriever(store, settings, budget=budget)},
-    reranker=RRFReranker(), synthesizer=PydanticAISynthesizer(settings, budget=budget),
-    settings=settings, budget=budget,
+    retrievers={
+        "vector": VectorRetriever(store, embedder, settings),
+        "fulltext": FulltextRetriever(store, settings),
+        "local": LocalRetriever(store, embedder, settings),
+        "highlevel": HighLevelRetriever(store, settings, budget=budget),
+    },
+    reranker=RRFReranker(),
+    synthesizer=PydanticAISynthesizer(settings, budget=budget),
+    settings=settings,
+    budget=budget,
 )
 rag.bootstrap_schema()
-report = rag.ingest_document("whitepaper.pdf")   # Docling parst+chunkt das Original direkt
+report = rag.ingest_document(
+    "whitepaper.pdf"
+)  # Docling parst+chunkt das Original direkt
 ```
 
 **Variante B — Add-on-Einzeiler (baut den Default-Stack + Docling):**
@@ -358,8 +398,9 @@ report = rag.ingest_document("whitepaper.pdf")   # Docling parst+chunkt das Orig
 from runic_rag_docling import build_graphrag, DoclingSettings
 from runic.rag import load_settings
 
-rag = build_graphrag(load_settings(), DoclingSettings(mode="server",
-                                                      server_url="http://localhost:5001"))
+rag = build_graphrag(
+    load_settings(), DoclingSettings(mode="server", server_url="http://localhost:5001")
+)
 rag.bootstrap_schema()
 report = rag.ingest_document("whitepaper.pdf")
 ```
