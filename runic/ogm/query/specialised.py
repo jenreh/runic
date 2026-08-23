@@ -56,7 +56,7 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         result = await self._session.execute(cypher, self.bind(params))
         return self._decode_node_result(result)
 
-    async def one(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def one(  # type: ignore[override]
         self, params: Mapping[str, Any] | None = None
     ) -> T | None:
         """Async version of :meth:`~QueryBuilder.one`."""

@@ -50,6 +50,17 @@ api_fidelity = GEval(
         "sessionmaker, objects.filter, query(Model).all().",
         "Penalize invented runic.ogm methods or arguments (e.g. session.run(), "
         "prefetch=, target_model=, .between(), wrong driver import paths).",
+        "Penalize dropping to raw Cypher (session.execute / repo.cypher with a "
+        "hand-written string) for anything the builder expresses: bulk writes "
+        "(unwind/merge/set), batched deletes, CASE (when()), column aliases "
+        "(.as_()), scalar functions (left/coalesce/fn), property-to-property "
+        "comparison (col(a) < col(b)), multi-stage WITH, relationship "
+        "alternation (types=), or procedure calls (.call()). Raw Cypher is "
+        "correct only for a backend-specific construct the builder does not "
+        "model; index DDL belongs to IndexOperations, not the builder.",
+        "Penalize values formatted into a Cypher string instead of bound as "
+        "parameters, and prefer param('name') over auto-bound values when the "
+        "answer is a reusable statement.",
         "A high score means the answer would import and run against runic.ogm; a "
         "low score means it would fail because the API does not exist.",
     ],

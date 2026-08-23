@@ -473,38 +473,108 @@ q = select(Person).where(Person.age > 30).limit(10)
 
 `runic.ogm.query.builder.QueryBuilder`
 
-Fluent query builder for synchronous Cypher queries.
+Fluent query builder. All non-terminal methods return `self`.
 
-- `where(expr)` — add a filter expression
-- `order_by(expr)` — add an ordering expression
-- `limit(n)` — limit result count
-- `skip(n)` — skip the first *n* results
-- `traverse(step)` — add a `TraversalStep`
-- `all()` — execute and return all matching entities
-- `one()` — execute and return the first matching entity
-- `count()` — execute and return the result count
+**Filtering and shaping**
+
+- `where(expr, on=None)` — add a predicate; repeated calls are AND-combined
+- `alias(name)` — name the current Cypher variable
+- `order_by(field, desc=False)` — a descriptor, value expression, or `"name DESC"`
+- `limit(n)` / `skip(n)` — accept an integer or `param("name")`
+- `distinct()` — `RETURN DISTINCT`
+- `project(*values)` — return specific values; use `.as_()` to name the columns
+- `aggregate(*aggs, group_by=None)` — `group_by` takes one key or several
+- `return_target(alias)` / `return_nodes(*aliases)` / `return_edge(alias)`
+
+**Traversal**
+
+- `traverse(relation, edge_alias=None, optional=True, from_=None, types=None, direction=None)`
+- `repeat(relation, min_hops=1, max_hops=None, optional=False, from_=None)`
+- `with_(*vars, order_by=, desc=, limit=, skip=, where=, distinct=)` — repeatable
+
+**Procedures and writes**
+
+- `call(procedure, *args, yields=())` — invoke a procedure, optionally correlated
+- `set(assignments, on=None)` — bulk property assignment; `None` clears
+- `delete(*variables, detach=False)` — defaults to the current target
+- `returning(*values)` — what a write reports; without it a write returns nothing
+
+**Terminals** (each takes an optional `params` mapping)
+
+- `all()` · `one()` · `count()` · `scalar()` · `scalars()` · `all_rows()` · `all_with_edges()`
+- `build()` → `(cypher, params)`
+- `parameter_names()` → the declared parameter names, sorted
+- `bind(params)` → merged bindings; raises on a missing declared parameter
 
 ### AsyncQueryBuilder
 
 `runic.ogm.query.specialised.AsyncQueryBuilder`
 
-Asynchronous counterpart to `QueryBuilder`. `all()`, `one()`, and `count()` are coroutines.
+Asynchronous counterpart to `QueryBuilder`. Only the terminal methods differ —
+each is a coroutine. The generated Cypher is identical.
 
 ### FulltextQueryBuilder
 
 `runic.ogm.query.specialised.FulltextQueryBuilder`
 
-Specialised `QueryBuilder` for fulltext index queries.
+Built by `Session.fulltext_search(cls, query=..., fields=None)`. Opens with the
+backend's fulltext procedure; everything after behaves as on any other builder.
 
-- `search(text)` — perform a fulltext search against declared fulltext indexes
+The match score is available as `score()` — a **relevance**, higher being
+better. Not available on ArcadeDB or Apache AGE.
 
 ### VectorQueryBuilder
 
 `runic.ogm.query.specialised.VectorQueryBuilder`
 
-Specialised `QueryBuilder` for vector similarity queries.
+Built by `Session.vector_search(cls, field=..., vector=..., k=...)`. Opens with
+the backend's vector index procedure.
 
-- `near(vector, k)` — perform a k-NN search against declared vector indexes
+`k` is the index search width; `limit` is how many rows the caller sees. They are
+separate because a procedure cannot be narrowed before the fact — a following
+`where()` discards rows `k` already paid for.
+
+`score()` is a **distance**, normalised so lower is closer on every backend. Not
+available on Apache AGE.
+
+### MutationBuilder
+
+`runic.ogm.query.mutation.MutationBuilder`
+
+Built by `unwind(source, as_="row")`. A statement whose root is an `UNWIND`.
+
+- `merge(cls, key=..., alias=None)` — upsert a node on its key
+- `match(cls, key=..., alias=None)` — bind an existing node
+- `merge_edge(source, relationship, target, alias=None, edge_model=None, directed=True)`
+
+`set()`, `returning()` and the terminals come from `QueryBuilder`.
+
+### Value expressions
+
+`runic.ogm.query.values`
+
+| Constructor | Emits |
+|-------------|-------|
+| `col(Model.field)` / `col("m", Model.field)` | `n.field` / `m.field` |
+| `param("name")` | `$name` — declared, bound by the caller |
+| `var("name")` | a bare Cypher variable (a procedure yield, a `WITH` binding) |
+| `score()` | the score a search procedure yielded |
+| `literal(value)` | `$pN` |
+| `fn("name", *args)`, `left`, `coalesce`, `to_lower`, `to_upper` | function calls |
+| `when(cond, then, *pairs, else_=None)` | `CASE WHEN … END` |
+| `row("key", var="row")` | `row.key` |
+| `expr.as_("name")` | `expr AS name` |
+| `encode_rows(Model, rows)` | field converters applied across a `$rows` payload |
+
+### unwind
+
+`runic.ogm.query.mutation.unwind`
+
+Opens a bulk write over a list parameter. Returns a `MutationBuilder`.
+
+```python
+unwind(param("rows")).merge(Group, key={Group.id: row("id")})
+```
 
 ### TraversalStep
 

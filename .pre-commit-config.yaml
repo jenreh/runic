@@ -31,7 +31,7 @@ repos:
         args: ["--fix=lf"]
       - id: name-tests-test
         args: ["--pytest-test-first"]
-        exclude: '^(tests/evals/|tests/_backends\.py|tests/runic/ogm/catalog_cases\.py|tests/runic/ogm/catalog_models\.py|tests/runic/ogm/unit/mock_helpers\.py|tests/runic/rag/fakes\.py|packages/runic-rag-docling/tests/fakes\.py)'
+        exclude: '^(tests/evals/|tests/_backends\.py|tests/runic/ogm/catalog_cases\.py|tests/runic/ogm/catalog_statements\.py|tests/runic/ogm/catalog_models\.py|tests/runic/ogm/unit/mock_helpers\.py|tests/runic/rag/fakes\.py|packages/runic-rag-docling/tests/fakes\.py)'
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:

@@ -263,6 +263,45 @@ All operands are bound as parameters; nothing is interpolated as text.
 | `session.scalars(stmt, values)` | every execution method takes bindings as a second argument |
 | `.limit(param("limit"))`, `.skip(param("offset"))` | paging bounds as parameters |
 
+### Clause methods
+
+| Call | Emits |
+|---|---|
+| `with_(*vars, order_by=, desc=, limit=, skip=, where=, distinct=)` | a `WITH` stage; repeatable |
+| `traverse(rel, from_="m")` | anchors the traversal to a named variable |
+| `traverse(rel, types=["A", "B"])` | `[:A\|B]` — not on Apache AGE |
+| `traverse(rel, direction="OUTGOING")` | overrides a `BOTH` relation's direction |
+| `call(proc, *args, yields=[…])` | `CALL proc(…) YIELD …`, optionally correlated |
+| `set({Model.f: value}, on=alias)` | bulk `SET`; `None` clears the property |
+| `delete(*vars, detach=False)` | `DELETE` / `DETACH DELETE` |
+| `returning(*values)` | what a write reports; without it, no `RETURN` |
+
+### Bulk writes
+
+| Call | Emits |
+|---|---|
+| `unwind(source, as_="row")` | `UNWIND $rows AS row` |
+| `.merge(Model, key={…}, alias=)` | `MERGE (n:L {k: row.k})` — key only |
+| `.match(Model, key={…}, alias=)` | `MATCH (n:L {k: row.k})` |
+| `.merge_edge(src, "TYPE", tgt, alias=, edge_model=, directed=)` | `MERGE (a)-[r:T]->(b)` |
+
+### Search
+
+| Call | Notes |
+|---|---|
+| `session.vector_search(cls, field=, vector=, k=)` | index-backed; `k` ≠ `limit` |
+| `session.fulltext_search(cls, query=, fields=)` | absent on ArcadeDB, AGE |
+| `score()` | vector = distance (lower closer); fulltext = relevance (higher better) |
+
+### Index DDL — `runic.ogm.schema.runtime_index`
+
+| Call | Notes |
+|---|---|
+| `IndexOperations.from_driver(driver)` | FalkorDB; elsewhere pass an adapter |
+| `.create_vector_index(cls, field, dimension=, similarity=)` | dimension must be the embedder's real length |
+| `.drop_vector_index(cls, field)` / `.resize_vector_index(...)` | |
+| `.describe()` | every index the graph has — read before writing vectors |
+
 ### Descriptor predicates added
 
 | Call | Emits |

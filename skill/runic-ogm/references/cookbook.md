@@ -122,9 +122,13 @@ labels.
 
 ## Custom repositories & raw Cypher
 
-Subclass `Repository[T]` for domain queries. Prefer the builder; drop to Cypher
-when the builder can't express it (edge-heavy reads, set operations, bulk
-writes).
+Subclass `Repository[T]` for domain queries.
+
+**Check the builder first.** Bulk writes, batched deletes, `CASE`, column
+aliases, scalar functions, procedure calls and property-to-property comparison
+are all builder features — see `cypher-mapping.md`. Raw Cypher is for a
+backend-specific construct the builder does not model, and DDL (use
+`IndexOperations`).
 
 ```python
 class UserRepository(Repository[User]):
@@ -151,6 +155,10 @@ class UserRepository(Repository[User]):
 - `cypher_one(...)` returns the first mapped row; `cypher_raw(...)` returns the
   unmapped `GraphResult` (`.columns`, `.rows`).
 - Always parameterize (`$name`) — never string-format values into Cypher.
+- Keep raw statements as module-level constants with bound parameters rather
+  than building them per call: caller input then changes which rows come back,
+  never what the statement does. `stmt.parameter_names()` gives builder
+  statements the same property, checkably.
 
 ---
 

@@ -155,9 +155,15 @@ code paths before executing.
 
 ## Raw Cypher
 
-For the common cases prefer the [query builder](./query-builder.md).
-`session.execute()` is the escape hatch for write mutations and Cypher
-features not covered by the builder.
+Prefer the [query builder](./query-builder.md). It covers writes too —
+`set()`, `delete()`, and bulk `unwind()`/`merge()` — so a mutation is no longer
+a reason to reach for a string. Check the [feature coverage
+table](./query-builder.md#cypher-feature-coverage) before deciding you need one.
+
+`session.execute()` remains the escape hatch for a backend-specific construct
+the builder does not model. When a statement genuinely needs one, keep it a
+named constant with bound parameters — see [Statement
+Catalogues](./statements.md).
 
 ```python
 from runic.ogm import select
