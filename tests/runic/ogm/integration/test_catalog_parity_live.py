@@ -90,6 +90,9 @@ def test_unbound_parameter_is_refused(case: CatalogCase, seeded: Any) -> None:
     returns an empty result that looks exactly like an empty archive.  Failing
     loudly is the only way that distinction survives.
     """
+    backend = _backend_of(seeded)
+    if backend in case.unsupported:
+        pytest.skip(f"{backend}: {case.unsupported[backend]}")
     if not case.params:
         pytest.skip("statement binds no caller input")
     stmt = case.build() if case.build else None

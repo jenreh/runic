@@ -726,34 +726,166 @@ only emitted by the query builder when `edge_alias=` is given.
 
 ---
 
-## WITH clause — multi-stage pipelining
+## Multi-stage queries: `WITH`
 
-Cypher's `WITH` clause ends one query stage and begins the next, carrying
-forward only the named variables. This is useful when you need to filter an
-intermediate result before continuing a traversal — for example, taking the top
-N users by score before expanding their relationships:
+`WITH` is the only place Cypher lets a query order and cut **mid-flight**. Its
+`ORDER BY` and `LIMIT` apply to the rows entering the next stage, not to the
+final result — which is what makes it possible to take a page *before* paying
+for expansions.
 
 ```python
-stmt = (
-    select(User).alias("u")
-    .where(User.active == True)
-    .order_by(User.score, desc=True)
-    .limit(10)
-    .with_("u")                       # WITH u  — only u carries forward
-    .traverse(User.authored_posts).alias("p")
-    .return_target("p")
+(
+    select(Message).alias("m")
+    .where(Message.id > param("after"))
+    .with_("m", order_by=Message.id, limit=param("limit"))
+    .traverse(Message.sent_to, from_="m").alias("r")
+    .aggregate(collect(col("r", Address.id), distinct=True).as_("addressed"),
+               group_by=col("m", Message.id).as_("id"))
 )
-top_authors: list[Post] = session.scalars(stmt)
-# MATCH (u:User) WHERE u.active = $p0
-# ORDER BY u.score DESC LIMIT 10
-# WITH u
-# OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
-# RETURN p
 ```
 
-Without `WITH`, `LIMIT` applies to the final result, not to the
-intermediate set of users. The stage boundary created by `WITH` ensures the
-limit is applied before the traversal.
+```cypher
+MATCH (m:Message)
+WHERE m.id > $after
+WITH m ORDER BY m.id ASC LIMIT $limit     -- page taken off the index here
+OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+RETURN m.id AS id, collect(DISTINCT r.id) AS addressed
+```
+
+Move the `LIMIT` to the end and the query expands *every* message in the graph
+before discarding all but one page. With several optional matches that
+cross-multiply — a message with fifty recipients and twenty attachments is a
+thousand intermediate rows — that difference is the whole cost of the query.
+
+| `with_()` argument | Effect |
+|---|---|
+| `*variables` | Cypher variables, or expressions, to carry forward |
+| `order_by=` / `desc=` | Sort the rows entering the next stage |
+| `limit=` / `skip=` | Bound them; accepts `param()` |
+| `where=` | Filter *after* the stage — Cypher's `HAVING` |
+| `distinct=` | `WITH DISTINCT` |
+
+`with_()` is repeatable, and stages interleave with traversals in the order you
+write them.
+
+::: warning Always order before you limit
+Paging without an order is undefined in Cypher. Two runs of the same statement
+may return different pages, which silently produces different results from the
+same data.
+:::
+
+### Filtering on an aggregate
+
+`where=` on a stage is the only way to filter a computed value, because a
+`WHERE` before the aggregation cannot see it:
+
+```python
+(
+    select(Message).alias("m")
+    .traverse(Message.sent_to, from_="m").alias("r")
+    .with_("m", count("*").as_("fanout"), where=col("fanout") > param("min"))
+    .return_target("m")
+)
+# WITH m, count(*) AS fanout
+# WHERE fanout > $min
+```
+
+---
+
+## Fanning out from one node
+
+By default each `traverse()` continues from wherever the previous one landed,
+which walks a chain. `from_` anchors a traversal to a named variable instead, so
+several can leave the same node:
+
+```python
+q = select(Message).alias("m")
+q = q.traverse(Message.sent_from, from_="m").alias("s")
+q = q.traverse(Message.sent_to, from_="m").alias("r")
+q = q.traverse(Message.has_attachment, from_="m").alias("f")
+```
+
+```cypher
+MATCH (m:Message)
+OPTIONAL MATCH (m)-[:SENT_FROM]->(s:Address)
+OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+OPTIONAL MATCH (m)-[:HAS_ATTACHMENT]->(f:Attachment)
+```
+
+The alternative — one query per relationship — reads the same node once per edge
+type. Fanning out reads it once, at the cost of intermediate rows that
+`collect(distinct=True)` folds back:
+
+```python
+.aggregate(
+    collect(col("s", Address.id), distinct=True).as_("senders"),
+    collect(col("f", Attachment.id), distinct=True).as_("attachments"),
+    group_by=col("m", Message.id).as_("id"),
+)
+```
+
+---
+
+## Relationship type alternation
+
+Some relationships are *defined* as the walk over more than one type. `types=`
+matches them in a single pattern:
+
+```python
+q.traverse(Message.sent_to, from_="m", types=["SENT_TO", "COPIED_TO"]).alias("r")
+# OPTIONAL MATCH (m)-[:SENT_TO|COPIED_TO]->(r:Address)
+```
+
+Matching the two types as separate patterns is **not** the same query: anything
+carrying both is matched twice and counted twice.
+
+::: warning Not available on Apache AGE
+AGE's openCypher subset has no alternation. runic refuses to emit it there with
+a `NotImplementedError` naming the construct, rather than sending Cypher the
+backend answers with a syntax error pointing at a character.
+:::
+
+### Direction override
+
+A relation declared `direction="BOTH"` is undirected in *meaning*. When both
+endpoints carry the same label, though, a directed pattern still matches every
+edge — exactly once, where the undirected form matches it from each end:
+
+```python
+# Counting: an arrow avoids counting every edge twice
+q.traverse(Address.co_addressed, edge_alias="r", optional=False,
+           direction="OUTGOING").alias("b")
+
+# Reading: no arrow, because which way it was stored is an accident of
+# who was written to first — pair it with a.id < b.id to keep one row
+q.traverse(Address.co_addressed, edge_alias="r", optional=False).alias("b")
+```
+
+---
+
+## Backend capability differences
+
+Backends implement different subsets of Cypher, and a statement using an
+unsupported construct otherwise fails at the driver with a syntax error naming a
+character — which says nothing about which builder call caused it. runic checks
+before sending:
+
+```python
+NotImplementedError: AGE does not support relationship type alternation
+([:A|B]). Express the query without it, or drop to a backend-specific
+statement via session.execute().
+```
+
+The check happens when the statement is compiled for a session, not when it is
+built, because a `select()` statement does not know its backend yet.
+
+| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE |
+|---|---|---|---|---|---|
+| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ |
 
 ---
 
@@ -1019,7 +1151,10 @@ alias generation, and result decoding automatically.
 | ORDER BY | ✓ | `.order_by(field, desc=False)` |
 | SKIP / LIMIT | ✓ | `.skip(n)`, `.limit(n)`; accepts `param("limit")` |
 | DISTINCT | ✓ | `.distinct()` |
-| WITH | ✓ | `.with_("alias")` |
+| WITH (multi-stage) | ✓ | `.with_(vars, order_by=, limit=, where=)`, repeatable |
+| Relationship alternation `[:A\|B]` | ✓ | `.traverse(rel, types=[…])` — not on AGE |
+| Fan-out from one node | ✓ | `.traverse(rel, from_="m")` |
+| Direction override | ✓ | `.traverse(rel, direction="OUTGOING")` |
 | Aggregation (count/avg/sum/…) | ✓ | `.aggregate(...)` + helpers from `runic.ogm.query` |
 | Edge property filter | ✓ | `traverse(edge_alias=)` + `where(on=)` |
 | Relationship traversal (1-hop) | ✓ | `.traverse(Cls.relation)` |

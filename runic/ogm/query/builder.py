@@ -16,10 +16,12 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
-from runic.cypher import validate_order_term, validate_reference
+from runic.cypher import validate_identifier, validate_order_term, validate_reference
 from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.core.metadata import metadata as _global_metadata
+from runic.ogm.driver import CypherFeature
 from runic.ogm.query._compiler import _CypherCompiler
+from runic.ogm.query.clauses import Clause, MatchClause, WithClause
 from runic.ogm.query.expressions import (
     AggExpr,
     CompoundExpr,
@@ -42,32 +44,6 @@ def _validate_projection(expr: str) -> None:
     function because it is part of this module's tested surface.
     """
     validate_reference(expr, "projection")
-
-
-# ---------------------------------------------------------------------------
-# Internal: compiled match clause
-# ---------------------------------------------------------------------------
-
-
-class _MatchClause:
-    """One MATCH or OPTIONAL MATCH clause, plus any WITH pipelining."""
-
-    def __init__(
-        self,
-        pattern: str,
-        *,
-        optional: bool = True,
-        is_call: bool = False,
-    ) -> None:
-        self.pattern = pattern
-        self.optional = optional
-        self.is_call = is_call
-
-    def to_cypher(self) -> str:
-        if self.is_call:
-            return self.pattern
-        prefix = "OPTIONAL MATCH" if self.optional else "MATCH"
-        return f"{prefix} {self.pattern}"
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +94,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._set_alias("n", root_cls)
 
         # Query parts ----------------------------------------------------
-        self._match_clauses: list[_MatchClause] = []
-        self._with_vars: list[str] | None = None
+        # Clauses between the opening MATCH and the RETURN, in call order —
+        # WITH before a traversal means something different from WITH after it.
+        self._pipeline: list[Clause] = []
         self._where_exprs: list[Expr] = []
         self._order: list[OrderExpr] = []
         self._distinct: bool = False
@@ -258,6 +235,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         *,
         edge_alias: str | None = None,
         optional: bool = True,
+        from_: str | None = None,
+        types: Sequence[str] | None = None,
+        direction: str | None = None,
     ) -> TraversalStep:
         """Traverse a declared :func:`~runic.ogm.core.descriptors.Relation` field.
 
@@ -287,6 +267,33 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             ``False`` → ``MATCH`` (inner join; drops source nodes without a
             matching relationship).
 
+        from_:
+            Traverse out of this Cypher variable instead of the most recently
+            registered one.  Without it each traversal continues from where the
+            previous one landed, which walks a chain; with it several traversals
+            can fan out from the same node::
+
+                q = session.query(Message).alias("m")
+                q = q.traverse(Message.sent_from, from_="m").alias("s")
+                q = q.traverse(Message.sent_to, from_="m").alias("r")
+
+            Reading a node's relationships in one query means fanning out, and
+            the alternative — one query per relationship — reads the same node
+            once per edge type.
+
+        types:
+            Match an alternation of relationship types (``[:A|B]``) instead of
+            the single type the Relation declares.  Use when the relationship
+            you mean is defined as the walk over more than one type; two
+            separate patterns would double-count anything matching both.
+
+        direction:
+            Override the Relation's declared direction for this pattern.  A
+            relation declared ``BOTH`` is undirected in meaning, but when both
+            endpoints carry the same label a directed pattern still matches
+            every edge — exactly once, where the undirected form matches it
+            from each end and doubles a count.
+
         Returns
         -------
         TraversalStep
@@ -308,11 +315,13 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         return TraversalStep(
             builder=self,
             field_descriptor=relation_field,
-            source_alias=self._last_alias,
+            source_alias=from_ or self._last_alias,
             optional=optional,
             edge_alias=edge_alias,
             min_hops=1,
             max_hops=1,
+            types=types,
+            direction=direction,
         )
 
     def repeat(
@@ -322,6 +331,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         min_hops: int = 1,
         max_hops: int | None = None,
         optional: bool = False,
+        from_: str | None = None,
     ) -> TraversalStep:
         """Traverse a relation with variable-length path quantifier ``*min..max``.
 
@@ -372,7 +382,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         return TraversalStep(
             builder=self,
             field_descriptor=relation_field,
-            source_alias=self._last_alias,
+            source_alias=from_ or self._last_alias,
             optional=optional,
             edge_alias=None,
             min_hops=min_hops,
@@ -383,29 +393,80 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
     # WITH (multi-stage pipelining)
     # ------------------------------------------------------------------
 
-    def with_(self, *aliases: str) -> QueryBuilder[T]:
-        """Insert a ``WITH`` clause to pipeline results between query stages.
+    def with_(
+        self,
+        *variables: Any,
+        order_by: Any = None,
+        desc: bool = False,
+        limit: Any = None,
+        skip: Any = None,
+        where: Expr | Sequence[Expr] | None = None,
+        distinct: bool = False,
+    ) -> QueryBuilder[T]:
+        """Insert a ``WITH`` stage, carrying *variables* into what follows.
 
-        Use when you want to filter/aggregate in one stage before continuing
-        a traversal in the next::
-
-            (
-                session.query(User)
-                .alias("u")
-                .where(User.active == True)
-                .with_("u")  # WITH u
-                .traverse(User.posts)
-                .alias("p")
-                .return_target("p")
-                .all()
-            )
+        Repeatable: each call adds a stage, and stages interleave with
+        traversals in the order they were written.
 
         Parameters
         ----------
-        *aliases:
-            Cypher variable names to carry forward (e.g. ``"u"``, ``"f"``).
+        *variables:
+            Cypher variables to carry forward (``"m"``), or value expressions
+            when a stage needs to compute something (``count("*").as_("n")``).
+        order_by / desc:
+            Sort the rows entering the next stage. Required whenever *limit* is
+            used: paging without an order is undefined, and two runs may return
+            different pages.
+        limit / skip:
+            Bound the rows entering the next stage. Accepts an integer or a
+            :func:`~runic.ogm.query.values.param` reference.
+        where:
+            Predicates applied after the stage — Cypher's equivalent of
+            ``HAVING``, and the only way to filter on an aggregated value.
+        distinct:
+            Emit ``WITH DISTINCT``.
+
+        Cutting a page here rather than at the end is the difference between
+        paying for one page's expansions and paying for the whole graph's::
+
+            (
+                session.query(Message)
+                .alias("m")
+                .where(Message.id > param("after"))
+                .with_("m", order_by=Message.id, limit=param("limit"))
+                .traverse(Message.sent_to, from_="m")
+                .alias("r")
+                .aggregate(
+                    collect(col("r", Address.id), distinct=True).as_("addressed"),
+                    group_by=col("m", Message.id).as_("id"),
+                )
+            )
+
+        A trailing ``LIMIT`` would instead expand every message in the archive
+        and then discard all but the page.
         """
-        self._with_vars = list(aliases)
+        order_terms: list[OrderExpr] = []
+        if order_by is not None:
+            order_terms = [self._order_term(order_by, desc=desc)]
+
+        predicates: tuple[Expr, ...]
+        if where is None:
+            predicates = ()
+        elif isinstance(where, (list, tuple)):
+            predicates = tuple(where)
+        else:
+            predicates = (where,)  # ty: ignore[invalid-assignment]
+
+        self._pipeline.append(
+            WithClause(
+                variables=tuple(variables),
+                order_by=order_terms,
+                limit=limit,
+                skip=skip,
+                where=predicates,
+                distinct=distinct,
+            )
+        )
         return self
 
     # ------------------------------------------------------------------
@@ -436,17 +497,22 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             q.order_by(User.created_at, desc=True)  # ORDER BY n.created_at DESC
             q.order_by("score ASC")  # raw string
         """
+        self._order.append(self._order_term(field, desc=desc))
+        return self
+
+    def _order_term(
+        self, field: FieldDescriptor | ValueExpr | str, *, desc: bool
+    ) -> OrderExpr:
+        """Build one ORDER BY term from a descriptor, expression, or raw string."""
         if isinstance(field, ValueExpr):
-            self._order.append(OrderExpr(alias=None, prop=None, expr=field, desc=desc))
-        elif isinstance(field, FieldDescriptor):
+            return OrderExpr(alias=None, prop=None, expr=field, desc=desc)
+        if isinstance(field, FieldDescriptor):
             alias = (
                 self._alias_for_cls(field.owner) if field.owner else self._root_alias
             )
-            self._order.append(OrderExpr(alias=alias, prop=field.field_name, desc=desc))
-        else:
-            raw = validate_order_term(str(field), "order_by term")
-            self._order.append(OrderExpr(alias=None, prop=None, raw=raw, desc=desc))
-        return self
+            return OrderExpr(alias=alias, prop=field.field_name, desc=desc)
+        raw = validate_order_term(str(field), "order_by term")
+        return OrderExpr(alias=None, prop=None, raw=raw, desc=desc)
 
     def limit(self, n: int | ValueExpr) -> QueryBuilder[T]:
         """Set ``LIMIT`` on the query.
@@ -611,7 +677,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         precede any OPTIONAL MATCH (FalkorDB applies WHERE to the preceding
         clause), so they are split from traversal-target conditions here.
         """
-        if self._where_exprs and self._match_clauses:
+        if self._where_exprs and self._pipeline:
             root_exprs, post_exprs = self._split_where_exprs()
         else:
             root_exprs = []
@@ -619,9 +685,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
 
         if root_exprs:
             parts.append(f"WHERE {self._compile_and(root_exprs)}")
-        if self._with_vars:
-            parts.append(f"WITH {', '.join(self._with_vars)}")
-        parts.extend(mc.to_cypher() for mc in self._match_clauses)
+        parts.extend(clause.to_cypher(self) for clause in self._pipeline)
         if post_exprs:
             parts.append(f"WHERE {self._compile_and(post_exprs)}")
 
@@ -889,6 +953,8 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         edge_alias: str | None,
         min_hops: int,
         max_hops: int | None,
+        types: Sequence[str] | None = None,
+        direction: str | None = None,
     ) -> QueryBuilder[T]:
         """Append a MATCH clause for one traversal step and register aliases.
 
@@ -907,9 +973,21 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             node_meta = self._meta.get_node_meta(target_cls)
             target_label = node_meta.primary_label if node_meta else target_cls.__name__
 
-        # Build the relationship part of the pattern
-        rel_type = fd.relationship or "REL"
-        direction = fd.direction or "OUTGOING"
+        # Build the relationship part of the pattern. An alternation matches
+        # each edge once even when several of its types would apply, which two
+        # separate patterns would not.
+        requires: tuple[str, str] | None = None
+        if types:
+            requires = (
+                CypherFeature.RELATIONSHIP_ALTERNATION,
+                "relationship type alternation ([:A|B])",
+            )
+            rel_type = "|".join(
+                validate_identifier(t, "relationship type") for t in types
+            )
+        else:
+            rel_type = fd.relationship or "REL"
+        edge_direction = direction or fd.direction or "OUTGOING"
 
         if min_hops == 1 and max_hops == 1:
             hop_str = ""
@@ -925,14 +1003,16 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
 
         target_part = f"({target_alias}:{target_label})"
 
-        if direction == "OUTGOING":
+        if edge_direction == "OUTGOING":
             pattern = f"({source_alias})-{rel_part}->{target_part}"
-        elif direction == "INCOMING":
+        elif edge_direction == "INCOMING":
             pattern = f"({source_alias})<-{rel_part}-{target_part}"
         else:
             pattern = f"({source_alias})-{rel_part}-{target_part}"
 
-        self._match_clauses.append(_MatchClause(pattern, optional=optional))
+        self._pipeline.append(
+            MatchClause(pattern, optional=optional, requires=requires)
+        )
 
         # Register target node alias
         if target_cls is not None:
