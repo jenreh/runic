@@ -42,6 +42,7 @@ from runic.ogm.query.specialised import (
     FulltextQueryBuilder,
     VectorQueryBuilder,
 )
+from runic.ogm.query.mutation import MutationBuilder, unwind
 from runic.ogm.query.traversal import TraversalStep
 from runic.ogm.query.values import (
     AliasedExpr,
@@ -141,4 +142,7 @@ __all__ = [  # noqa: RUF022
     "to_lower",
     "to_upper",
     "when",
+    # Bulk writes
+    "MutationBuilder",
+    "unwind",
 ]

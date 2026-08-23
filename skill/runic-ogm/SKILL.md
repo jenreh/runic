@@ -424,6 +424,44 @@ this when debugging a query or explaining what runic generates.
 
 ---
 
+**Writes in bulk** — `unwind()` for many rows in one statement; `set()`,
+`delete()` and `returning()` chain onto a `select()` too:
+
+```python
+from runic.ogm import count, encode_rows, param, row, select, unwind
+
+# Upsert nodes. Only the KEY goes in merge(); everything else in set(),
+# or a changed value makes MERGE miss the node and create a second.
+MERGE_GROUPS = (unwind(param("rows"))
+    .merge(Group, key={Group.id: row("id")}, alias="g")
+    .set({Group.size: row("size")}, on="g"))
+
+# Attach edges: MATCH both endpoints (not merge - a missing endpoint is a
+# caller bug), then merge between them.
+MERGE_ABOUT = (unwind(param("rows"))
+    .match(Message, key={Message.id: row("message_id")}, alias="m")
+    .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
+    .merge_edge("m", "ABOUT", "t", alias="r", edge_model=About)
+    .set({About.score: row("score")}, on="r"))
+
+# Batched delete; loop until removed == 0
+DELETE_GROUPS = (select(Group).with_("n", limit=param("batch"))
+    .delete(detach=True).returning(count("n").as_("removed")))
+
+session.all_rows(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
+```
+
+Rules that bite:
+- **`detach=True` for nodes, NEVER for an edge.** Detaching an edge deletes both
+  endpoints — real data destroyed to clean up a derived edge. Use `.delete("r")`.
+- **`encode_rows(Model, rows)` before binding `$rows`.** Values inside `$rows`
+  skip the mapper, so a `datetime` reaches the driver unencodable.
+- **A write emits no `RETURN` unless you call `returning()`.** That is deliberate.
+- **`directed=False`** on `merge_edge` for symmetric edges — rejected by FalkorDB,
+  which needs the caller to order the pair canonically instead.
+- Prefer `MERGE` over `session.add()` (a `CREATE`) whenever a job may re-run:
+  derived labels carry no unique constraint to stop a duplicate.
+
 **Multi-stage `WITH`** — repeatable, and stages interleave with traversals in
 call order. Its `ORDER BY`/`LIMIT` bound the rows entering the *next* stage:
 

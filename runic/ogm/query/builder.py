@@ -21,7 +21,13 @@ from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.core.metadata import metadata as _global_metadata
 from runic.ogm.driver import CypherFeature
 from runic.ogm.query._compiler import _CypherCompiler
-from runic.ogm.query.clauses import Clause, MatchClause, WithClause
+from runic.ogm.query.clauses import (
+    Clause,
+    DeleteClause,
+    MatchClause,
+    SetClause,
+    WithClause,
+)
 from runic.ogm.query.expressions import (
     AggExpr,
     CompoundExpr,
@@ -114,6 +120,8 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._group_by_alias: str | None = None
         # Scalar projection (for .project())
         self._project_fields: list[FieldDescriptor | ValueExpr | str] = []
+        # Explicit RETURN expressions, set by returning()
+        self._returning: list[Any] = []
 
         # Parameters -------------------------------------------------------
         # Auto-bound values ($p0, $p1, …) allocated during compilation.
@@ -615,6 +623,108 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         return self
 
     # ------------------------------------------------------------------
+    # Mutation
+    # ------------------------------------------------------------------
+
+    def set(
+        self,
+        assignments: Mapping[Any, Any],
+        *,
+        on: str | None = None,
+    ) -> QueryBuilder[T]:
+        """Assign properties on matched rows — a bulk ``SET``.
+
+        Keys are field descriptors (or ``"alias.property"`` strings); values are
+        Python values, :mod:`~runic.ogm.query.values` expressions, or ``None``
+        to clear the property.
+
+        Field converters and the dialect's wrapping functions (``vecf32``,
+        ``point``, ``intern``) are applied, so a value written this way is
+        stored the same way the mapper would store it::
+
+            (
+                select(Message)
+                .where(Message.embedding.is_not_null())
+                .set({Message.embedding: None, Message.embedding_model: None})
+                .returning(count("n").as_("cleared"))
+            )
+
+        Parameters
+        ----------
+        assignments:
+            Property → value mapping.
+        on:
+            Cypher variable to assign on, when the property's own class is not
+            the one being written (or appears under several aliases).
+        """
+        triples: list[tuple[str, str, Any]] = []
+        for target, value in assignments.items():
+            alias, prop = self._resolve_write_target(target, on)
+            triples.append((alias, prop, value))
+        self._pipeline.append(SetClause(assignments=tuple(triples)))
+        return self
+
+    def delete(self, *variables: str, detach: bool = False) -> QueryBuilder[T]:
+        """Delete the named variables, defaulting to the current target.
+
+        Parameters
+        ----------
+        *variables:
+            Cypher variables to delete. Defaults to the most recent alias.
+        detach:
+            Also remove the edges incident to the deleted nodes.  Required to
+            delete a node that has any: Cypher refuses otherwise.
+
+            Do **not** set it when deleting an *edge*.  Detaching there takes
+            the endpoints down too, which for a derived edge between two
+            ground-truth nodes means destroying real data to clean up a
+            computed one::
+
+                # A batch of derived nodes, and the edges that hang off them
+                select(Group).with_("n", limit=param("batch")).delete(detach=True)
+
+                # A batch of derived edges, keeping both endpoints
+                (
+                    select(Address)
+                    .alias("a")
+                    .traverse(Address.co_addressed, edge_alias="r", optional=False)
+                    .alias("b")
+                    .with_("r", limit=param("batch"))
+                    .delete("r")
+                )
+
+        Batching through a ``WITH`` stage keeps one delete from becoming a
+        single long stall on a store something else is also reading; loop until
+        the returned count is zero.
+        """
+        targets = variables or (self._last_alias,)
+        self._pipeline.append(DeleteClause(variables=tuple(targets), detach=detach))
+        return self
+
+    def returning(self, *values: Any) -> QueryBuilder[T]:
+        """Set an explicit ``RETURN`` list of expressions.
+
+        Used after a write to report what it did::
+
+            .delete(detach=True).returning(count("n").as_("removed"))
+        """
+        self._returning = list(values)
+        return self
+
+    def _resolve_write_target(self, target: Any, on: str | None) -> tuple[str, str]:
+        """Resolve a SET key to ``(alias, property)``."""
+        if isinstance(target, FieldDescriptor):
+            alias = on or (
+                self._alias_for_cls(target.owner) if target.owner else self._root_alias
+            )
+            return alias, target.field_name
+        text = validate_reference(str(target), "assignment target")
+        if "." in text:
+            alias, prop = text.split(".", 1)
+            return alias, prop
+        return on or self._last_alias, text
+
+    # ------------------------------------------------------------------
     # Aggregation
     # ------------------------------------------------------------------
 
@@ -689,6 +799,20 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         if post_exprs:
             parts.append(f"WHERE {self._compile_and(post_exprs)}")
 
+    def _wants_return(self) -> bool:
+        """Whether this statement should emit a RETURN clause at all."""
+        asked = bool(
+            self._returning
+            or self._agg_exprs
+            or self._project_fields
+            or self._return_aliases
+        )
+        if asked:
+            return True
+        return not any(
+            isinstance(clause, (SetClause, DeleteClause)) for clause in self._pipeline
+        )
+
     def _compile_and(self, exprs: list[Expr]) -> str:
         """Compile one or more expressions into a single (AND-joined) condition."""
         expr = exprs[0] if len(exprs) == 1 else CompoundExpr(op="AND", operands=exprs)
@@ -750,7 +874,12 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._append_where_and_traversals(parts)
 
         # ── RETURN ────────────────────────────────────────────────────────
-        parts.append(self._compile_return())
+        # A statement that writes returns nothing unless asked. The default
+        # RETURN names the matched variable, which after a DELETE names a node
+        # that no longer exists, and after a bulk SET would ship every row the
+        # write touched back to the caller.
+        if self._wants_return():
+            parts.append(self._compile_return())
 
         # ── ORDER BY ─────────────────────────────────────────────────────
         if self._order:

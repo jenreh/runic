@@ -128,15 +128,29 @@ class MetaData:
         return None
 
     def finalize(self) -> None:
-        """Resolve all string forward references in relationship Fields.
+        """Resolve forward references and assign any converters that were deferred.
 
-        Call once after all model modules have been imported. String targets
-        on relationship Fields are replaced with the actual class objects.
+        Call once after all model modules have been imported. String targets on
+        relationship Fields are replaced with the actual class objects.
+
+        Automatic ``TypeConverter`` assignment is also retried here.  It runs
+        first while the class body executes, which is too early for a model that
+        references a class defined later in the same module: resolving the
+        annotations raises, and the class loses *every* converter it would have
+        got — a ``datetime`` then reaches the driver as an object and a
+        ``Vector`` is stored without the wrapper that makes it indexable.  By
+        the time ``finalize`` runs every model exists, so the annotations
+        resolve.  Assignment skips fields that already have one, so this is a
+        no-op for models whose first attempt succeeded.
         """
+        from runic.ogm.core.models import _apply_auto_converters
+
         for node_meta in self._nodes.values():
             _resolve_fields(node_meta.fields, self)
+            _apply_auto_converters(node_meta.cls, node_meta.fields)
         for edge_meta in self._edges.values():
             _resolve_fields(edge_meta.fields, self)
+            _apply_auto_converters(edge_meta.cls, edge_meta.fields)
         log.debug(
             "Metadata finalized: %d nodes, %d edges", len(self._nodes), len(self._edges)
         )

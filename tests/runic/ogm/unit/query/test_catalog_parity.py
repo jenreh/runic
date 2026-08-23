@@ -48,12 +48,24 @@ def _mock_session() -> Any:
     return sess
 
 
+#: The unit suite compiles against FalkorDB — the backend the reference
+#: catalogue itself targets, and the one whose ``vecf32`` wrapping the expected
+#: fragments assume.
+_UNIT_BACKEND = "falkordb"
+
+
 def _build(case: CatalogCase) -> tuple[str, dict[str, Any]]:
     """Compile *case* to ``(cypher, params)`` against a mock session."""
     assert case.build is not None  # guarded by the caller
     stmt = case.build()
     with stmt._bound_to(_mock_session()) as bound:
         return bound.build()
+
+
+def _skip_if_unsupported(case: CatalogCase) -> None:
+    """Skip a case the compiling backend has a recorded reason to reject."""
+    if _UNIT_BACKEND in case.unsupported:
+        pytest.skip(f"{_UNIT_BACKEND}: {case.unsupported[_UNIT_BACKEND]}")
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +103,7 @@ class TestCaseTable:
 )
 class TestExpressible:
     def test_emits_expected_fragments(self, case: CatalogCase) -> None:
+        _skip_if_unsupported(case)
         cypher, _ = _build(case)
         missing = [frag for frag in case.expect if frag not in cypher]
         assert not missing, (
@@ -110,6 +123,7 @@ class TestExpressible:
 
     def test_no_value_is_interpolated(self, case: CatalogCase) -> None:
         """Every bound value reaches the graph as a parameter, never as text."""
+        _skip_if_unsupported(case)
         cypher, params = _build(case)
         for name, value in params.items():
             if isinstance(value, str) and value:

@@ -39,7 +39,15 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-__all__ = ["Clause", "MatchClause", "WithClause"]
+__all__ = [
+    "Clause",
+    "DeleteClause",
+    "MatchClause",
+    "MergeClause",
+    "SetClause",
+    "UnwindClause",
+    "WithClause",
+]
 
 
 class Clause:
@@ -154,3 +162,118 @@ def _render_bound(value: Any, compiler: Any) -> str:
     if isinstance(value, ValueExpr):
         return value.to_cypher(compiler)
     return str(int(value))
+
+
+@dataclass
+class UnwindClause(Clause):
+    """``UNWIND $rows AS row`` — turn one list parameter into many rows.
+
+    The shape every bulk write takes: one round trip carrying a list, expanded
+    in the store into a row per entry, each driving a MERGE or a SET.  The
+    alternative is a query per entity, which for a rebuild is the difference
+    between one statement and a hundred thousand.
+    """
+
+    source: Any
+    variable: str = "row"
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.variable, "unwind variable")
+
+    def to_cypher(self, compiler: Any) -> str:
+        from runic.ogm.query.values import ValueExpr
+
+        rendered = (
+            self.source.to_cypher(compiler)
+            if isinstance(self.source, ValueExpr)
+            else f"${compiler._next_param(self.source)}"  # noqa: SLF001
+        )
+        return f"UNWIND {rendered} AS {self.variable}"
+
+
+@dataclass
+class MergeClause(Clause):
+    """``MERGE`` a node or an edge — match it, or create it if absent.
+
+    Idempotence is the reason this exists separately from ``CREATE``.  A derived
+    label usually carries no unique constraint, so re-running a job that
+    ``CREATE``d its output silently produces a second copy of every node, and
+    every edge written afterwards is written twice.  ``MERGE`` on the key makes
+    a second run change nothing.
+    """
+
+    pattern: str
+    requires: tuple[str, str] | None = None
+
+    def to_cypher(self, compiler: Any) -> str:
+        if self.requires is not None:
+            from runic.ogm.driver import require_feature
+
+            feature, description = self.requires
+            require_feature(compiler._dialect, feature, description)  # noqa: SLF001
+        return f"MERGE {self.pattern}"
+
+
+@dataclass
+class SetClause(Clause):
+    """``SET`` properties on an already-bound variable.
+
+    Assignments are rendered through the mapper's property reference, so a
+    dialect that wraps a field on the way in — ``vecf32``, ``point``,
+    ``intern`` — still wraps it here.
+    """
+
+    assignments: tuple[tuple[str, str, Any], ...]
+    """``(alias, property, value)`` triples."""
+
+    def to_cypher(self, compiler: Any) -> str:
+        parts = [
+            f"{alias}.{prop} = {_render_assignment(alias, prop, value, compiler)}"
+            for alias, prop, value in self.assignments
+        ]
+        return f"SET {', '.join(parts)}"
+
+
+@dataclass
+class DeleteClause(Clause):
+    """``DELETE`` or ``DETACH DELETE`` the named variables.
+
+    ``detach`` also removes the edges incident to a node, which a node delete
+    requires — Cypher refuses to delete a node that still has relationships.
+
+    It is the wrong choice for an *edge*: detaching there would take the
+    endpoints down with it, and on a derived edge between two ground-truth
+    nodes that means deleting real data to clean up a computed one.
+    """
+
+    variables: tuple[str, ...]
+    detach: bool = False
+
+    def __post_init__(self) -> None:
+        for variable in self.variables:
+            validate_identifier(variable, "delete target")
+
+    def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
+        keyword = "DETACH DELETE" if self.detach else "DELETE"
+        return f"{keyword} {', '.join(self.variables)}"
+
+
+def _render_assignment(alias: str, prop: str, value: Any, compiler: Any) -> str:
+    """Render the right-hand side of one ``SET`` assignment.
+
+    ``None`` becomes the Cypher literal ``NULL`` rather than a bound parameter:
+    ``SET n.p = $x`` with ``x`` bound to null does remove the property, but
+    reads as an assignment of a value, and some backends treat the two
+    differently. Clearing is stated outright.
+    """
+    from runic.ogm.query.values import ValueExpr
+
+    if value is None:
+        return "NULL"
+    if isinstance(value, ValueExpr):
+        rendered = value.to_cypher(compiler)
+        fn = compiler._cypher_fn_for(alias, prop)  # noqa: SLF001
+        return f"{fn}({rendered})" if fn else rendered
+    param = compiler._next_param(compiler._convert_for(alias, prop, value))  # noqa: SLF001
+    fn = compiler._cypher_fn_for(alias, prop)  # noqa: SLF001
+    return f"{fn}(${param})" if fn else f"${param}"

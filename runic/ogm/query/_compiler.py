@@ -41,6 +41,8 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     _agg_exprs: list[AggExpr]
     _group_by_alias: Any
     _project_fields: list[FieldDescriptor | ValueExpr | str]
+    _alias_map: dict[str, type]
+    _returning: list[Any]
     _param_counter: int
     _params: dict[str, Any]
     _declared_params: set[str]
@@ -138,6 +140,12 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         """Compile the RETURN clause."""
         distinct_kw = "DISTINCT " if self._distinct else ""
 
+        # Explicit expressions, set by returning() — usually a write reporting
+        # what it did.
+        if self._returning:
+            rendered = [self._compile_return_item(v) for v in self._returning]
+            return f"RETURN {distinct_kw}{', '.join(rendered)}"
+
         # Aggregation mode
         if self._agg_exprs:
             cls_to_alias = self._cls_alias_map()
@@ -178,6 +186,14 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if isinstance(group_by, (list, tuple)):
             return list(group_by)
         return [group_by]
+
+    def _compile_return_item(self, value: Any) -> str:
+        """Render one explicit RETURN expression, aggregate or value."""
+        from runic.ogm.query.expressions import AggExpr as _Agg
+
+        if isinstance(value, _Agg):
+            return self._compile_agg(value, self._cls_alias_map())
+        return self._compile_value(value)
 
     def _cls_alias_map(self) -> dict[type, str]:
         """First registered Cypher variable per OGM class, for aggregates."""
@@ -309,6 +325,31 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         """
         self._declared_params.add(name)
         return name
+
+    def _field_info_for_alias(self, alias: str, prop: str) -> FieldInfo | None:
+        """Look up a field by the Cypher variable it is written through."""
+        cls = self._alias_map.get(alias)
+        return self._find_field_info(cls, prop) if cls is not None else None
+
+    def _cypher_fn_for(self, alias: str, prop: str) -> str | None:
+        """The dialect's wrapping function for a property, if it declares one.
+
+        ``vecf32``, ``point`` and ``intern`` have to wrap a value on its way in
+        or the backend stores something it cannot index.
+        """
+        fi = self._field_info_for_alias(alias, prop)
+        dialect = self._dialect
+        if fi is None or dialect is None:
+            return None
+        return dialect.cypher_fn_for_field(fi)  # type: ignore[no-any-return]
+
+    def _convert_for(self, alias: str, prop: str, value: Any) -> Any:
+        """Apply a field's TypeConverter to a value being written."""
+        fi = self._field_info_for_alias(alias, prop)
+        converter = fi.field.converter if fi is not None else None
+        if converter is None or value is None:
+            return value
+        return converter.to_graph(value)
 
     def _find_field_info(self, cls: type, prop: str) -> FieldInfo | None:
         """Look up a FieldInfo by class and property name."""
