@@ -2,7 +2,13 @@
 
 import pytest
 
-from runic.cypher import escape_identifier, escape_string, validate_identifier
+from runic.cypher import (
+    escape_identifier,
+    escape_string,
+    validate_identifier,
+    validate_order_term,
+    validate_reference,
+)
 
 
 class TestEscapeIdentifier:
@@ -72,3 +78,71 @@ class TestValidateIdentifier:
     def test_kind_appears_in_error(self) -> None:
         with pytest.raises(ValueError, match="node label"):
             validate_identifier("bad label", "node label")
+
+
+class TestValidateReference:
+    @pytest.mark.parametrize(
+        "expr",
+        ["n", "total", "_x", "n.id", "u.created_at", "n0.p1"],
+    )
+    def test_valid_references_pass_through(self, expr: str) -> None:
+        assert validate_reference(expr) == expr
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            "n.id, count(*)",  # a second return item
+            "count(n)",  # a function call
+            "n.a.b",  # nested access
+            "n) DETACH DELETE n //",  # injection attempt
+            "n.id DESC",  # a sort direction is not a reference
+            "*",  # only allowed for count(*)
+            "",
+            "1n",
+        ],
+    )
+    def test_non_references_are_rejected(self, expr: str) -> None:
+        with pytest.raises(ValueError, match="invalid Cypher"):
+            validate_reference(expr)
+
+    def test_star_allowed_only_when_opted_in(self) -> None:
+        assert validate_reference("*", allow_star=True) == "*"
+        with pytest.raises(ValueError, match="invalid Cypher"):
+            validate_reference("*")
+
+    def test_kind_appears_in_error(self) -> None:
+        with pytest.raises(ValueError, match="group_by key"):
+            validate_reference("n) DELETE n", "group_by key")
+
+
+class TestValidateOrderTerm:
+    @pytest.mark.parametrize(
+        "expr",
+        ["n.id", "total", "n.created_at DESC", "score ASC", "score asc", "total desc"],
+    )
+    def test_valid_order_terms_pass_through(self, expr: str) -> None:
+        assert validate_order_term(expr) == expr
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            "n.id DESC WITH n MATCH (x) DETACH DELETE x //",  # appended clause
+            "n.id ASC, m.id DESC",  # a second sort key
+            "n.id DESCENDING",  # not a Cypher direction
+            "n.id DESC NULLS LAST",  # three tokens
+            "count(n) DESC",  # a function call
+            "",
+            "   ",
+        ],
+    )
+    def test_invalid_order_terms_are_rejected(self, expr: str) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            validate_order_term(expr)
+
+    def test_non_string_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="expected a string"):
+            validate_order_term(None)  # ty: ignore[invalid-argument-type]
+
+    def test_kind_appears_in_error(self) -> None:
+        with pytest.raises(ValueError, match="order_by term"):
+            validate_order_term("n.id BOGUS", "order_by term")

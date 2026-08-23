@@ -127,6 +127,29 @@ class TestSelectFactory:
         assert c1 == c2
         assert p1 == p2
 
+    def test_a_name_replaces_the_default_root_variable(self) -> None:
+        """select(Cls, "u") avoids the hidden default ``n``."""
+        cypher, _ = select(SPerson, "u").where(SPerson.name == "Alice").build()  # ty: ignore[invalid-argument-type]
+        assert "MATCH (u:SPerson)" in cypher
+        assert "u.name = $p0" in cypher
+        assert cypher.endswith("RETURN u")
+
+    def test_a_name_on_a_handle_is_rejected(self) -> None:
+        """Two names for one variable is a contradiction, not a merge."""
+        from runic.ogm import alias
+
+        with pytest.raises(TypeError, match="already names"):
+            select(alias(SPerson, "u"), "x")
+
+    def test_the_name_is_validated(self) -> None:
+        with pytest.raises(ValueError, match="root alias"):
+            select(SPerson, "u) DETACH DELETE u //")
+
+    def test_session_query_accepts_a_name(self) -> None:
+        session = _make_session()
+        cypher, _ = session.query(SPerson, "p").build()
+        assert "MATCH (p:SPerson)" in cypher
+
 
 # ---------------------------------------------------------------------------
 # Terminal method guards

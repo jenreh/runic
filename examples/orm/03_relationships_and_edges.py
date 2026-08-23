@@ -97,11 +97,9 @@ class UserRepository(Repository[User]):
         rows: list[tuple[User, InvitationEdge, Trip]] = (
             self.query()
             .where(User.id == user_id)
-            .alias("u")
-            .traverse(User.invited_trips, edge_alias="e", optional=False)
-            .alias("t")
+            .traverse(User.invited_trips, to="t", edge="e")
             .where(Trip.id == trip_id, on="t")
-            .return_nodes("u", "t")
+            .return_nodes("n", "t")
             .return_edge("e")
             .all_with_edges()
         )
@@ -114,9 +112,7 @@ class UserRepository(Repository[User]):
         return (
             self.query()
             .where(User.id == user_id)
-            .alias("u")
-            .traverse(User.invited_trips, edge_alias="e", optional=False)
-            .alias("t")
+            .traverse(User.invited_trips, to="t", edge="e")
             .where(InvitationEdge.status == "pending", on="e")
             .return_target("t")
             .all()
@@ -281,10 +277,8 @@ def run() -> None:
     with Session(driver) as session:
         alice_trips: list[Trip] = session.scalars(
             select(User)
-            .alias("u")
             .where(User.id == "alice")
-            .traverse(User.invited_trips)
-            .alias("t")
+            .traverse(User.invited_trips, to="t")
             .return_target("t")
         )
         log.info("QueryBuilder: Alice's trips: %s", [t.title for t in alice_trips])
@@ -293,10 +287,8 @@ def run() -> None:
     with Session(driver) as session:
         owner_trips: list[Trip] = session.scalars(
             select(User)
-            .alias("u")
             .where(User.id == "alice")
-            .traverse(User.invited_trips, edge_alias="e")
-            .alias("t")
+            .traverse(User.invited_trips, to="t", edge="e")
             .where(InvitationEdge.role == "owner", on="e")
             .return_target("t")
         )
@@ -309,11 +301,9 @@ def run() -> None:
     with Session(driver) as session:
         rows: list[tuple[User, InvitationEdge, Trip]] = session.all_with_edges(
             select(User)
-            .alias("u")
             .where(User.id == "alice")
-            .traverse(User.invited_trips, edge_alias="e")
-            .alias("t")
-            .return_nodes("u", "t")
+            .traverse(User.invited_trips, to="t", edge="e")
+            .return_nodes("n", "t")
             .return_edge("e")
         )
         for user, edge, trip in rows:

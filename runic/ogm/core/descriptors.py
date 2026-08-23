@@ -291,12 +291,59 @@ class FieldDescriptor:
     # List membership ---------------------------------------------------
 
     def in_(self, values: list[Any]) -> Any:
-        """Return an ``IN`` filter: ``prop IN $values``."""
+        """Return an ``IN`` filter: ``prop IN $values``.
+
+        Asks whether this property is one of *values*.  For a **list-valued**
+        property the question is usually the other way round — see
+        :meth:`any_of`.
+        """
         return self._make_filter("IN", values)
 
     def not_in_(self, values: list[Any]) -> Any:
         """Return a ``NOT IN`` filter: ``NOT prop IN $values``."""
         return self._make_filter("IN", values, negate=True)
+
+    def any_of(self, value: Any) -> Any:
+        """Return a membership filter against a **list-valued** property.
+
+        Emits ``$value IN n.prop``: does the stored list contain this element?
+
+        This is the opposite of :meth:`in_`, and the distinction is easy to lose.
+        On a property holding a list, ``in_()`` compiles to ``n.prop IN $values``
+        — is the whole list an element of the parameter — which is a question
+        nothing answers ``true`` to, so the filter silently returns no rows.
+
+        Example
+        -------
+        .. code-block:: python
+
+            # Message.refs is list[str]
+            select(Message).where(Message.refs.any_of(param("token")))
+            # WHERE $token IN n.refs
+        """
+        from runic.ogm.query.expressions import FilterExpr
+
+        return FilterExpr(
+            cls=self._owner or type(self),
+            prop=self._name,
+            op="IN",
+            value=value,
+            reverse=True,
+        )
+
+    # Result naming -----------------------------------------------------
+
+    def as_(self, result_alias: str) -> Any:
+        """Name the result column this field projects to: ``AS result_alias``.
+
+        Bare fields are auto-named after themselves in a projection, so this
+        is only needed to *rename*::
+
+            select(Message).project(Message.id.as_("message_id"))
+        """
+        from runic.ogm.query.values import _prop_ref
+
+        return _prop_ref(self).as_(result_alias)
 
 
 class FieldInfo:

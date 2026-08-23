@@ -58,6 +58,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from runic.cypher import validate_reference
+
 if TYPE_CHECKING:
     pass
 
@@ -130,6 +132,16 @@ class FilterExpr(Expr):
     negate:
         When ``True``, wraps the predicate in ``NOT (...)``.  Used for
         ``not_in_()``; prefer the ``~`` operator for general negation.
+    left:
+        A :class:`~runic.ogm.query.values.ValueExpr` standing in for the
+        left-hand side, replacing *cls*/*prop*.  Set when the predicate compares
+        something richer than one property — another property (``a.id < b.id``)
+        or a function call.  ``None`` for the ordinary ``alias.prop`` form.
+    reverse:
+        When ``True`` the operands are emitted right-to-left.  Only meaningful
+        for ``IN``, where it produces ``$value IN n.list_prop`` — asking whether
+        an element is in a stored list, which is the opposite question to
+        ``n.prop IN $values`` and the one a list-valued property needs.
     """
 
     cls: type
@@ -138,6 +150,8 @@ class FilterExpr(Expr):
     value: Any = None
     alias: str | None = None
     negate: bool = False
+    left: Any = None
+    reverse: bool = False
 
     def with_alias(self, alias: str) -> FilterExpr:
         """Return a copy of this expression with *alias* as the explicit variable."""
@@ -148,6 +162,8 @@ class FilterExpr(Expr):
             value=self.value,
             alias=alias,
             negate=self.negate,
+            left=self.left,
+            reverse=self.reverse,
         )
 
 
@@ -211,12 +227,27 @@ class OrderExpr:
     prop: str | None
     raw: str | None = None
     desc: bool = False
+    expr: Any = None
 
-    def to_cypher(self) -> str:
-        """Render to a Cypher ORDER BY term string."""
-        if self.raw:
-            return self.raw
+    def to_cypher(self, compiler: Any = None) -> str:
+        """Render to a Cypher ORDER BY term string.
+
+        *compiler* is required only when the term is a value expression, which
+        may need to bind operands or resolve a deferred alias.
+        """
         direction = "DESC" if self.desc else "ASC"
+        if self.expr is not None:
+            if compiler is None:
+                msg = "an expression ORDER BY term needs a compiler to render"
+                raise ValueError(msg)
+            return f"{self.expr.to_cypher(compiler)} {direction}"
+        if self.raw:
+            # A raw term may already carry its own direction ("total DESC").
+            # Only append one when it does not, so ``order_by("x", desc=True)``
+            # actually sorts descending instead of silently ascending.
+            if self.raw.split()[-1].upper() in ("ASC", "DESC"):
+                return self.raw
+            return f"{self.raw} {direction}"
         return f"{self.alias}.{self.prop} {direction}"
 
 
@@ -274,10 +305,12 @@ class AggExpr:
         if isinstance(self.field, FieldDescriptor):
             cls_alias = alias_map.get(self.field.owner, "n")
             field_ref = f"{cls_alias}.{self.field.field_name}"
-        elif self.field == "*":
-            field_ref = "*"
         else:
-            field_ref = str(self.field)
+            # A raw-string operand is an escape hatch and is interpolated
+            # straight into RETURN, so it must be a property reference.
+            field_ref = validate_reference(
+                str(self.field), "aggregate operand", allow_star=True
+            )
 
         distinct_kw = "DISTINCT " if self.distinct and self.field != "*" else ""
         expr = f"{self.func}({distinct_kw}{field_ref})"
@@ -301,8 +334,8 @@ def count(field: Any = "*", *, distinct: bool = False) -> AggExpr:
     --------
     .. code-block:: python
 
-        q.aggregate(count())  # count(*)
-        q.aggregate(count(User.name, distinct=True))  # count(DISTINCT n.name)
+        q.project(count())  # count(*)
+        q.project(count(User.name, distinct=True))  # count(DISTINCT n.name)
     """
     return AggExpr(func="count", field=field, distinct=distinct)
 
@@ -312,7 +345,7 @@ def avg(field: Any) -> AggExpr:
 
     Example::
 
-        q.aggregate(avg(User.age).as_("average_age"))
+        q.project(avg(User.age).as_("average_age"))
     """
     return AggExpr(func="avg", field=field)
 
@@ -322,7 +355,7 @@ def sum_(field: Any) -> AggExpr:
 
     Example::
 
-        q.aggregate(sum_(Order.amount).as_("total"))
+        q.project(sum_(Order.amount).as_("total"))
     """
     return AggExpr(func="sum", field=field)
 
@@ -344,6 +377,6 @@ def collect(field: Any, *, distinct: bool = False) -> AggExpr:
 
     Example::
 
-        q.aggregate(collect(Post.title).as_("post_titles"))
+        q.project(collect(Post.title).as_("post_titles"))
     """
     return AggExpr(func="collect", field=field, distinct=distinct)

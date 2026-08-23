@@ -9,6 +9,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
+from runic.ogm import alias
 from runic.ogm.core.descriptors import Field, Relation
 from runic.ogm.core.metadata import metadata as _real_meta
 from runic.ogm.core.models import Edge, Node
@@ -201,7 +204,7 @@ class TestBasicQueries:
 
     def test_order_by_desc(self) -> None:
         q = QueryBuilder(_mock_session(), BPerson)
-        q.order_by(BPerson.age, desc=True)  # ty: ignore[invalid-argument-type]
+        q.order_by(BPerson.age, desc=True)
         cypher, _ = q.build()
         assert "ORDER BY n.age DESC" in cypher
 
@@ -237,24 +240,38 @@ class TestBasicQueries:
 # ---------------------------------------------------------------------------
 
 
-class TestAlias:
-    def test_alias_changes_root_variable(self) -> None:
-        q = QueryBuilder(_mock_session(), BPerson)
-        q.alias("u")
+class TestAliasHandleRoot:
+    def test_handle_names_root_variable(self) -> None:
+        u = alias(BPerson, "u")
+        q = QueryBuilder(_mock_session(), u)
         cypher, _ = q.build()
         assert "MATCH (u:BPerson)" in cypher
         assert "RETURN u" in cypher
 
     def test_where_on_explicit_alias(self) -> None:
-        q = QueryBuilder(_mock_session(), BPerson)
-        q.alias("u")
+        q = QueryBuilder(_mock_session(), alias(BPerson, "u"))
         q.where(BPerson.name == "Alice", on="u")  # ty: ignore[invalid-argument-type]
         cypher, params = q.build()
         assert "u.name = $p0" in cypher
 
+    def test_where_on_accepts_a_handle(self) -> None:
+        u = alias(BPerson, "u")
+        q = QueryBuilder(_mock_session(), u)
+        q.where(BPerson.name == "Alice", on=u)  # ty: ignore[invalid-argument-type]
+        cypher, _ = q.build()
+        assert "u.name = $p0" in cypher
+
+    def test_where_on_pins_every_filter_of_a_compound(self) -> None:
+        """on= applies to (A & B) as it does to a single filter."""
+        u = alias(BPerson, "u")
+        q = QueryBuilder(_mock_session(), u)
+        q.where((BPerson.name == "A") & (BPerson.name != "B"), on="u")  # ty: ignore[invalid-argument-type]
+        cypher, _ = q.build()
+        assert "u.name = $p0" in cypher
+        assert "u.name <> $p1" in cypher
+
     def test_where_without_on_uses_cls_alias(self) -> None:
-        q = QueryBuilder(_mock_session(), BPerson)
-        q.alias("u")
+        q = QueryBuilder(_mock_session(), alias(BPerson, "u"))
         q.where(BPerson.name == "Alice")  # ty: ignore[invalid-argument-type]
         cypher, _ = q.build()
         assert "u.name = $p0" in cypher
@@ -266,68 +283,110 @@ class TestAlias:
 
 
 class TestTraversal:
-    def test_single_hop_optional_match(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.friends).alias("f")  # ty: ignore[invalid-argument-type]
-        cypher, _ = q.build()
-        assert "OPTIONAL MATCH (u)-[:BKNOWS]->(f:BPersonWithRel)" in cypher
-        assert "RETURN f" in cypher
-
-    def test_required_match(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.friends, optional=False).alias("f")  # ty: ignore[invalid-argument-type]
+    def test_default_is_a_required_match(self) -> None:
+        """Cypher's unmarked case: no relationship, no row."""
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends, to="f")
         cypher, _ = q.build()
         assert cypher.count("OPTIONAL MATCH") == 0
         assert "MATCH (u)-[:BKNOWS]->(f:BPersonWithRel)" in cypher
+        assert "RETURN f" in cypher
+
+    def test_optional_match_is_the_marked_case(self) -> None:
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends, to="f", optional=True)
+        cypher, _ = q.build()
+        assert "OPTIONAL MATCH (u)-[:BKNOWS]->(f:BPersonWithRel)" in cypher
+
+    def test_traverse_returns_the_builder(self) -> None:
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        assert q.traverse(BPersonWithRel.friends, to="f") is q
+
+    def test_to_omitted_generates_a_name(self) -> None:
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends)
+        cypher, _ = q.build()
+        assert "MATCH (u)-[:BKNOWS]->(_t1:BPersonWithRel)" in cypher
+
+    def test_to_accepts_a_handle(self) -> None:
+        f = alias(BPersonWithRel, "f")
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends, to=f).where(f.name == "x")
+        cypher, _ = q.build()
+        assert "(f:BPersonWithRel)" in cypher
+        assert "f.name = $p0" in cypher
+
+    def test_handle_attribute_names_its_own_source(self) -> None:
+        """u.friends traverses out of u without from_."""
+        u = alias(BPersonWithRel, "u")
+        q = QueryBuilder(_mock_session(), u)
+        q.traverse(u.friends, to="f")
+        cypher, _ = q.build()
+        assert "MATCH (u)-[:BKNOWS]->(f:" in cypher
 
     def test_traversal_with_edge_alias(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.works_for, edge_alias="r").alias("c")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.works_for, to="c", edge="r", optional=True)
         cypher, _ = q.build()
         assert "OPTIONAL MATCH (u)-[r:BWORKS_FOR]->(c:BCompany)" in cypher
 
     def test_traversal_where_on_edge(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.works_for, edge_alias="r").alias("c")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.works_for, to="c", edge="r")
         q.where(WorksFor.since > 2020, on="r")  # ty: ignore[unsupported-operator]
         cypher, params = q.build()
         assert "r.since > $p0" in cypher
         assert params["p0"] == 2020
 
     def test_multi_hop_traversal(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.friends).alias("f")  # ty: ignore[invalid-argument-type]
-        q.traverse(BPersonWithRel.friends).alias("ff")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends, to="f", optional=True)
+        q.traverse(BPersonWithRel.friends, to="ff", optional=True)
         cypher, _ = q.build()
         assert cypher.count("OPTIONAL MATCH") == 2
         assert "(u)-[:BKNOWS]->(f:" in cypher
         assert "(f)-[:BKNOWS]->(ff:" in cypher
 
     def test_variable_length_path(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("p").repeat(BPersonWithRel.reports_to, min_hops=1, max_hops=5).alias(  # ty: ignore[invalid-argument-type]
-            "anc"
-        )
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "p"))
+        q.traverse(BPersonWithRel.reports_to, to="anc", hops=(1, 5))
         cypher, _ = q.build()
         assert "*1..5" in cypher
         assert "MATCH (p)-[:BREPORTS_TO*1..5]->(anc:" in cypher
 
     def test_variable_length_unbounded(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("p").repeat(BPersonWithRel.reports_to, min_hops=1).alias("anc")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "p"))
+        q.traverse(BPersonWithRel.reports_to, to="anc", hops=(1, None))
         cypher, _ = q.build()
         assert "*1.." in cypher
 
+    def test_an_exact_depth_is_an_int(self) -> None:
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "p"))
+        q.traverse(BPersonWithRel.reports_to, to="anc", hops=3)
+        cypher, _ = q.build()
+        assert "*3..3" in cypher
+
+    def test_an_edge_variable_rejects_a_quantifier(self) -> None:
+        """A var-length edge binds a list, which nothing decodes."""
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        with pytest.raises(TypeError, match="variable-length"):
+            q.traverse(BPersonWithRel.works_for, edge="r", hops=(1, 3))
+
+    def test_an_inverted_hop_range_is_rejected(self) -> None:
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "p"))
+        with pytest.raises(ValueError, match="below minimum"):
+            q.traverse(BPersonWithRel.reports_to, hops=(5, 2))
+
     def test_return_target_explicit(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.friends).alias("f")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.friends, to="f")
         q.return_target("u")
         cypher, _ = q.build()
         assert "RETURN u" in cypher
 
     def test_return_nodes(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.works_for, edge_alias="r").alias("c")  # ty: ignore[invalid-argument-type]
+        q = QueryBuilder(_mock_session(), alias(BPersonWithRel, "u"))
+        q.traverse(BPersonWithRel.works_for, to="c", edge="r")
         q.return_nodes("u", "c").return_edge("r")
         cypher, _ = q.build()
         assert "u" in cypher
@@ -341,15 +400,21 @@ class TestTraversal:
 
 
 class TestWithClause:
-    def test_with_inserts_between_match_and_where(self) -> None:
-        q = QueryBuilder(_mock_session(), BPerson)
-        q.alias("u").where(BPerson.active == True).with_("u")  # noqa: E712  # ty: ignore[invalid-argument-type]
+    def test_root_filter_precedes_the_with_stage(self) -> None:
+        """A root predicate narrows before the rows are carried forward.
+
+        ``where()`` always filters the root, whenever it is called; to filter
+        *after* a stage — on a computed or aggregated value — pass
+        ``with_(where=...)``, which is Cypher's ``HAVING`` equivalent.
+        """
+        q = QueryBuilder(_mock_session(), alias(BPerson, "u"))
+        q.where(BPerson.active == True).with_("u")  # noqa: E712  # ty: ignore[invalid-argument-type]
         cypher, _ = q.build()
         assert "WITH u" in cypher
         lines = cypher.splitlines()
-        with_line = next(i for i, l in enumerate(lines) if "WITH u" in l)
-        where_line = next(i for i, l in enumerate(lines) if "WHERE" in l)
-        assert with_line < where_line
+        with_line = next(i for i, line in enumerate(lines) if "WITH u" in line)
+        where_line = next(i for i, line in enumerate(lines) if "WHERE" in line)
+        assert where_line < with_line
 
 
 # ---------------------------------------------------------------------------
@@ -360,14 +425,16 @@ class TestWithClause:
 class TestAggregation:
     def test_count_star_return(self) -> None:
         q = QueryBuilder(_mock_session(), BPerson)
-        q.aggregate(count().as_("total"))
+        q.project(count().as_("total"))
         cypher, _ = q.build()
         assert "RETURN count(*) AS total" in cypher
 
-    def test_group_by_alias(self) -> None:
-        q = QueryBuilder(_mock_session(), BPersonWithRel)
-        q.alias("u").traverse(BPersonWithRel.friends)  # ty: ignore[invalid-argument-type]
-        q.aggregate(count("*").as_("friend_count"), group_by="u")
+    def test_grouped_projection(self) -> None:
+        """A non-aggregated item in the projection is the grouping key."""
+        u = alias(BPersonWithRel, "u")
+        q = QueryBuilder(_mock_session(), u)
+        q.traverse(BPersonWithRel.friends, optional=True)
+        q.project(u, count("*").as_("friend_count"))
         cypher, _ = q.build()
         assert "RETURN u, count(*) AS friend_count" in cypher
 
@@ -397,7 +464,7 @@ class TestProjection:
 
     def test_project_multiple_fields(self) -> None:
         q = QueryBuilder(_mock_session(), BPerson)
-        q.project(BPerson.name, BPerson.age)  # ty: ignore[invalid-argument-type]
+        q.project(BPerson.name, BPerson.age)
         cypher, _ = q.build()
         assert "n.name" in cypher
         assert "n.age" in cypher
@@ -460,26 +527,50 @@ class TestFulltextQueryBuilder:
 
 
 class TestVectorQueryBuilder:
-    def test_emits_knn_order_by(self) -> None:
-        sess = _mock_session()
-        vec = [0.1, 0.2, 0.3]
+    def test_uses_the_index_procedure_not_a_scan(self) -> None:
+        """FalkorDB rejects the `<->` operator this builder used to emit."""
         q = VectorQueryBuilder(
-            sess,
+            _mock_session(),
             BDocument,
             field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
-            vector=vec,
+            vector=[0.1, 0.2, 0.3],
             k=5,
         )
         cypher, params = q.build()
-        assert "vecf32(n.embedding) <-> vecf32($__knn_vec)" in cypher
+        assert "CALL db.idx.vector.queryNodes('BDocument', 'embedding'" in cypher
+        assert "YIELD node AS n, score" in cypher
+        assert params["__knn_vec"] == [0.1, 0.2, 0.3]
+        assert params["__knn_k"] == 5
+
+    def test_score_is_normalised_to_a_distance(self) -> None:
+        q = VectorQueryBuilder(
+            _mock_session(),
+            BDocument,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
+            vector=[0.1],
+            k=3,
+        )
+        cypher, _ = q.build()
+        assert "WITH n, score AS __score" in cypher
         assert "ORDER BY __score ASC" in cypher
-        assert "LIMIT 5" in cypher
-        assert params["__knn_vec"] == vec
+
+    def test_search_width_is_not_the_row_limit(self) -> None:
+        """k bounds the index search; limit bounds what the caller sees."""
+        q = VectorQueryBuilder(
+            _mock_session(),
+            BDocument,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
+            vector=[0.1],
+            k=200,
+        )
+        q.limit(10)
+        cypher, params = q.build()
+        assert params["__knn_k"] == 200
+        assert cypher.endswith("LIMIT 10")
 
     def test_where_respected(self) -> None:
-        sess = _mock_session()
         q = VectorQueryBuilder(
-            sess,
+            _mock_session(),
             BDocument,
             field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
             vector=[0.1],

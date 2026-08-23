@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
+from runic.cypher import validate_reference
 from runic.ogm.core.descriptors import FieldDescriptor, FieldInfo
 from runic.ogm.query._decoder import _ResultDecoder
 from runic.ogm.query.expressions import (
@@ -21,6 +22,7 @@ from runic.ogm.query.expressions import (
     FilterExpr,
     NegatedExpr,
 )
+from runic.ogm.query.values import ValueExpr
 
 T = TypeVar("T")
 
@@ -36,11 +38,14 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     _root_alias: str
     _where_exprs: list[Expr]
     _distinct: bool
-    _agg_exprs: list[AggExpr]
-    _group_by_alias: str | None
-    _project_fields: list[FieldDescriptor | str]
+    _project_fields: list[FieldDescriptor | ValueExpr | AggExpr | str]
+    _alias_map: dict[str, type]
+    _returning: list[Any]
     _param_counter: int
     _params: dict[str, Any]
+    _declared_params: set[str]
+    _limit_val: Any
+    _skip_val: Any
 
     # ------------------------------------------------------------------
     # Dialect access
@@ -51,6 +56,23 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if self._session is None:
             return None
         return self._session.mapper.dialect
+
+    def _require_dialect(self) -> Any:
+        """The session's dialect, or the default when the statement is unbound.
+
+        A statement built by ``select()`` has no session until it is executed,
+        but it still has to compile — ``parameter_names()`` and ``build()`` are
+        both useful on an unbound statement, and a procedure-rooted one needs a
+        dialect to know which procedure to name. The default matches
+        :class:`~runic.ogm.mapper.mapper.Mapper`'s, so an unbound statement
+        compiles the same way a FalkorDB-bound one does.
+        """
+        dialect = self._dialect
+        if dialect is not None:
+            return dialect
+        from runic.ogm.driver.falkordb import FalkorDBDialect
+
+        return FalkorDBDialect()
 
     # ------------------------------------------------------------------
     # Internal: Cypher expression compilation
@@ -69,69 +91,91 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
     def _compile_filter(self, expr: FilterExpr) -> str:
         """Compile a single FilterExpr to a Cypher condition string."""
-        alias = expr.alias or self._alias_for_cls(expr.cls)
+        from runic.ogm.query.values import ValueExpr
+
+        # Left-hand side: usually ``alias.prop``, but a ValueExpr when the
+        # predicate compares something richer (another property, a function).
+        if isinstance(expr.left, ValueExpr):
+            lhs = expr.left.to_cypher(self)
+        else:
+            alias = expr.alias or self._alias_for_cls(expr.cls)
+            lhs = f"{alias}.{expr.prop}"
 
         # Null checks have no parameter
         if expr.op == "IS NULL":
-            return f"{alias}.{expr.prop} IS NULL"
+            return f"{lhs} IS NULL"
         if expr.op == "IS NOT NULL":
-            return f"{alias}.{expr.prop} IS NOT NULL"
+            return f"{lhs} IS NOT NULL"
 
-        # Look up converter for this field
+        param_ref = self._compile_operand(expr)
+
+        if expr.op in ("IN", "NOT IN"):
+            prefix = "NOT " if (expr.negate or expr.op == "NOT IN") else ""
+            # ``reverse`` asks the opposite question: is this value an element
+            # of the stored list, rather than is this property one of these
+            # values.  A list-valued property needs the former.
+            if expr.reverse:
+                return f"{prefix}{param_ref} IN {lhs}"
+            return f"{prefix}{lhs} IN {param_ref}"
+
+        if expr.negate:
+            return f"NOT ({lhs} {expr.op} {param_ref})"
+        return f"{lhs} {expr.op} {param_ref}"
+
+    def _compile_operand(self, expr: FilterExpr) -> str:
+        """Render a predicate's right-hand side, binding it unless it is an expression.
+
+        A plain Python value is converted by the field's ``TypeConverter`` and
+        bound as a parameter, with the dialect's ``cypher_fn`` wrapper applied
+        where one is declared (``vecf32``, ``point``, ``intern``).  A
+        :class:`~runic.ogm.query.values.ValueExpr` renders itself instead, which
+        is how a property-to-property comparison avoids a parameter altogether.
+        """
+        from runic.ogm.query.values import ValueExpr
+
+        if isinstance(expr.value, ValueExpr):
+            return expr.value.to_cypher(self)
+        if isinstance(expr.value, FieldDescriptor):
+            # A field compared against a field: render the property reference
+            # rather than binding the descriptor object as a parameter.
+            from runic.ogm.query.values import _prop_ref
+
+            return _prop_ref(expr.value).to_cypher(self)
+
         fi = self._find_field_info(expr.cls, expr.prop)
         converter = fi.field.converter if fi is not None else None
 
-        # Convert value to graph representation
         param_value = expr.value
         if converter is not None and param_value is not None:
             param_value = converter.to_graph(param_value)
 
         param_name = self._next_param(param_value)
 
-        # Wrap param ref with cypher_fn if needed (dialect-aware)
         _d = self._dialect
         cypher_fn = (
             _d.cypher_fn_for_field(fi) if (fi is not None and _d is not None) else None
         )
-        param_ref = f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
-
-        if expr.op in ("IN", "NOT IN"):
-            prefix = "NOT " if (expr.negate or expr.op == "NOT IN") else ""
-            return f"{prefix}{alias}.{expr.prop} IN {param_ref}"
-
-        if expr.negate:
-            return f"NOT ({alias}.{expr.prop} {expr.op} {param_ref})"
-        return f"{alias}.{expr.prop} {expr.op} {param_ref}"
+        return f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
 
     def _compile_return(self) -> str:
-        """Compile the RETURN clause."""
+        """Compile the RETURN clause.
+
+        Cypher has no GROUP BY: every non-aggregated RETURN item is a grouping
+        key, so a projection mixing plain values and aggregates *is* the
+        grouped query — ``project(u, count("*").as_("n"))`` → ``RETURN u,
+        count(*) AS n``.
+        """
         distinct_kw = "DISTINCT " if self._distinct else ""
 
-        # Aggregation mode
-        if self._agg_exprs:
-            cls_to_alias: dict[type, str] = {
-                cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
-            }
-            agg_parts = [e.to_cypher(cls_to_alias) for e in self._agg_exprs]
-            if self._group_by_alias:
-                return (
-                    f"RETURN {distinct_kw}{self._group_by_alias}, "
-                    f"{', '.join(agg_parts)}"
-                )
-            return f"RETURN {distinct_kw}{', '.join(agg_parts)}"
+        # Explicit expressions, set by returning() — usually a write reporting
+        # what it did.
+        if self._returning:
+            rendered = [self._compile_return_item(v) for v in self._returning]
+            return f"RETURN {distinct_kw}{', '.join(rendered)}"
 
-        # Scalar projection
+        # Projection — values, aggregates, or both
         if self._project_fields:
-            proj_parts: list[str] = []
-            for f in self._project_fields:
-                if isinstance(f, FieldDescriptor):
-                    alias = (
-                        self._alias_for_cls(f.owner) if f.owner else self._root_alias
-                    )
-                    proj_parts.append(f"{alias}.{f.field_name}")
-                else:
-                    proj_parts.append(str(f))
-            return f"RETURN {distinct_kw}{', '.join(proj_parts)}"
+            return f"RETURN {distinct_kw}{', '.join(self._compile_projection())}"
 
         # Explicit return aliases
         if self._return_aliases:
@@ -146,6 +190,133 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
         # Default: return last alias
         return f"RETURN {distinct_kw}{self._last_alias}"
+
+    def _compile_projection(self) -> list[str]:
+        """Render every projected item, auto-naming bare fields.
+
+        A bare field is emitted as ``alias.prop AS prop`` so result rows are
+        keyed by the field's own name rather than ``"n.prop"``.  Two items
+        auto-naming to the same column is ambiguous and raises — ``.as_()``
+        one of them.
+        """
+        parts: list[str] = []
+        seen: dict[str, Any] = {}
+        for item in self._project_fields:
+            rendered, name = self._compile_projection_item(item)
+            if name is not None:
+                if name in seen:
+                    msg = (
+                        f"projection names the column {name!r} twice; "
+                        f"rename one with .as_()"
+                    )
+                    raise ValueError(msg)
+                seen[name] = item
+            parts.append(rendered)
+        return parts
+
+    def _compile_projection_item(self, item: Any) -> tuple[str, str | None]:
+        """Render one projected item; return ``(cypher, result_column_name)``.
+
+        The name is ``None`` when nothing is claimed: a raw string passes
+        through verbatim, and a computed expression without ``.as_()`` gets
+        whatever name the store reports.
+        """
+        from runic.ogm.query.values import (
+            Alias,
+            AliasedExpr,
+            PropertyRef,
+            _prop_ref,
+        )
+
+        if isinstance(item, AggExpr):
+            return self._compile_agg(item, self._cls_alias_map()), item.result_alias
+        if isinstance(item, AliasedExpr):
+            return item.to_cypher(self), item.alias
+        if isinstance(item, Alias):
+            return item.to_cypher(self), item.to_cypher(self)
+        if isinstance(item, FieldDescriptor):
+            item = _prop_ref(item)
+        if isinstance(item, PropertyRef) and item.prop:
+            return f"{item.to_cypher(self)} AS {item.prop}", item.prop
+        if isinstance(item, ValueExpr):
+            return item.to_cypher(self), None
+        return validate_reference(str(item), "projection"), None
+
+    def _compile_return_item(self, value: Any) -> str:
+        """Render one explicit RETURN expression, aggregate or value."""
+        from runic.ogm.query.expressions import AggExpr as _Agg
+
+        if isinstance(value, _Agg):
+            return self._compile_agg(value, self._cls_alias_map())
+        return self._compile_value(value)
+
+    def _cls_alias_map(self) -> dict[type, str]:
+        """First registered Cypher variable per OGM class, for aggregates."""
+        return {
+            cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
+        }
+
+    def _compile_agg(self, agg: AggExpr, cls_to_alias: dict[type, str]) -> str:
+        """Render one aggregation, whose operand may be a value expression.
+
+        ``count(when(...))`` is the case that matters: several differently
+        filtered counts over a single scan, which is otherwise several queries
+        whose populations can drift apart.
+        """
+        from runic.ogm.query.values import ValueExpr
+
+        if isinstance(agg.field, ValueExpr):
+            distinct_kw = "DISTINCT " if agg.distinct else ""
+            rendered = f"{agg.func}({distinct_kw}{agg.field.to_cypher(self)})"
+            return f"{rendered} AS {agg.result_alias}" if agg.result_alias else rendered
+        return agg.to_cypher(cls_to_alias)
+
+    def _compile_paging(self) -> list[str]:
+        """Render SKIP / LIMIT, which may be integers or bound parameters."""
+        from runic.ogm.query.values import ValueExpr
+
+        parts: list[str] = []
+        for keyword, value in (("SKIP", self._skip_val), ("LIMIT", self._limit_val)):
+            if value is None:
+                continue
+            rendered = value.to_cypher(self) if isinstance(value, ValueExpr) else value
+            parts.append(f"{keyword} {rendered}")
+        return parts
+
+    def _compile_value(self, value: Any) -> str:
+        """Render one RETURN / ORDER BY item, whatever form it takes.
+
+        Accepts a :class:`~runic.ogm.query.values.ValueExpr`, a field descriptor,
+        or a validated raw reference string.
+        """
+        from runic.ogm.query.values import ValueExpr, _prop_ref
+
+        if isinstance(value, ValueExpr):
+            return value.to_cypher(self)
+        if isinstance(value, FieldDescriptor):
+            return _prop_ref(value).to_cypher(self)
+        return validate_reference(str(value), "projection")
+
+    def _expr_aliases(self, expr: Expr) -> set[str]:
+        """The Cypher variables *expr* reads, across both operands and nesting."""
+        from runic.ogm.query.values import ValueExpr, _aliases_of
+
+        if isinstance(expr, FilterExpr):
+            found: set[str] = set()
+            if isinstance(expr.left, ValueExpr):
+                found |= expr.left.referenced_aliases(self)
+            else:
+                found.add(expr.alias or self._alias_for_cls(expr.cls))
+            found |= _aliases_of((expr.value,), self)
+            return found
+        if isinstance(expr, CompoundExpr):
+            found = set()
+            for operand in expr.operands:
+                found |= self._expr_aliases(operand)
+            return found
+        if isinstance(expr, NegatedExpr):
+            return self._expr_aliases(expr.operand)
+        return {self._root_alias}
 
     def _split_where_exprs(self) -> tuple[list[Expr], list[Expr]]:
         """Split WHERE expressions into root-targeting and post-traversal groups.
@@ -167,11 +338,12 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     def _expr_targets_root_only(self, expr: Expr) -> bool:
         """Return True if *expr* references only the root Cypher alias."""
         if isinstance(expr, FilterExpr):
-            if expr.alias is not None:
-                return expr.alias == self._root_alias
-            # No explicit alias: resolve via class lookup
-            resolved = self._alias_for_cls(expr.cls)
-            return resolved == self._root_alias
+            # Both operands matter. ``a.id < b.id`` looks root-targeting from
+            # the left, but emitting it before the MATCH that introduces ``b``
+            # is invalid Cypher — so a predicate is a root condition only when
+            # every variable it reads is the root one.  A parameter or literal
+            # reads nothing and constrains nothing.
+            return self._expr_aliases(expr) <= {self._root_alias}
         if isinstance(expr, CompoundExpr):
             return all(self._expr_targets_root_only(op) for op in expr.operands)
         if isinstance(expr, NegatedExpr):
@@ -198,6 +370,41 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         self._param_counter += 1
         self._params[name] = value
         return name
+
+    def declare_param(self, name: str) -> str:
+        """Record a caller-bound parameter encountered during compilation.
+
+        Unlike :meth:`_next_param`, no value is stored: the statement declares
+        that it expects ``$name`` and the caller supplies it at execution.  This
+        is what makes a statement reusable as a module-level constant.
+        """
+        self._declared_params.add(name)
+        return name
+
+    def _field_info_for_alias(self, alias: str, prop: str) -> FieldInfo | None:
+        """Look up a field by the Cypher variable it is written through."""
+        cls = self._alias_map.get(alias)
+        return self._find_field_info(cls, prop) if cls is not None else None
+
+    def _cypher_fn_for(self, alias: str, prop: str) -> str | None:
+        """The dialect's wrapping function for a property, if it declares one.
+
+        ``vecf32``, ``point`` and ``intern`` have to wrap a value on its way in
+        or the backend stores something it cannot index.
+        """
+        fi = self._field_info_for_alias(alias, prop)
+        dialect = self._dialect
+        if fi is None or dialect is None:
+            return None
+        return dialect.cypher_fn_for_field(fi)  # type: ignore[no-any-return]
+
+    def _convert_for(self, alias: str, prop: str, value: Any) -> Any:
+        """Apply a field's TypeConverter to a value being written."""
+        fi = self._field_info_for_alias(alias, prop)
+        converter = fi.field.converter if fi is not None else None
+        if converter is None or value is None:
+            return value
+        return converter.to_graph(value)
 
     def _find_field_info(self, cls: type, prop: str) -> FieldInfo | None:
         """Look up a FieldInfo by class and property name."""

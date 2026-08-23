@@ -105,7 +105,7 @@ class AsyncRepository[T](_RepositoryBase[T], AsyncRepositoryProtocol[T]):
             return int(result.rows[0][0]) > 0
         return False
 
-    def query(self) -> Any:
+    def query(self, name: str | None = None) -> Any:
         """Return an :class:`~runic.ogm.query.builder.AsyncQueryBuilder` for this repository's entity type.
 
         Async counterpart of :meth:`~runic.ogm.repository.repository.Repository.query`.
@@ -116,7 +116,7 @@ class AsyncRepository[T](_RepositoryBase[T], AsyncRepositoryProtocol[T]):
         """
         from runic.ogm.query.specialised import AsyncQueryBuilder
 
-        return AsyncQueryBuilder(self._session, self._cls)
+        return AsyncQueryBuilder(self._session, self._cls, name)
 
     # ------------------------------------------------------------------
     # Custom Cypher helpers

@@ -21,6 +21,8 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import CypherFeature
+
 if TYPE_CHECKING:
     from runic.ogm.core.descriptors import FieldInfo
 
@@ -390,6 +392,17 @@ class AGEDialect:
     - Multi-label emulation: extra labels stored as ``_labels`` property array
     """
 
+    # AGE's openCypher subset omits these; a statement using one fails at
+    # the PostgreSQL parser with a syntax error naming a character.
+    unsupported_features: frozenset[str] = frozenset(
+        {
+            CypherFeature.RELATIONSHIP_ALTERNATION,
+            CypherFeature.PROCEDURE_CALL,
+            CypherFeature.FULLTEXT_SEARCH,
+            CypherFeature.VECTOR_SEARCH,
+        }
+    )
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
@@ -432,6 +445,27 @@ class AGEDialect:
         raise NotImplementedError(
             "Apache AGE does not support native Cypher vector KNN search."
         )
+
+    def vector_knn_call(
+        self,
+        alias: str,  # noqa: ARG002
+        label: str,  # noqa: ARG002
+        field_name: str,  # noqa: ARG002
+        k_ref: str,  # noqa: ARG002
+        vec_ref: str,  # noqa: ARG002
+    ) -> str:
+        raise NotImplementedError(
+            "Apache AGE does not support native Cypher vector KNN search. "
+            "Use pgvector on the underlying PostgreSQL tables instead."
+        )
+
+    def vector_score_expr(self) -> str:
+        raise NotImplementedError(
+            "Apache AGE does not support native Cypher vector KNN search."
+        )
+
+    def fulltext_yields_score(self) -> bool:
+        return False
 
     def wrap_node(self, raw: Any) -> AGENode:
         return AGENode(raw)

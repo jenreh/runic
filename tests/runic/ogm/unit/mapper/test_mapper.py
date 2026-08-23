@@ -599,7 +599,7 @@ class TestDialectHelpers:
         assert mapper.labels_clause(["A", "B"]) == "A:B"
 
     def test_labels_clause_delegates_to_dialect(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         assert mapper.labels_clause(["Location", "Country"]) == "Location"
 
     def test_subtype_where_default_none(self, meta: MetaData) -> None:
@@ -607,12 +607,12 @@ class TestDialectHelpers:
         assert mapper.subtype_where("n", ["A", "B"]) is None
 
     def test_subtype_where_delegates_to_dialect(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         result = mapper.subtype_where("n", ["Location", "Country"])
         assert result == '"Country" IN n._labels'
 
     def test_build_create_injects_labels_property(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         child = MapperChild(id="c1", kind="test", extra="x")
         cypher, params = mapper.build_create_query(child)
         assert "_labels" in params
@@ -622,13 +622,13 @@ class TestDialectHelpers:
     def test_build_create_no_labels_property_for_single_label(
         self, meta: MetaData
     ) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         p = MapperPerson(id="p1", name="Alice")
         _, params = mapper.build_create_query(p)
         assert "_labels" not in params
 
     def test_build_find_all_includes_subtype_filter(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, _ = mapper.build_find_all_query(MapperChild)
         assert "MapperParent" in cypher
         assert '"MapperChild" IN n._labels' in cypher
@@ -636,7 +636,7 @@ class TestDialectHelpers:
     def test_build_find_all_with_skip_limit_includes_subtype_filter(
         self, meta: MetaData
     ) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, params = mapper.build_find_all_query(MapperChild, skip=10, limit=5)
         assert '"MapperChild" IN n._labels' in cypher
         assert "SKIP $__skip" in cypher
@@ -645,27 +645,27 @@ class TestDialectHelpers:
         assert params["__limit"] == 5
 
     def test_build_count_includes_subtype_filter(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, _ = mapper.build_count_query(MapperChild)
         assert '"MapperChild" IN n._labels' in cypher
 
     def test_build_exists_includes_subtype_filter_generated_pk(
         self, meta: MetaData
     ) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, _ = mapper.build_exists_query(MapperGenerated, 42)
         assert "MapperGenerated" in cypher
 
     def test_build_exists_includes_subtype_filter_field_pk(
         self, meta: MetaData
     ) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, params = mapper.build_exists_query(MapperChild, "c1")
         assert '"MapperChild" IN n._labels' in cypher
         assert params["__pk"] == "c1"
 
     def test_build_get_includes_subtype_filter_field_pk(self, meta: MetaData) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, params = mapper.build_get_query(MapperChild, "c1")
         assert '"MapperChild" IN n._labels' in cypher
         assert params["__pk"] == "c1"
@@ -673,7 +673,7 @@ class TestDialectHelpers:
     def test_build_find_all_by_ids_includes_subtype_filter(
         self, meta: MetaData
     ) -> None:
-        mapper = Mapper(meta, dialect=_SingleLabelDialect())
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         cypher, params = mapper.build_find_all_by_ids_query(MapperChild, ["c1", "c2"])
         assert '"MapperChild" IN n._labels' in cypher
         assert params["__pks"] == ["c1", "c2"]

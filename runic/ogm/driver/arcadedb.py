@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import CypherFeature, yield_as
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
 if TYPE_CHECKING:
@@ -39,6 +40,10 @@ class ArcadeDBDialect:
     - ``SET n.prop = point()`` is not supported via Bolt; GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
     """
 
+    unsupported_features: frozenset[str] = frozenset(
+        {CypherFeature.PROCEDURE_CALL, CypherFeature.FULLTEXT_SEARCH}
+    )
+
     supports_geo_update: bool = False
 
     def generated_id_where(self, alias: str, param: str) -> str:
@@ -63,11 +68,25 @@ class ArcadeDBDialect:
     ) -> str:
         return (
             f"CALL vector.neighbors('{type_name}[{field_name}]', $__knn_vec, $__knn_k) "
-            f"YIELD node AS {alias}, distance"
+            f"YIELD {yield_as('node', alias)}, distance"
         )
 
     def vector_knn_score_expr(self, alias: str, field_name: str) -> str:  # noqa: ARG002
         return "distance AS __score"
+
+    def vector_knn_call(
+        self, alias: str, label: str, field_name: str, k_ref: str, vec_ref: str
+    ) -> str:
+        return (
+            f"CALL vector.neighbors('{label}[{field_name}]', {vec_ref}, {k_ref}) "
+            f"YIELD {yield_as('node', alias)}, distance"
+        )
+
+    def vector_score_expr(self) -> str:
+        return "distance"
+
+    def fulltext_yields_score(self) -> bool:
+        return False
 
     def wrap_node(self, raw: Any) -> ArcadeDBNode:
         return ArcadeDBNode(raw)
