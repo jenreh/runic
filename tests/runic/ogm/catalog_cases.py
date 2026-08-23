@@ -45,8 +45,12 @@ from typing import Any
 
 from runic.ogm import select
 from runic.ogm.query.expressions import count
+from runic.ogm.query.values import col, left, param, when
 from tests.runic.ogm.catalog_models import (
+    About,
     Account,
+    Address,
+    CoAddressed,
     Group,
     Message,
     Template,
@@ -103,6 +107,14 @@ class CatalogCase:
     gaps: tuple[str, ...] = field(default_factory=tuple)
     """Capability gaps blocking this statement. Empty once ``build`` is set."""
 
+    unsupported: Mapping[str, str] = field(default_factory=dict)
+    """Backends that reject this statement, mapped to why.
+
+    Not a licence to skip: a statement lands here only when the backend cannot
+    express it for a reason that is recorded and understood.  The live suite
+    reports the reason rather than silently passing.
+    """
+
     sample_params: Mapping[str, Any] = field(default_factory=dict)
     """Per-statement bindings that differ from :data:`DEFAULT_PARAM_VALUES`.
 
@@ -145,7 +157,12 @@ _READS: list[CatalogCase] = [
     CatalogCase(
         name="ACCOUNT_ADDRESSES",
         expect=("MATCH (n:Account)", "n.address IS NOT NULL", "DISTINCT", "AS address"),
-        gaps=("G1",),
+        build=lambda: (
+            select(Account)
+            .where(Account.address.is_not_null())  # ty: ignore[unresolved-attribute]
+            .distinct()
+            .project(col(Account.address).as_("address"))  # ty: ignore[invalid-argument-type]
+        ),
     ),
     CatalogCase(
         name="MESSAGE_PROPERTIES",
@@ -158,7 +175,20 @@ _READS: list[CatalogCase] = [
             "ORDER BY n.id ASC",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Message)
+            .where(Message.id.is_not_null() & (Message.id > param("after")))  # ty: ignore[unresolved-attribute]
+            .project(
+                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
+                col(Message.sent_at).as_("sent_at"),  # ty: ignore[invalid-argument-type]
+                col(Message.subject_norm).as_("subject_norm"),  # ty: ignore[invalid-argument-type]
+                col(Message.participant_key).as_("participant_key"),  # ty: ignore[invalid-argument-type]
+                col(Message.simhash).as_("simhash"),  # ty: ignore[invalid-argument-type]
+                col(Message.refs).as_("refs"),  # ty: ignore[invalid-argument-type]
+            )
+            .order_by(Message.id)
+            .limit(param("limit"))
+        ),
     ),
     CatalogCase(
         name="MESSAGE_RELATIONS",
@@ -195,7 +225,14 @@ _READS: list[CatalogCase] = [
         name="MESSAGE_BODIES",
         params=("ids",),
         expect=("MATCH (n:Message)", "n.id IN $ids", "AS body_clean"),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Message)
+            .where(Message.id.in_(param("ids")))  # ty: ignore[unresolved-attribute]
+            .project(
+                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
+                col(Message.body_clean).as_("body_clean"),  # ty: ignore[invalid-argument-type]
+            )
+        ),
     ),
 ]
 
@@ -362,14 +399,41 @@ _ANALYSES: list[CatalogCase] = [
     CatalogCase(
         name="TOP_CO_ADDRESSED",
         params=("limit",),
-        # Undirected read: which way the edge was stored is an accident.
+        # Undirected read: which way the edge was stored is an accident, so
+        # the load-bearing detail is the absent arrow, not the single pattern —
+        # runic emits the root MATCH separately, which matches the same rows.
         expect=(
-            "(a:Address)-[r:CO_ADDRESSED]-(b:Address)",
+            "-[r:CO_ADDRESSED]-(b:Address)",
             "a.id < b.id",
             "r.count IS NOT NULL",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2", "G3", "G15"),
+        build=lambda: (
+            select(Address)
+            .alias("a")
+            .traverse(Address.co_addressed, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
+            .alias("b")
+            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
+            .where(CoAddressed.count.is_not_null(), on="r")  # ty: ignore[unresolved-attribute]
+            .project(
+                col("a", Address.id).as_("left_id"),  # ty: ignore[no-matching-overload]
+                col("b", Address.id).as_("right_id"),  # ty: ignore[no-matching-overload]
+                col("r", CoAddressed.count).as_("together"),  # ty: ignore[no-matching-overload]
+                col("r", CoAddressed.first_seen).as_("first_seen"),  # ty: ignore[no-matching-overload]
+                col("r", CoAddressed.last_seen).as_("last_seen"),  # ty: ignore[no-matching-overload]
+            )
+            .order_by("together", desc=True)
+            .limit(param("limit"))
+        ),
+        unsupported={
+            "age": (
+                "Apache AGE cannot parse an unquoted property named 'count' — "
+                "its parser reads it as the aggregate function. Verified: "
+                "r.count fails, r.`count` succeeds, and the same holds for node "
+                "properties. runic does not yet escape property names in "
+                "emitted Cypher; tracked separately."
+            )
+        },
     ),
     CatalogCase(
         name="RECURRING_GROUPS",
@@ -380,7 +444,22 @@ _ANALYSES: list[CatalogCase] = [
             "n.message_count >= $min_messages",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Group)
+            .where(
+                (Group.size >= param("min_size"))
+                & (Group.message_count >= param("min_messages"))
+            )
+            .project(
+                col(Group.id).as_("id"),  # ty: ignore[invalid-argument-type]
+                col(Group.size).as_("size"),  # ty: ignore[invalid-argument-type]
+                col(Group.message_count).as_("message_count"),  # ty: ignore[invalid-argument-type]
+                col(Group.first_seen).as_("first_seen"),  # ty: ignore[invalid-argument-type]
+                col(Group.last_seen).as_("last_seen"),  # ty: ignore[invalid-argument-type]
+            )
+            .order_by("message_count", desc=True)
+            .limit(param("limit"))
+        ),
     ),
     CatalogCase(
         name="TOP_TEMPLATES",
@@ -391,13 +470,39 @@ _ANALYSES: list[CatalogCase] = [
             "ORDER BY automation_score DESC",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Template)
+            .where(Template.direction == param("direction"))  # ty: ignore[invalid-argument-type]
+            .project(
+                col(Template.id).as_("id"),  # ty: ignore[invalid-argument-type]
+                col(Template.occurrences).as_("occurrences"),  # ty: ignore[invalid-argument-type]
+                col(Template.automation_score).as_("automation_score"),  # ty: ignore[invalid-argument-type]
+                col(Template.sample_text).as_("sample_text"),  # ty: ignore[invalid-argument-type]
+            )
+            .order_by("automation_score", desc=True)
+            .limit(param("limit"))
+        ),
     ),
     CatalogCase(
         name="TOPIC_BREAKDOWN",
         params=("limit",),
         expect=("[r:ABOUT]->", "AS method", "count(", "LIMIT $limit"),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Message)
+            .alias("m")
+            .traverse(Message.about, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
+            .alias("t")
+            .aggregate(
+                count("*").as_("messages"),
+                group_by=[
+                    col("t", Topic.id).as_("id"),  # ty: ignore[no-matching-overload]
+                    col("t", Topic.label).as_("label"),  # ty: ignore[no-matching-overload]
+                    col("r", About.method).as_("method"),  # ty: ignore[no-matching-overload]
+                ],
+            )
+            .order_by("messages", desc=True)
+            .limit(param("limit"))
+        ),
     ),
     CatalogCase(
         name="COUNT_GROUPS",
@@ -437,7 +542,21 @@ _SEMANTIC: list[CatalogCase] = [
             "n.embedding_model <> $model",
             "count(*) AS total",
         ),
-        gaps=("G2",),
+        build=lambda: (
+            select(Message)
+            .where(
+                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.id != "")
+                & Message.body_clean.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.body_clean != "")
+                & (
+                    Message.embedding.is_null()  # ty: ignore[unresolved-attribute]
+                    | Message.embedding_model.is_null()  # ty: ignore[unresolved-attribute]
+                    | (Message.embedding_model != param("model"))
+                )
+            )
+            .aggregate(count("*").as_("total"))
+        ),
     ),
     CatalogCase(
         name="MESSAGES_NEEDING_EMBEDDING",
@@ -448,7 +567,27 @@ _SEMANTIC: list[CatalogCase] = [
             "left(n.body_clean, $max_chars) AS body",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2"),
+        build=lambda: (
+            select(Message)
+            .where(
+                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.id > param("after"))
+                & Message.body_clean.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.body_clean != "")
+                & (
+                    Message.embedding.is_null()  # ty: ignore[unresolved-attribute]
+                    | Message.embedding_model.is_null()  # ty: ignore[unresolved-attribute]
+                    | (Message.embedding_model != param("model"))
+                )
+            )
+            .project(
+                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
+                col(Message.subject).as_("subject"),  # ty: ignore[invalid-argument-type]
+                left(col(Message.body_clean), param("max_chars")).as_("body"),  # ty: ignore[invalid-argument-type]
+            )
+            .order_by(Message.id)
+            .limit(param("limit"))
+        ),
     ),
     CatalogCase(
         name="WRITE_EMBEDDINGS",
@@ -505,11 +644,29 @@ _SEMANTIC: list[CatalogCase] = [
         params=("model",),
         expect=(
             "count(*) AS total",
-            "CASE WHEN n.embedding_model = $model THEN 1 END",
+            # The THEN value is bound rather than inlined, which is why this
+            # asserts the branch and not a literal 1.
+            "CASE WHEN n.embedding_model = $model THEN",
             "AS embedded",
             "AS unembeddable",
         ),
-        gaps=("G1", "G8"),
+        build=lambda: (
+            select(Message)
+            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
+            .aggregate(
+                count("*").as_("total"),
+                count(when(Message.embedding_model == param("model"), 1)).as_(  # ty: ignore[invalid-argument-type]
+                    "embedded"
+                ),
+                count(
+                    when(
+                        Message.body_clean.is_null()  # ty: ignore[unresolved-attribute]
+                        | (Message.body_clean == ""),
+                        1,
+                    )
+                ).as_("unembeddable"),
+            )
+        ),
     ),
     CatalogCase(
         name="CLEAR_EMBEDDINGS",

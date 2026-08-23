@@ -267,6 +267,179 @@ countries: list[str] = [r["n.country"] for r in rows]
 
 ---
 
+## Value expressions
+
+Filters compare *values*, `RETURN` projects them, `ORDER BY` sorts on them. One
+set of constructors covers every one of those positions, so a reference written
+once can be projected, aliased, wrapped in a function, or compared against
+another property.
+
+```python
+from runic.ogm import col, coalesce, fn, left, literal, param, to_lower, when
+```
+
+| Constructor | Emits | For |
+|---|---|---|
+| `col(Model.field)` | `n.field` | a property, alias resolved by the builder |
+| `col("m", Model.field)` | `m.field` | a property on a **named** variable |
+| `Model.field.on("m")` | `m.field` | the same, in descriptor form |
+| `param("name")` | `$name` | a value the caller binds |
+| `literal(v)` | `$p0` | a Python value, bound not inlined |
+| `fn("name", …)` | `name(…)` | any scalar function |
+| `left(v, n)` · `coalesce(…)` · `to_lower(v)` | `left(…)` … | the common ones |
+| `when(cond, then)` | `CASE WHEN … THEN … END` | conditional values |
+| `.as_("name")` | `… AS name` | naming the result column |
+
+Every operand is bound as a parameter. A Python value anywhere inside an
+expression tree reaches the graph as `$pN` — nothing is spliced into the query
+as text.
+
+### Naming result columns
+
+`all_rows()` keys its dicts by the column names the store reports, so an
+unaliased projection produces keys like `"n.body_clean"`. `.as_()` fixes that:
+
+```python
+rows = session.all_rows(
+    select(Message).project(
+        col(Message.id).as_("id"),
+        col(Message.sent_at).as_("sent_at"),
+    )
+)
+# [{"id": "m1", "sent_at": "2026-01-02T…"}, …]
+```
+
+### Computing in the store
+
+`left()` truncates before the value crosses the wire, which matters when the
+property is large and the caller only wants a prefix:
+
+```python
+select(Message).project(
+    col(Message.id).as_("id"),
+    left(col(Message.body_clean), param("max_chars")).as_("body"),
+)
+# RETURN n.id AS id, left(n.body_clean, $max_chars) AS body
+```
+
+### Comparing two properties
+
+A parameter cannot express "this property is less than that one", because both
+sides are in the graph. Two `col()` references can:
+
+```python
+stmt = (
+    select(Address).alias("a")
+    .traverse(Address.co_addressed, edge_alias="r", optional=False).alias("b")
+    .where(col("a", Address.id) < col("b", Address.id))
+)
+# WHERE a.id < b.id
+```
+
+That predicate is what turns an unordered pair into a single row: without it an
+undirected pattern matches each pair twice, once from each end.
+
+### Conditional aggregation
+
+`when()` inside an aggregate gives several differently filtered numbers from one
+scan — which also guarantees they are counted over the same population:
+
+```python
+from runic.ogm import count
+
+session.all_rows(
+    select(Message).aggregate(
+        count("*").as_("total"),
+        count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
+    )
+)
+# RETURN count(*) AS total, count(CASE WHEN n.embedding_model = $model THEN $p0 END) AS embedded
+```
+
+Asking those as two queries lets the populations drift apart between them.
+
+---
+
+## Named parameters
+
+`param()` **declares** a parameter instead of binding a value. The statement
+becomes a constant that callers supply values to, rather than a query rebuilt
+per call:
+
+```python
+from typing import Final
+from runic.ogm import param, select
+
+RECENT_MESSAGES: Final = (
+    select(Message)
+    .where(Message.id > param("after"))
+    .order_by(Message.id)
+    .limit(param("limit"))
+)
+
+rows = session.scalars(RECENT_MESSAGES, {"after": cursor, "limit": 500})
+```
+
+Every execution method takes the bindings as a second argument: `scalars()`,
+`scalar()`, `all_rows()`, `all_with_edges()`, `count()`, and the bound-builder
+equivalents.
+
+`LIMIT` and `SKIP` accept them too, so a page size is a value rather than part
+of the statement.
+
+### Knowing what a statement expects
+
+```python
+RECENT_MESSAGES.parameter_names()
+# ('after', 'limit')
+```
+
+Read off the compiled statement, not maintained beside it, so it cannot drift.
+
+### A missing parameter is an error, not an empty result
+
+```python
+session.scalars(RECENT_MESSAGES, {"after": cursor})
+# ValueError: statement is missing values for declared parameter(s): limit
+```
+
+This is deliberate. An unsupplied `$parameter` is a null in Cypher: it matches
+nothing and returns an empty result that looks exactly like an empty database.
+Failing loudly is the only way that distinction survives.
+
+### Why this shape matters
+
+A statement that binds all its input as named parameters can be a module-level
+constant — reviewable in a diff, reusable across calls, and testable by
+enumerating the statements, binding each one's parameters, and running the lot.
+Caller input can then never change what a statement *does*, only which rows it
+returns. That property is what makes it safe to put a query layer behind an
+interface you do not control, such as an MCP server answering a model's
+questions.
+
+---
+
+## List properties: `any_of()` vs `in_()`
+
+The two ask opposite questions, and on a list-valued property only one of them
+is meaningful:
+
+```python
+# Message.refs is list[str]
+
+select(Message).where(Message.refs.any_of(param("token")))
+# WHERE $token IN n.refs      ← does the stored list contain this element?
+
+select(Message).where(Message.id.in_(["m1", "m2"]))
+# WHERE n.id IN $p0           ← is this property one of these values?
+```
+
+Calling `in_()` on a list property compiles to `n.refs IN $values` — asking
+whether the whole list is an element of the parameter. Nothing answers that
+`true`, so the filter silently returns no rows.
+
+---
+
 ## Projection — returning scalar values
 
 By default, the query returns fully decoded node instances. Use
@@ -816,7 +989,6 @@ result = session.execute(cypher, params)
 Use raw Cypher when you need:
 
 * `UNION` / `UNION ALL` across multiple patterns.
-* `CASE` expressions in `RETURN`.
 * `EXISTS { ... }` subqueries.
 * `CALL { ... }` subqueries (correlated or uncorrelated).
 * Pattern comprehensions (`[(a)-[:T]->(b) | b.prop]`).
@@ -839,8 +1011,13 @@ alias generation, and result decoding automatically.
 | WHERE (list) | ✓ | `.in_()`, `.not_in_()` |
 | WHERE (boolean logic) | ✓ | `&`, `\|`, `~` |
 | RETURN | ✓ | Automatic; customised by `return_target()`, `project()` |
+| RETURN column aliases (`AS`) | ✓ | `.as_("name")` on any value expression |
+| Scalar functions (`left`, `coalesce`, …) | ✓ | `fn()` and the named helpers |
+| Property-to-property comparison | ✓ | `col("a", M.f) < col("b", M.f)` |
+| Named bound parameters | ✓ | `param("name")`, `parameter_names()` |
+| List membership on a list property | ✓ | `.any_of(value)` |
 | ORDER BY | ✓ | `.order_by(field, desc=False)` |
-| SKIP / LIMIT | ✓ | `.skip(n)`, `.limit(n)` |
+| SKIP / LIMIT | ✓ | `.skip(n)`, `.limit(n)`; accepts `param("limit")` |
 | DISTINCT | ✓ | `.distinct()` |
 | WITH | ✓ | `.with_("alias")` |
 | Aggregation (count/avg/sum/…) | ✓ | `.aggregate(...)` + helpers from `runic.ogm.query` |
@@ -852,7 +1029,7 @@ alias generation, and result decoding automatically.
 | Vector KNN | ✓ | `session.vector_search()` |
 | TypeConverter in WHERE | ✓ | Auto-applied for `datetime`, `Enum`, `Vector`, `GeoLocation` |
 | UNION / UNION ALL | ✗ | Use `repo.cypher()` |
-| CASE expressions | ✗ | Use `repo.cypher()` |
+| CASE expressions | ✓ | `when(cond, value)` — including inside aggregates |
 | EXISTS { subpattern } | ✗ | Use `repo.cypher()` |
 | CALL { ... } subqueries | ✗ | Use `repo.cypher()` |
 | Pattern comprehensions | ✗ | Use `repo.cypher()` |

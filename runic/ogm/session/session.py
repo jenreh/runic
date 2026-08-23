@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import weakref
+from collections.abc import Mapping
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -265,7 +266,9 @@ class Session(_SessionBase):
     # Statement-based execution (select() pattern)
     # ------------------------------------------------------------------
 
-    def scalars(self, stmt: QueryBuilder[_T]) -> list[_T]:
+    def scalars(
+        self, stmt: QueryBuilder[_T], params: Mapping[str, Any] | None = None
+    ) -> list[_T]:
         """Execute a :func:`~runic.ogm.query.select` statement; return decoded entities.
 
         Type-safe: ``session.scalars(select(User).where(...))`` infers ``list[User]``.
@@ -278,11 +281,14 @@ class Session(_SessionBase):
         """
         self._require_query_builder(stmt, "scalars")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, params = bound.build()
-            result = self._run_query(cypher, params)
+            cypher, _ = bound.build()
+            merged = bound.bind(params)
+            result = self._run_query(cypher, merged)
             return bound._decode_node_result(result)  # type: ignore[return-value]  # noqa: SLF001
 
-    def scalar(self, stmt: QueryBuilder[_T]) -> _T | None:
+    def scalar(
+        self, stmt: QueryBuilder[_T], params: Mapping[str, Any] | None = None
+    ) -> _T | None:
         """Execute a :func:`~runic.ogm.query.select` statement; return first entity or ``None``.
 
         Adds ``LIMIT 1`` internally without permanently modifying the statement.
@@ -299,14 +305,17 @@ class Session(_SessionBase):
         stmt._limit_val = 1  # noqa: SLF001
         try:
             with stmt._bound_to(self) as bound:  # noqa: SLF001
-                cypher, params = bound.build()
-                result = self._run_query(cypher, params)
+                cypher, _ = bound.build()
+                merged = bound.bind(params)
+                result = self._run_query(cypher, merged)
                 entities = bound._decode_node_result(result)  # noqa: SLF001
                 return entities[0] if entities else None  # type: ignore[return-value]
         finally:
             stmt._limit_val = old_limit  # noqa: SLF001
 
-    def all_rows(self, stmt: QueryBuilder[Any]) -> list[dict[str, Any]]:
+    def all_rows(
+        self, stmt: QueryBuilder[Any], params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a :func:`~runic.ogm.query.select` statement; return column-keyed dicts.
 
         Parameters
@@ -316,11 +325,14 @@ class Session(_SessionBase):
         """
         self._require_query_builder(stmt, "all_rows")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, params = bound.build()
-            result = self._run_query(cypher, params)
+            cypher, _ = bound.build()
+            merged = bound.bind(params)
+            result = self._run_query(cypher, merged)
             return bound._decode_rows_as_dicts(result)  # noqa: SLF001
 
-    def all_with_edges(self, stmt: QueryBuilder[Any]) -> list[tuple[Any, ...]]:
+    def all_with_edges(
+        self, stmt: QueryBuilder[Any], params: Mapping[str, Any] | None = None
+    ) -> list[tuple[Any, ...]]:
         """Execute a :func:`~runic.ogm.query.select` statement; return ``(NodeA, Edge, NodeB)`` tuples.
 
         Parameters
@@ -331,11 +343,14 @@ class Session(_SessionBase):
         """
         self._require_query_builder(stmt, "all_with_edges")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, params = bound.build()
-            result = self._run_query(cypher, params)
+            cypher, _ = bound.build()
+            merged = bound.bind(params)
+            result = self._run_query(cypher, merged)
             return bound._decode_edge_result(result)  # noqa: SLF001
 
-    def count(self, stmt: QueryBuilder[Any]) -> int:
+    def count(
+        self, stmt: QueryBuilder[Any], params: Mapping[str, Any] | None = None
+    ) -> int:
         """Execute a :func:`~runic.ogm.query.select` statement; return the row count.
 
         Parameters
@@ -345,7 +360,7 @@ class Session(_SessionBase):
         """
         self._require_query_builder(stmt, "count")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            return bound.count()
+            return bound.count(params)
 
     # ------------------------------------------------------------------
     # Query builder entry points

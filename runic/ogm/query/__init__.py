@@ -43,6 +43,27 @@ from runic.ogm.query.specialised import (
     VectorQueryBuilder,
 )
 from runic.ogm.query.traversal import TraversalStep
+from runic.ogm.query.values import (
+    AliasedExpr,
+    CaseExpr,
+    FnCall,
+    LiteralValue,
+    ParamRef,
+    PropertyRef,
+    RowRef,
+    ValueExpr,
+    coalesce,
+    col,
+    encode_rows,
+    fn,
+    left,
+    literal,
+    param,
+    row,
+    to_lower,
+    to_upper,
+    when,
+)
 
 _T = TypeVar("_T")
 
@@ -99,4 +120,25 @@ __all__ = [  # noqa: RUF022
     "max_",
     "min_",
     "sum_",
+    # Value expressions
+    "AliasedExpr",
+    "CaseExpr",
+    "FnCall",
+    "LiteralValue",
+    "ParamRef",
+    "PropertyRef",
+    "RowRef",
+    "ValueExpr",
+    # Value constructors
+    "coalesce",
+    "col",
+    "encode_rows",
+    "fn",
+    "left",
+    "literal",
+    "param",
+    "row",
+    "to_lower",
+    "to_upper",
+    "when",
 ]

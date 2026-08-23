@@ -55,16 +55,48 @@ def _ids(case: object) -> str:
     return case.name if isinstance(case, CatalogCase) else ""
 
 
+def _backend_of(driver: Any) -> str:
+    """Name the backend behind *driver*, for per-backend expectations."""
+    dialect = type(driver.dialect).__name__.removesuffix("Dialect").lower()
+    return {
+        "falkordb": "falkordb",
+        "neo4j": "neo4j",
+        "memgraph": "memgraph",
+        "arcadedb": "arcadedb",
+        "age": "age",
+    }.get(dialect, dialect)
+
+
 @pytest.mark.parametrize("case", expressible(), ids=_ids)
 def test_statement_runs_against_backend(case: CatalogCase, seeded: Any) -> None:
     """Bind every parameter and execute — the statement must be accepted."""
+    backend = _backend_of(seeded)
+    if backend in case.unsupported:
+        pytest.skip(f"{backend}: {case.unsupported[backend]}")
     stmt = case.build() if case.build else None
     assert stmt is not None
 
     with Session(seeded) as session:
-        rows = session.all_rows(stmt)
+        rows = session.all_rows(stmt, case.bind())
 
     assert isinstance(rows, list)
+
+
+@pytest.mark.parametrize("case", expressible(), ids=_ids)
+def test_unbound_parameter_is_refused(case: CatalogCase, seeded: Any) -> None:
+    """A statement must not run with a declared parameter left unbound.
+
+    An unsupplied ``$parameter`` is a null in Cypher: it matches nothing and
+    returns an empty result that looks exactly like an empty archive.  Failing
+    loudly is the only way that distinction survives.
+    """
+    if not case.params:
+        pytest.skip("statement binds no caller input")
+    stmt = case.build() if case.build else None
+    assert stmt is not None
+
+    with Session(seeded) as session, pytest.raises(ValueError, match="missing values"):
+        session.all_rows(stmt, {})
 
 
 @pytest.mark.parametrize("case", expressible(), ids=_ids)

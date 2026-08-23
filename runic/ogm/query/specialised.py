@@ -8,6 +8,7 @@ clause that replaces the standard ``MATCH`` (fulltext ``CALL`` and vector KNN).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from runic.ogm.core.descriptors import FieldDescriptor
@@ -44,34 +45,44 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
             )
     """
 
-    async def all(self) -> list[T]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def all(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> list[T]:
         """Async version of :meth:`~QueryBuilder.all`."""
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("AsyncQueryBuilder.all: %s", cypher)
-        result = await self._session.execute(cypher, params)
+        result = await self._session.execute(cypher, self.bind(params))
         return self._decode_node_result(result)
 
-    async def one(self) -> T | None:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def one(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> T | None:
         """Async version of :meth:`~QueryBuilder.one`."""
         self.limit(1)
-        items = await self.all()
+        items = await self.all(params)
         return items[0] if items else None
 
-    async def all_with_edges(self) -> list[tuple[Any, ...]]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def all_with_edges(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> list[tuple[Any, ...]]:
         """Async version of :meth:`~QueryBuilder.all_with_edges`."""
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("AsyncQueryBuilder.all_with_edges: %s", cypher)
-        result = await self._session.execute(cypher, params)
+        result = await self._session.execute(cypher, self.bind(params))
         return self._decode_edge_result(result)
 
-    async def all_rows(self) -> list[dict[str, Any]]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def all_rows(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Async version of :meth:`~QueryBuilder.all_rows`."""
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("AsyncQueryBuilder.all_rows: %s", cypher)
-        result = await self._session.execute(cypher, params)
+        result = await self._session.execute(cypher, self.bind(params))
         return self._decode_rows_as_dicts(result)
 
-    async def count(self) -> int:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def count(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> int:
         """Async version of :meth:`~QueryBuilder.count`."""
         saved_agg = self._agg_exprs
         saved_group = self._group_by_alias
@@ -86,9 +97,9 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         self._project_fields = []
 
         try:
-            cypher, params = self.build()
+            cypher, _ = self.build()
             log.debug("AsyncQueryBuilder.count: %s", cypher)
-            result = await self._session.execute(cypher, params)
+            result = await self._session.execute(cypher, self.bind(params))
         finally:
             # Always restore builder state, even if build()/execute() raises, so
             # the instance stays reusable.
@@ -101,16 +112,22 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
             return int(result.rows[0][0])
         return 0
 
-    async def scalar(self) -> Any:  # type: ignore[override]
+    async def scalar(  # type: ignore[override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> Any:
         """Async version of :meth:`~QueryBuilder.scalar`."""
-        result = await self._session.execute(*self.build())
+        cypher, _ = self.build()
+        result = await self._session.execute(cypher, self.bind(params))
         if result.rows and result.rows[0]:
             return result.rows[0][0]
         return None
 
-    async def scalars(self) -> list[Any]:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+    async def scalars(  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        self, params: Mapping[str, Any] | None = None
+    ) -> list[Any]:
         """Async version of :meth:`~QueryBuilder.scalars`."""
-        result = await self._session.execute(*self.build())
+        cypher, _ = self.build()
+        result = await self._session.execute(cypher, self.bind(params))
         return [row[0] for row in result.rows]
 
 
@@ -184,7 +201,9 @@ class FulltextQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         parts.append(self._compile_return())
 
         if self._order:
-            parts.append(f"ORDER BY {', '.join(o.to_cypher() for o in self._order)}")
+            parts.append(
+                f"ORDER BY {', '.join(o.to_cypher(self) for o in self._order)}"
+            )
         if self._skip_val is not None:
             parts.append(f"SKIP {self._skip_val}")
         if self._limit_val is not None:
@@ -286,7 +305,7 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         # KNN ordering: always by score ASC, then any user orders
         knn_order = "ORDER BY __score ASC"
         if self._order:
-            user_order = ", ".join(o.to_cypher() for o in self._order)
+            user_order = ", ".join(o.to_cypher(self) for o in self._order)
             parts.append(f"{knn_order}, {user_order}")
         else:
             parts.append(knn_order)
