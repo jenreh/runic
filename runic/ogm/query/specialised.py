@@ -12,7 +12,9 @@ from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from runic.ogm.core.descriptors import FieldDescriptor
+from runic.ogm.driver import CypherFeature, require_feature
 from runic.ogm.query.builder import QueryBuilder
+from runic.ogm.query.clauses import CallClause
 
 log = logging.getLogger(__name__)
 
@@ -136,121 +138,186 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
 # ---------------------------------------------------------------------------
 
 
-class FulltextQueryBuilder(QueryBuilder[T]):  # noqa: UP046
-    """QueryBuilder variant for FalkorDB fulltext search queries.
+class _ProcedureRootBuilder(QueryBuilder[T]):  # noqa: UP046
+    """A query whose opening clause is a procedure call rather than a MATCH.
+
+    Index-backed search is only reachable through a procedure, and a procedure
+    **cannot be narrowed before the fact**: a ``MATCH`` above it does not
+    restrict what it searches.  Every filter therefore runs *after* the
+    ``YIELD``, on rows the index has already paid to produce — which is why
+    these searches take a search width separate from the row limit.
+
+    Everything after the opening clause is the ordinary builder: ``where()``,
+    ``traverse()``, ``with_()``, ``project()`` and the terminal methods all
+    behave exactly as they do on a ``MATCH``-rooted statement.
+    """
+
+    _root_clause: CallClause
+
+    def build(self) -> tuple[str, dict[str, Any]]:
+        """Compile to Cypher, opening with the procedure call."""
+        self._param_counter = 0
+        self._params = dict(self._seed_params())
+        self._declared_params = set()
+
+        parts: list[str] = [self._root_clause.to_cypher(self)]
+        parts.extend(self._after_root())
+        self._append_where_and_traversals(parts)
+
+        if self._wants_return():
+            parts.append(self._compile_return())
+        if self._order:
+            parts.append(
+                f"ORDER BY {', '.join(o.to_cypher(self) for o in self._order)}"
+            )
+        parts.extend(self._compile_paging())
+
+        return "\n".join(parts), dict(self._params)
+
+    def _seed_params(self) -> dict[str, Any]:
+        """Auto-bound values this search needs before compilation starts."""
+        return {}
+
+    def _after_root(self) -> list[str]:
+        """Clauses emitted immediately after the procedure call."""
+        return []
+
+    def _resolve_label(self) -> str:
+        meta = self._meta.get_node_meta(self._root_cls)
+        if meta is None:
+            msg = f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
+            raise ValueError(msg)
+        return meta.primary_label
+
+
+class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
+    """Fulltext search over a label's fulltext index.
 
     Constructed via :meth:`~runic.ogm.session.session.Session.fulltext_search`.
-    The root MATCH is replaced with a ``CALL db.idx.fulltext.queryNodes(...)``
-    invocation that uses the declared fulltext index.
-
-    The fulltext index must have been created for the node's label, e.g.::
+    The index must exist; declare it on the field and create it in a migration::
 
         class Post(Node, labels=["Post"]):
             title: str = Field(index_type="FULLTEXT")
+
+    The match score is available as ``score()`` and can be projected, filtered
+    or sorted on.  It is a **relevance** — higher is better — which is the
+    opposite convention to a vector distance.  The two are not comparable and
+    must never be merged into one ranking without a stated normalisation.
 
     Example
     -------
     .. code-block:: python
 
-        posts = (
-            session.fulltext_search(Post, query="graph databases", fields=["title"])
+        from runic.ogm import col, param, score
+
+        posts = session.all_rows(
+            session.fulltext_search(Post, query=param("text"))
             .where(Post.published == True)
-            .order_by(Post.created_at, desc=True)
-            .limit(20)
-            .all()
+            .project(col(Post.id).as_("id"), score().as_("relevance"))
+            .order_by("relevance", desc=True)
+            .limit(param("limit")),
+            {"text": tokenised, "limit": 20},
         )
 
-    Cypher emitted::
-
-        CALL db.idx.fulltext.queryNodes('Post', $__fts_query) YIELD node AS n
-        WHERE n.published = $p0
-        RETURN n
-        ORDER BY n.created_at DESC
-        LIMIT 20
+    .. warning::
+        The query text is a bound parameter, so no Cypher can be injected
+        through it — but it reaches the backend's *own* search syntax, which has
+        operators of its own. Tokenise caller input before passing it, all the
+        more so when the caller is a model.
     """
 
     def __init__(
         self,
         session: Any,
         root_cls: type[T],
-        query: str,
+        query: Any,
         fields: list[str] | None = None,
     ) -> None:
         super().__init__(session, root_cls)
         self._fts_query = query
         self._fts_fields = fields
 
+    @property
+    def _root_clause(self) -> CallClause:  # type: ignore[override]
+        raise NotImplementedError  # pragma: no cover - replaced by build()
+
     def build(self) -> tuple[str, dict[str, Any]]:
-        """Compile to Cypher, replacing MATCH with CALL fulltext procedure."""
+        """Compile to Cypher, opening with the fulltext procedure."""
         self._param_counter = 0
-        self._params = {"__fts_query": self._fts_query}
+        self._params = {}
+        self._declared_params = set()
 
-        root_meta = self._meta.get_node_meta(self._root_cls)
-        if root_meta is None:
-            raise ValueError(
-                f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
-            )
+        query_ref = _bind_or_declare(self, self._fts_query, "__fts_query")
+        label = self._resolve_label()
+        dialect = self._require_dialect()
+        require_feature(
+            dialect, CypherFeature.FULLTEXT_SEARCH, "fulltext search from Cypher"
+        )
+        call = dialect.fulltext_call(label, self._root_alias, query_ref.lstrip("$"))
 
-        alias = self._root_alias
-        label = root_meta.primary_label
-        parts: list[str] = [self._dialect.fulltext_call(label, alias, "__fts_query")]
-
-        # Extra OPTIONAL MATCHes for traversals (root WHERE + WITH go first)
+        parts: list[str] = [call]
+        # Bind the yielded score under the same name a vector search uses, so
+        # score() means "the score this search produced" either way. It is NOT
+        # normalised: a fulltext score is a relevance, higher is better, which
+        # is the opposite of a vector distance.
+        if getattr(dialect, "fulltext_yields_score", lambda: False)():
+            parts.append(f"WITH {self._root_alias}, score AS __score")
         self._append_where_and_traversals(parts)
 
-        parts.append(self._compile_return())
-
+        if self._wants_return():
+            parts.append(self._compile_return())
         if self._order:
             parts.append(
                 f"ORDER BY {', '.join(o.to_cypher(self) for o in self._order)}"
             )
-        if self._skip_val is not None:
-            parts.append(f"SKIP {self._skip_val}")
-        if self._limit_val is not None:
-            parts.append(f"LIMIT {self._limit_val}")
+        parts.extend(self._compile_paging())
 
         return "\n".join(parts), dict(self._params)
 
 
-# ---------------------------------------------------------------------------
-# VectorQueryBuilder
-# ---------------------------------------------------------------------------
-
-
-class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
-    """QueryBuilder variant for vector KNN search.
+class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
+    """Index-backed nearest-neighbour search over a vector field.
 
     Constructed via :meth:`~runic.ogm.session.session.Session.vector_search`.
-    Appends a KNN distance expression to the ORDER BY and RETURN clauses.
+    The field must declare ``index_type="VECTOR"`` and the index must have been
+    created at the embedder's real dimension.
 
-    The field must have ``index_type="VECTOR"`` and an HNSW vector index
-    must be created via :meth:`~runic.migrate.schema.SchemaManager`::
+    **The search width and the row limit are two different numbers.** ``k`` is
+    how far into the index the search reaches; ``limit`` is how many rows the
+    caller sees.  Because a procedure cannot be filtered before the fact, every
+    row dropped by a following ``where()`` has to be paid for by ``k`` — asking
+    for ``k == limit`` and then filtering returns a short page that looks
+    exactly like a small database.
 
-        class Document(Node, labels=["Document"]):
-            embedding: Vector = Field(index_type="VECTOR")
+    ``score()`` is a **distance**: lower is closer, on every backend.  An exact
+    match can come back marginally negative, so anything converting it to a
+    similarity has to clamp.
 
     Example
     -------
     .. code-block:: python
 
-        similar = (
+        from runic.ogm import col, param, score
+
+        rows = session.all_rows(
             session.vector_search(
-                Document,
-                field=Document.embedding,
-                vector=[0.1, 0.2, 0.3],
-                k=10,
+                Message,
+                field=Message.embedding,
+                vector=param("vector"),
+                k=param("k"),
             )
-            .where(Document.active == True)
-            .all()
+            .where(Message.embedding_model == param("model"))
+            .project(col(Message.id).as_("id"), score().as_("distance"))
+            .order_by("distance")
+            .limit(param("limit")),
+            {"vector": query_vec, "k": 200, "model": model, "limit": 20},
         )
 
-    Cypher emitted (FalkorDB KNN syntax)::
-
-        MATCH (n:Document)
-        WHERE n.active = $p0
-        RETURN n, vecf32(n.embedding) <-> vecf32($__knn_vec) AS __score
-        ORDER BY __score ASC
-        LIMIT 10
+    .. note::
+        A message with no vector is not ranked low — it is absent from the index
+        entirely, and nothing in the result says so.  Report coverage alongside
+        any semantic answer, or "the embed job is a third done" and "there is
+        nothing here" look identical.
     """
 
     def __init__(
@@ -258,8 +325,8 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         session: Any,
         root_cls: type[T],
         field: FieldDescriptor,
-        vector: list[float],
-        k: int,
+        vector: Any,
+        k: Any = 10,
     ) -> None:
         super().__init__(session, root_cls)
         self._knn_field = field
@@ -267,55 +334,57 @@ class VectorQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         self._knn_k = k
 
     def build(self) -> tuple[str, dict[str, Any]]:
-        """Compile to Cypher with KNN ORDER BY."""
+        """Compile to Cypher, opening with the vector index procedure."""
         self._param_counter = 0
-        self._params = {"__knn_vec": list(self._knn_vector)}
+        self._params = {}
+        self._declared_params = set()
 
-        root_meta = self._meta.get_node_meta(self._root_cls)
-        if root_meta is None:
-            raise ValueError(
-                f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
-            )
-
-        _lc = getattr(self._dialect, "labels_clause", None)
-        labels_str = _lc(root_meta.labels) if _lc else ":".join(root_meta.labels)
-        alias = self._root_alias
-        field_alias = (
-            self._alias_for_cls(self._knn_field.owner)
-            if self._knn_field.owner
-            else self._root_alias
+        vec_ref = _bind_or_declare(self, self._knn_vector, "__knn_vec")
+        k_ref = _bind_or_declare(self, self._knn_k, "__knn_k")
+        label = self._resolve_label()
+        dialect = self._require_dialect()
+        require_feature(
+            dialect, CypherFeature.VECTOR_SEARCH, "vector search from Cypher"
         )
-        field_name = self._knn_field.field_name
-        type_name = root_meta.primary_label
 
-        self._params["__knn_k"] = self._knn_k
         parts: list[str] = [
-            self._dialect.vector_knn_start(alias, labels_str, type_name, field_name)
+            dialect.vector_knn_call(
+                self._root_alias,
+                label,
+                self._knn_field.field_name,
+                k_ref,
+                vec_ref,
+            ),
+            # Normalise the backend's own convention to a distance, so a score
+            # means the same thing everywhere: lower is closer.
+            f"WITH {self._root_alias}, {dialect.vector_score_expr()} AS __score",
         ]
-
         self._append_where_and_traversals(parts)
 
-        # KNN return includes the distance score
-        return_part = self._compile_return()
-        if "RETURN" in return_part and "__score" not in return_part:
-            score_expr = self._dialect.vector_knn_score_expr(field_alias, field_name)
-            return_part = return_part + f", {score_expr}"
-        parts.append(return_part)
+        if self._wants_return():
+            parts.append(self._compile_return())
 
-        # KNN ordering: always by score ASC, then any user orders
+        # Closest first, then whatever else the caller asked for.
         knn_order = "ORDER BY __score ASC"
         if self._order:
             user_order = ", ".join(o.to_cypher(self) for o in self._order)
             parts.append(f"{knn_order}, {user_order}")
         else:
             parts.append(knn_order)
-
-        if self._skip_val is not None:
-            parts.append(f"SKIP {self._skip_val}")
-        # k overrides limit if no explicit limit was set
-        effective_limit = (
-            self._limit_val if self._limit_val is not None else self._knn_k
-        )
-        parts.append(f"LIMIT {effective_limit}")
+        parts.extend(self._compile_paging())
 
         return "\n".join(parts), dict(self._params)
+
+
+def _bind_or_declare(compiler: Any, value: Any, fallback_name: str) -> str:
+    """Render *value* as a parameter reference.
+
+    A :func:`~runic.ogm.query.values.param` is declared for the caller to bind;
+    anything else is bound now under *fallback_name*.
+    """
+    from runic.ogm.query.values import ValueExpr
+
+    if isinstance(value, ValueExpr):
+        return value.to_cypher(compiler)
+    compiler._params[fallback_name] = value  # noqa: SLF001
+    return f"${fallback_name}"

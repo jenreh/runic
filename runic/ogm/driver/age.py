@@ -446,6 +446,27 @@ class AGEDialect:
             "Apache AGE does not support native Cypher vector KNN search."
         )
 
+    def vector_knn_call(
+        self,
+        alias: str,  # noqa: ARG002
+        label: str,  # noqa: ARG002
+        field_name: str,  # noqa: ARG002
+        k_ref: str,  # noqa: ARG002
+        vec_ref: str,  # noqa: ARG002
+    ) -> str:
+        raise NotImplementedError(
+            "Apache AGE does not support native Cypher vector KNN search. "
+            "Use pgvector on the underlying PostgreSQL tables instead."
+        )
+
+    def vector_score_expr(self) -> str:
+        raise NotImplementedError(
+            "Apache AGE does not support native Cypher vector KNN search."
+        )
+
+    def fulltext_yields_score(self) -> bool:
+        return False
+
     def wrap_node(self, raw: Any) -> AGENode:
         return AGENode(raw)
 

@@ -59,6 +59,23 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             return None
         return self._session.mapper.dialect
 
+    def _require_dialect(self) -> Any:
+        """The session's dialect, or the default when the statement is unbound.
+
+        A statement built by ``select()`` has no session until it is executed,
+        but it still has to compile — ``parameter_names()`` and ``build()`` are
+        both useful on an unbound statement, and a procedure-rooted one needs a
+        dialect to know which procedure to name. The default matches
+        :class:`~runic.ogm.mapper.mapper.Mapper`'s, so an unbound statement
+        compiles the same way a FalkorDB-bound one does.
+        """
+        dialect = self._dialect
+        if dialect is not None:
+            return dialect
+        from runic.ogm.driver.falkordb import FalkorDBDialect
+
+        return FalkorDBDialect()
+
     # ------------------------------------------------------------------
     # Internal: Cypher expression compilation
     # ------------------------------------------------------------------

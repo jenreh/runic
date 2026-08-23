@@ -1172,6 +1172,141 @@ migration op or direct DDL.
 
 ---
 
+## Procedures: `call()`
+
+Some things a query needs are not patterns — an index search, a graph algorithm.
+`call()` invokes a procedure mid-query, and its arguments are ordinary
+expressions, so it can be driven by a value from a node already matched:
+
+```python
+(
+    select(Message).alias("m")
+    .where(Message.embedding_model == param("model"))
+    .call(
+        "db.idx.vector.queryNodes",
+        "Message", "embedding", param("k"), col("m", Message.embedding),
+        yields=["node", "score"],
+    )
+    .with_("m", "node", "score")
+    .where(var("node").is_not_null() & (var("score") <= param("max_distance")))
+)
+```
+
+That is every node's nearest neighbours in **one** round trip, rather than one
+KNN query per node.
+
+Arguments follow one rule: a plain `str` is emitted as a Cypher string literal —
+an index or label name the *model* supplies — and everything else is bound.
+`var(name)` references something the query introduced rather than something a
+model declares, such as a procedure's yield.
+
+::: warning `call()` names a procedure literally
+A statement using it is exactly as portable as that procedure. FalkorDB's vector
+procedure is `db.idx.vector.queryNodes`, Neo4j's is `db.index.vector.queryNodes`
+with a different argument order, Memgraph's is `vector_search.search`. For a
+portable KNN use `session.vector_search()`, which asks the dialect. Reach for
+`call()` when you need a specific backend's procedure — as a correlated KNN
+does. ArcadeDB and Apache AGE have no `CALL … YIELD` at all.
+:::
+
+---
+
+## Search scores
+
+Both search builders expose the score the index produced, via `score()`. It can
+be projected, filtered, or sorted on:
+
+```python
+from runic.ogm import col, param, score
+
+session.all_rows(
+    session.vector_search(
+        Message, field=Message.embedding, vector=param("vector"), k=param("k")
+    )
+    .where(Message.embedding_model == param("model"))
+    .project(col(Message.id).as_("id"), score().as_("distance"))
+    .limit(param("limit")),
+    {"vector": query_vec, "k": 200, "model": model, "limit": 20},
+)
+```
+
+::: danger The two scores mean opposite things
+A **vector** score is a *distance* — lower is closer. A **fulltext** score is a
+*relevance* — higher is better. They are not comparable, and merging both into
+one ranking without a stated normalisation invents an ordering neither index
+produced.
+
+runic normalises across backends so a vector score always means distance
+(Neo4j reports a similarity; it is inverted for you). An exact match can come
+back marginally negative, so anything converting it to a percentage must clamp.
+:::
+
+### Search width is not the row limit
+
+`k` is how far into the index the search reaches. `limit` is how many rows the
+caller sees. They are different numbers because **a procedure cannot be narrowed
+before the fact**: a `MATCH` above it does not restrict what it searches, so
+every row a following `where()` drops has already been paid for by `k`.
+
+Asking for `k == limit` and then filtering returns a short page — which looks
+exactly like a small database.
+
+::: tip A missing vector is invisible, not low-ranked
+A row with no vector is absent from the index entirely, and nothing in the
+result says so. Report coverage alongside any semantic answer, or "the embedding
+job is a third done" and "there is nothing here" produce the same output.
+
+```python
+select(Message).aggregate(
+    count("*").as_("total"),
+    count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
+)
+```
+:::
+
+---
+
+## Index DDL at runtime
+
+Indexes are declared on the model and created by a migration, and that is still
+where they belong: a migration is a versioned statement about the schema every
+installation shares.
+
+A vector index is the exception. Its dimension follows whichever embedding model
+is configured — a *setting*, chosen per installation — and re-running one
+revision with a different constant is not something a migration chain can
+express.
+
+```python
+from runic.ogm.schema.runtime_index import IndexOperations
+
+ops = IndexOperations.from_driver(driver)
+
+ops.create_vector_index(Message, Message.embedding, dimension=1536)
+ops.resize_vector_index(Message, Message.embedding, dimension=768)
+ops.drop_vector_index(Message, Message.embedding)
+
+for spec in ops.describe():
+    print(spec.label, spec.property, spec.index_type)
+```
+
+This is the same `IndexAdapter` the migration tool drives — exposure, not new
+DDL. `from_driver()` works where the driver carries enough to build an adapter
+(FalkorDB); elsewhere build one with `create_adapter(...)` and pass it in.
+
+::: danger A wrong-length vector is accepted and never indexed
+Backends store a vector of the wrong dimension as an ordinary property and
+decline to index it — no exception, no log line. A job run against a mismatched
+index therefore reports every row embedded and leaves every one unfindable.
+
+Read `describe()` before writing vectors. And when the dimension changes, clear
+the stored vectors: one kept at the old length is skipped by the very job meant
+to replace it, because that job selects on "embedded by a different model", not
+"embedded at a different length".
+:::
+
+---
+
 ## Async usage
 
 `AsyncSession` returns an
@@ -1265,7 +1400,6 @@ Use raw Cypher when you need:
 * `EXISTS { ... }` subqueries.
 * `CALL { ... }` subqueries (correlated or uncorrelated).
 * Pattern comprehensions (`[(a)-[:T]->(b) | b.prop]`).
-* Procedure calls not wrapped by the builder (e.g. graph algorithms).
 
 For everything else, prefer the builder — it handles parameter binding,
 alias generation, and result decoding automatically.
@@ -1306,8 +1440,11 @@ alias generation, and result decoding automatically.
 | Relationship traversal (1-hop) | ✓ | `.traverse(Cls.relation)` |
 | Multi-hop traversal | ✓ | Chained `.traverse()` calls |
 | Variable-length paths (`*n..m`) | ✓ | `.repeat(Cls.relation, min_hops=, max_hops=)` |
-| Full-text search (CALL) | ✓ | `session.fulltext_search()` |
-| Vector KNN | ✓ | `session.vector_search()` |
+| Full-text search | ✓ | `session.fulltext_search()`; score via `score()` |
+| Vector KNN (index-backed) | ✓ | `session.vector_search()`; `k` ≠ `limit` |
+| Procedure calls (`CALL … YIELD`) | ✓ | `.call(name, *args, yields=[…])` |
+| Correlated procedure calls | ✓ | pass `col(...)` as an argument |
+| Runtime index DDL | ✓ | `IndexOperations` (not a statement — DDL is not a query) |
 | TypeConverter in WHERE | ✓ | Auto-applied for `datetime`, `Enum`, `Vector`, `GeoLocation` |
 | UNION / UNION ALL | ✗ | Use `repo.cypher()` |
 | CASE expressions | ✓ | `when(cond, value)` — including inside aggregates |
