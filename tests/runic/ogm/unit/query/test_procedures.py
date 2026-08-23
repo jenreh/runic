@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.ogm import col, param, score, select, var
+from runic.ogm import alias, fulltext_search, param, score, select, var
 from runic.ogm.core.metadata import metadata as _real_meta
 from runic.ogm.driver.age import AGEDialect
 from runic.ogm.driver.arcadedb import ArcadeDBDialect
@@ -19,6 +19,8 @@ from runic.ogm.query.specialised import FulltextQueryBuilder, VectorQueryBuilder
 from tests.runic.ogm.catalog_models import Message
 
 _real_meta.finalize()
+
+_M = alias(Message, "m")
 
 
 def _mock_session(dialect: Any = None) -> Any:
@@ -42,17 +44,13 @@ def _build(stmt: Any, dialect: Any = None) -> tuple[str, dict[str, Any]]:
 
 class TestCall:
     def test_emits_a_call_with_yields(self) -> None:
-        stmt = (
-            select(Message)
-            .alias("m")
-            .call(
-                "db.idx.vector.queryNodes",
-                "Message",
-                "embedding",
-                param("k"),
-                col("m", Message.embedding),  # ty: ignore[no-matching-overload]
-                yields=["node", "score"],
-            )
+        stmt = select(_M).call(
+            "db.idx.vector.queryNodes",
+            "Message",
+            "embedding",
+            param("k"),
+            _M.embedding,
+            yields=["node", "score"],
         )
         cypher, _ = _build(stmt)
         assert (
@@ -79,10 +77,9 @@ class TestCall:
 
     def test_correlated_call_follows_the_match(self) -> None:
         stmt = (
-            select(Message)
-            .alias("m")
+            select(_M)
             .where(Message.embedding_model == param("model"))  # ty: ignore[invalid-argument-type]
-            .call("p.q", col("m", Message.embedding), yields=["node"])  # ty: ignore[no-matching-overload]
+            .call("p.q", _M.embedding, yields=["node"])
         )
         cypher, _ = _build(stmt)
         assert cypher.index("MATCH (m:Message)") < cypher.index("CALL p.q")
@@ -96,8 +93,7 @@ class TestCall:
 
     def test_var_references_a_yielded_name(self) -> None:
         stmt = (
-            select(Message)
-            .alias("m")
+            select(_M)
             .call("p.q", yields=["node", "score"])
             .where(var("score") <= param("max_distance"))
         )
@@ -189,7 +185,7 @@ class TestVectorSearch:
             field=Message.embedding,  # ty: ignore[invalid-argument-type]
             vector=param("v"),
             k=param("k"),
-        ).project(col(Message.id).as_("id"), score().as_("distance"))  # ty: ignore[invalid-argument-type]
+        ).project(Message.id, score().as_("distance"))
         cypher, _ = _build(stmt)
         assert "__score AS distance" in cypher
 
@@ -213,7 +209,7 @@ class TestVectorSearch:
 class TestFulltextSearch:
     def test_score_is_bound_for_projection(self) -> None:
         stmt = FulltextQueryBuilder(None, Message, query=param("text")).project(
-            col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
+            Message.id,
             score().as_("relevance"),
         )
         cypher, _ = _build(stmt)
@@ -222,7 +218,7 @@ class TestFulltextSearch:
 
     def test_a_self_alias_is_not_emitted(self) -> None:
         """FalkorDB rejects ``YIELD node AS node`` with a misleading message."""
-        stmt = FulltextQueryBuilder(None, Message, query=param("text")).alias("node")
+        stmt = fulltext_search(alias(Message, "node"), query=param("text"))
         cypher, _ = _build(stmt)
         assert "YIELD node, score" in cypher
         assert "YIELD node AS node" not in cypher

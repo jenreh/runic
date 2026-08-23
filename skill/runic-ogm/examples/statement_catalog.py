@@ -13,7 +13,7 @@ Run this file to see the Cypher each statement compiles to::
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Final
 
@@ -21,9 +21,8 @@ from runic.ogm import (
     Edge,
     Field,
     Node,
-    QueryBuilder,
     Relation,
-    col,
+    alias,
     collect,
     count,
     encode_rows,
@@ -33,6 +32,7 @@ from runic.ogm import (
     score,
     select,
     unwind,
+    vector_search,
     when,
 )
 
@@ -81,11 +81,12 @@ MESSAGE_PAGE: Final = (
     # so paging a whole label costs O(n²/page).
     .where(Message.id > param("after"))  # ty: ignore[unresolved-attribute]
     .project(
-        col(Message.id).as_("id"),
-        col(Message.subject).as_("subject"),
+        # A bare field names its own column: RETURN n.id AS id.
+        Message.id,
+        Message.subject,
         # Truncate in the store: the body is uncapped and a page is hundreds
-        # of them.
-        left(col(Message.body), param("max_chars")).as_("body"),
+        # of them. A computed column has no obvious name — .as_() gives it one.
+        left(Message.body, param("max_chars")).as_("body"),
     )
     # Paging without an order is undefined; two runs may return different pages.
     .order_by(Message.id)
@@ -94,36 +95,35 @@ MESSAGE_PAGE: Final = (
 """One page of messages, cut to length. Binds: after, max_chars, limit."""
 
 
+_m = alias(Message, "m")
+_r = alias(Address, "r")
+
 MESSAGE_RECIPIENTS: Final = (
-    select(Message)
-    .alias("m")
-    .where(Message.id > param("after"))  # ty: ignore[unresolved-attribute]
-    # The page is taken BEFORE the expansion. A trailing LIMIT would expand
-    # every message in the graph and then discard all but this page.
-    .with_("m", order_by=Message.id, limit=param("limit"))
-    .traverse(Message.sent_to, from_="m")  # ty: ignore[invalid-argument-type]
-    .alias("r")
-    .aggregate(
-        collect(col("r", Address.id), distinct=True).as_("recipients"),
-        group_by=col("m", Message.id).as_("id"),
-    )
+    select(_m)
+    .where(_m.id > param("after"))
+    # The page is taken BEFORE the expansion: paging written before a traverse
+    # compiles into a WITH stage. A trailing LIMIT would expand every message
+    # in the graph and then discard all but this page.
+    .order_by(_m.id)
+    .limit(param("limit"))
+    # optional=True: a message with no recipients still gets its row.
+    .traverse(Message.sent_to, to=_r, optional=True)
+    .project(_m.id, collect(_r.id, distinct=True).as_("recipients"))
 )
 """Each message with its recipients, one row per message. Binds: after, limit."""
 
 
+_t = alias(Topic, "t")
+_about = alias(About, "rel")
+_messages = count("*").as_("messages")
+
 TOPIC_SIZES: Final = (
     select(Message)
-    .alias("m")
-    # optional=False because the edge property is a filter, not a decoration:
-    # on an OPTIONAL MATCH a WHERE nullifies rows instead of dropping them.
-    .traverse(Message.about, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-    .alias("t")
-    .where(About.score >= param("min_score"), on="r")
-    .aggregate(
-        count("*").as_("messages"),
-        group_by=[col("t", Topic.id).as_("id"), col("t", Topic.label).as_("label")],
-    )
-    .order_by("messages", desc=True)
+    .traverse(Message.about, to=_t, edge=_about)
+    .where(_about.score >= param("min_score"))
+    # Cypher has no GROUP BY: the plain items are the grouping keys.
+    .project(_t.id, _t.label, _messages)
+    .order_by(_messages, desc=True)
     .limit(param("limit"))
 )
 """Topics by size. Binds: min_score, limit."""
@@ -134,7 +134,7 @@ EMBEDDING_COVERAGE: Final = (
     .where(Message.id.is_not_null())  # ty: ignore[unresolved-attribute]
     # Several counts over ONE scan, which also guarantees they are counted over
     # the same population. Asked as separate queries they can drift apart.
-    .aggregate(
+    .project(
         count("*").as_("total"),
         count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
     )
@@ -151,15 +151,9 @@ MERGE_TOPICS: Final = (
     # MERGE, not CREATE: a derived label carries no unique constraint, so a
     # second run of a CREATE job silently doubles every node. Only the KEY goes
     # in the pattern — a changed property would make MERGE miss the node.
-    .merge(Topic, key={Topic.id: row("id")}, alias="t")
-    .set(
-        {
-            Topic.label: row("label"),
-            Topic.message_count: row("message_count"),
-            Topic.first_seen: row("first_seen"),
-        },
-        on="t",
-    )
+    .merge(Topic, key=Topic.id, alias="t")
+    # Bare descriptors read the same-named row key: SET t.label = row.label, …
+    .set(Topic.label, Topic.message_count, Topic.first_seen)
 )
 """Upsert topics. Binds: rows (run through encode_rows first)."""
 
@@ -171,8 +165,9 @@ LINK_TOPICS: Final = (
     # node carrying nothing but a key.
     .match(Message, key={Message.id: row("message_id")}, alias="m")
     .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
-    .merge_edge("m", "ABOUT", "t", alias="r", edge_model=About)
-    .set({About.score: row("score")}, on="r")
+    # The Edge class carries the type and the model: MERGE (m)-[r:ABOUT]->(t).
+    .merge_edge("m", About, "t", alias="r")
+    .set(About.score, on="r")
 )
 """Attach messages to topics. Binds: rows."""
 
@@ -181,7 +176,8 @@ DELETE_TOPICS: Final = (
     select(Topic)
     # Batched: one unbounded delete over a large graph is a single long stall on
     # a store something else is also reading. Loop until removed is zero.
-    .with_("n", limit=param("batch"))
+    # The limit is written before the delete, so it bounds the rows deleted.
+    .limit(param("batch"))
     .delete(detach=True)
     .returning(count("n").as_("removed"))
 )
@@ -193,33 +189,24 @@ DELETE_TOPICS: Final = (
 # ---------------------------------------------------------------------------
 
 
-def similar_messages(session: Any) -> QueryBuilder[Message]:
-    """Nearest neighbours of a query vector.
-
-    Built through the session because a search needs the backend's dialect to
-    know which procedure to name.
-
-    ``k`` and ``limit`` are different numbers on purpose: a procedure cannot be
-    narrowed before the fact, so every row the ``where()`` drops has already
-    been paid for by ``k``. Asking for ``k == limit`` returns a short page that
-    looks exactly like a small corpus.
-    """
-    return (
-        session.vector_search(
-            Message,
-            field=Message.embedding_model,
-            vector=param("vector"),
-            k=param("k"),
-        )
-        .where(Message.embedding_model == param("model"))
-        .project(
-            col(Message.id).as_("id"),
-            col(Message.subject).as_("subject"),
-            # A distance: lower is closer, on every backend.
-            score().as_("distance"),
-        )
-        .limit(param("limit"))
+SIMILAR_MESSAGES: Final = (
+    # A statement like any other: vector_search() is select() for a KNN.
+    #
+    # k and limit are different numbers on purpose: a procedure cannot be
+    # narrowed before the fact, so every row the where() drops has already
+    # been paid for by k. Asking for k == limit returns a short page that
+    # looks exactly like a small corpus.
+    vector_search(Message.embedding_model, vector=param("vector"), k=param("k"))
+    .where(Message.embedding_model == param("model"))
+    .project(
+        Message.id,
+        Message.subject,
+        # A distance: lower is closer, on every backend.
+        score().as_("distance"),
     )
+    .limit(param("limit"))
+)
+"""Nearest neighbours of a query vector. Binds: vector, k, model, limit."""
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +222,7 @@ CATALOG: Final[Any] = MappingProxyType(
         "MERGE_TOPICS": MERGE_TOPICS,
         "LINK_TOPICS": LINK_TOPICS,
         "DELETE_TOPICS": DELETE_TOPICS,
+        "SIMILAR_MESSAGES": SIMILAR_MESSAGES,
     }
 )
 """Every statement, by name.
@@ -255,7 +243,7 @@ def usage(session: Any) -> None:
     # Writes. encode_rows applies the field converters that a $rows payload
     # would otherwise skip — a datetime in there reaches the driver as an
     # object it has no encoding for.
-    payload = [{"id": "t1", "label": "billing", "first_seen": datetime.now()}]
+    payload = [{"id": "t1", "label": "billing", "first_seen": datetime.now(UTC)}]
     session.all_rows(MERGE_TOPICS, {"rows": encode_rows(Topic, payload)})
 
     # Batched delete: loop until nothing is left.

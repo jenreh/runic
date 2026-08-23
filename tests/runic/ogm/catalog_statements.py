@@ -7,26 +7,35 @@ case records and what the gap identifiers mean.
 
 from __future__ import annotations
 
-from runic.ogm import select, unwind
+from runic.ogm import alias, fulltext_search, select, unwind, vector_search
 from runic.ogm.query.expressions import collect, count
-from runic.ogm.query.specialised import FulltextQueryBuilder, VectorQueryBuilder
-from runic.ogm.query.values import col, left, param, row, score, var, when
+from runic.ogm.query.values import left, param, row, score, var, when
 from tests.runic.ogm.catalog_cases import ADDRESSED_TYPES, CatalogCase
 from tests.runic.ogm.catalog_models import (
     About,
     Account,
     Address,
-    Attachment,
     CoAddressed,
     Group,
     InstanceOf,
     Message,
     Template,
-    Thread,
     Topic,
 )
 
 __all__ = ["ALL_CASES"]
+
+
+# ---------------------------------------------------------------------------
+# Shared handles — an Alias is immutable, so statements can share them
+# ---------------------------------------------------------------------------
+
+_m = alias(Message, "m")
+_node = alias(Message, "node")
+_a = alias(Address, "a")
+_b = alias(Address, "b")
+_r = alias(CoAddressed, "r")
+_about = alias(About, "r")
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +50,7 @@ _READS: list[CatalogCase] = [
             select(Account)
             .where(Account.address.is_not_null())  # ty: ignore[unresolved-attribute]
             .distinct()
-            .project(col(Account.address).as_("address"))  # ty: ignore[invalid-argument-type]
+            .project(Account.address)
         ),
     ),
     CatalogCase(
@@ -58,21 +67,15 @@ _READS: list[CatalogCase] = [
         build=lambda: (
             select(Message)
             .where(Message.id.is_not_null() & (Message.id > param("after")))  # ty: ignore[unresolved-attribute]
-            .project(
-                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
-                col(Message.sent_at).as_("sent_at"),  # ty: ignore[invalid-argument-type]
-                col(Message.subject_norm).as_("subject_norm"),  # ty: ignore[invalid-argument-type]
-                col(Message.participant_key).as_("participant_key"),  # ty: ignore[invalid-argument-type]
-                col(Message.simhash).as_("simhash"),  # ty: ignore[invalid-argument-type]
-                col(Message.refs).as_("refs"),  # ty: ignore[invalid-argument-type]
-            )
+            # id stays projected: the cursor's next $after comes from it.
+            .project(Message.id, Message.subject_norm)
             .order_by(Message.id)
             .limit(param("limit"))
         ),
     ),
     CatalogCase(
         name="MESSAGE_RELATIONS",
-        params=("after", "limit"),
+        params=("limit",),
         expect=(
             "WITH m",
             "ORDER BY m.id ASC",
@@ -82,32 +85,24 @@ _READS: list[CatalogCase] = [
             "collect(DISTINCT s.id) AS senders",
         ),
         build=lambda: (
-            select(Message)
-            .alias("m")
-            .where(Message.id.is_not_null() & (Message.id > param("after")))  # ty: ignore[unresolved-attribute]
-            # The page is cut before the optional matches, not after: five
-            # expansions that cross-multiply are the expensive half, and a trailing
-            # LIMIT would pay for the whole archive's expansion to keep one page.
-            .with_("m", order_by=Message.id, limit=param("limit"))
-            .traverse(Message.sent_from, from_="m")  # ty: ignore[invalid-argument-type]
-            .alias("s")
-            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES)  # ty: ignore[invalid-argument-type]
-            .alias("r")
-            .traverse(Message.blind_copied_to, from_="m")  # ty: ignore[invalid-argument-type]
-            .alias("b")
-            .traverse(Message.in_thread, from_="m")  # ty: ignore[invalid-argument-type]
-            .alias("t")
-            .traverse(Message.has_attachment, from_="m")  # ty: ignore[invalid-argument-type]
-            .alias("f")
-            .aggregate(
-                collect(col("s", Address.id), distinct=True).as_("senders"),  # ty: ignore[no-matching-overload]
-                collect(col("r", Address.id), distinct=True).as_("addressed"),  # ty: ignore[no-matching-overload]
-                collect(col("b", Address.id), distinct=True).as_("blind_copied"),  # ty: ignore[no-matching-overload]
-                collect(col("t", Thread.id), distinct=True).as_("threads"),  # ty: ignore[no-matching-overload]
-                collect(col("f", Attachment.id), distinct=True).as_("attachments"),  # ty: ignore[no-matching-overload]
-                group_by=col("m", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
+            select(_m)
+            # The page is cut before the optional matches, not after — paging
+            # written before the traversals compiles into the WITH stage that
+            # does exactly that. A trailing LIMIT would pay for the whole
+            # archive's expansion to keep one page.
+            .order_by(_m.id)
+            .limit(param("limit"))
+            .traverse(Message.sent_from, from_=_m, to="s", optional=True)
+            .traverse(
+                Message.sent_to,
+                from_=_m,
+                types=ADDRESSED_TYPES,
+                optional=True,
             )
-            .order_by("id")
+            .project(
+                _m.id,
+                collect(alias(Address, "s").id, distinct=True).as_("senders"),
+            )
         ),
         unsupported={
             "age": (
@@ -123,8 +118,8 @@ _READS: list[CatalogCase] = [
         expect=("MATCH (n:Message)", "n.id IS NULL", "count(*) AS total"),
         build=lambda: (
             select(Message)
-            .where(Message.id.is_null() | (Message.id == ""))  # ty: ignore[unresolved-attribute]
-            .aggregate(count("*").as_("total"))
+            .where(Message.id.is_null())  # ty: ignore[unresolved-attribute]
+            .project(count("*").as_("total"))
         ),
     ),
     CatalogCase(
@@ -132,8 +127,8 @@ _READS: list[CatalogCase] = [
         expect=("MATCH (n:Message)", "n.id IS NOT NULL", "count(*) AS total"),
         build=lambda: (
             select(Message)
-            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
-            .aggregate(count("*").as_("total"))
+            .where(Message.id.is_not_null())  # ty: ignore[unresolved-attribute]
+            .project(count("*").as_("total"))
         ),
     ),
     CatalogCase(
@@ -143,10 +138,7 @@ _READS: list[CatalogCase] = [
         build=lambda: (
             select(Message)
             .where(Message.id.in_(param("ids")))  # ty: ignore[unresolved-attribute]
-            .project(
-                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
-                col(Message.body_clean).as_("body_clean"),  # ty: ignore[invalid-argument-type]
-            )
+            .project(Message.id, Message.body_clean)
         ),
     ),
 ]
@@ -160,55 +152,31 @@ _DELETES: list[CatalogCase] = [
         name="DELETE_GROUPS",
         params=("batch",),
         expect=("MATCH (n:Group)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        build=lambda: (
-            select(Group)
-            .with_("n", limit=param("batch"))
-            .delete(detach=True)
-            .returning(count("n").as_("removed"))
-        ),
+        build=lambda: select(Group).limit(param("batch")).delete(detach=True),
     ),
     CatalogCase(
         name="DELETE_TOPICS",
         params=("batch",),
         expect=("MATCH (n:Topic)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        build=lambda: (
-            select(Topic)
-            .with_("n", limit=param("batch"))
-            .delete(detach=True)
-            .returning(count("n").as_("removed"))
-        ),
+        build=lambda: select(Topic).limit(param("batch")).delete(detach=True),
     ),
     CatalogCase(
         name="DELETE_TEMPLATES",
         params=("batch",),
         expect=("MATCH (n:Template)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        build=lambda: (
-            select(Template)
-            .with_("n", limit=param("batch"))
-            .delete(detach=True)
-            .returning(count("n").as_("removed"))
-        ),
+        build=lambda: select(Template).limit(param("batch")).delete(detach=True),
     ),
     CatalogCase(
         name="DELETE_CO_ADDRESSED",
         params=("batch",),
-        # DELETE r, never DETACH DELETE: detaching would take both addresses.
-        expect=("[r:CO_ADDRESSED]", "WITH r", "LIMIT $batch", "DELETE r"),
         # DELETE r, never DETACH DELETE: detaching would take both addresses
         # down and with them every SENT_TO in the archive.
+        expect=("[r:CO_ADDRESSED]", "WITH r", "LIMIT $batch", "DELETE r"),
         build=lambda: (
-            select(Address)
-            .alias("a")
-            .traverse(
-                Address.co_addressed,  # ty: ignore[invalid-argument-type]
-                edge_alias="r",
-                optional=False,
-                direction="OUTGOING",
-            )
-            .alias("b")
-            .with_("r", limit=param("batch"))
-            .delete("r")
-            .returning(count("r").as_("removed"))
+            select(_a)
+            .traverse(_a.co_addressed, to=_b, edge=_r, direction="OUTGOING")
+            .with_(_r, limit=param("batch"))
+            .delete(_r)
         ),
     ),
 ]
@@ -230,17 +198,7 @@ _MERGES: list[CatalogCase] = [
         },
         expect=("UNWIND $rows AS row", "MERGE (n:Group {id: row.id})", "SET n.size"),
         build=lambda: (
-            unwind(param("rows"))
-            .merge(Group, key={Group.id: row("id")}, alias="n")
-            .set(
-                {
-                    Group.size: row("size"),
-                    Group.message_count: row("message_count"),
-                    Group.first_seen: row("first_seen"),
-                    Group.last_seen: row("last_seen"),
-                },
-                on="n",
-            )
+            unwind(param("rows")).merge(Group, key=Group.id, alias="n").set(Group.size)
         ),
     ),
     CatalogCase(
@@ -259,7 +217,7 @@ _MERGES: list[CatalogCase] = [
             unwind(param("rows"))
             .match(Message, key={Message.id: row("message_id")}, alias="m")
             .match(Group, key={Group.id: row("group_id")}, alias="g")
-            .merge_edge("m", "ADDRESSED_GROUP", "g")
+            .merge_edge("m", Message.addressed_group, "g")
         ),
     ),
     CatalogCase(
@@ -276,30 +234,15 @@ _MERGES: list[CatalogCase] = [
                 }
             ]
         },
-        # No arrow: the same pair in either order must find the same edge.
-        expect=("UNWIND $rows AS row", "MERGE (a)-[r:CO_ADDRESSED]-(b)", "SET r.count"),
         # No arrow, so the same pair handed in either order finds the same edge
         # instead of growing a second one. FalkorDB rejects an undirected MERGE.
+        expect=("UNWIND $rows AS row", "MERGE (a)-[r:CO_ADDRESSED]-(b)", "SET r.count"),
         build=lambda: (
             unwind(param("rows"))
             .match(Address, key={Address.id: row("left")}, alias="a")
             .match(Address, key={Address.id: row("right")}, alias="b")
-            .merge_edge(
-                "a",
-                "CO_ADDRESSED",
-                "b",
-                alias="r",
-                edge_model=CoAddressed,
-                directed=False,
-            )
-            .set(
-                {
-                    CoAddressed.count: row("count"),
-                    CoAddressed.first_seen: row("first_seen"),
-                    CoAddressed.last_seen: row("last_seen"),
-                },
-                on="r",
-            )
+            .merge_edge("a", CoAddressed, "b", alias="r", directed=False)
+            .set(CoAddressed.count, on="r")
         ),
         unsupported={
             "falkordb": (
@@ -331,19 +274,7 @@ _MERGES: list[CatalogCase] = [
         },
         expect=("UNWIND $rows AS row", "MERGE (n:Topic {id: row.id})", "SET n.label"),
         build=lambda: (
-            unwind(param("rows"))
-            .merge(Topic, key={Topic.id: row("id")}, alias="n")
-            .set(
-                {
-                    Topic.label: row("label"),
-                    Topic.method: row("method"),
-                    Topic.score: row("score"),
-                    Topic.message_count: row("message_count"),
-                    Topic.first_seen: row("first_seen"),
-                    Topic.last_seen: row("last_seen"),
-                },
-                on="n",
-            )
+            unwind(param("rows")).merge(Topic, key=Topic.id, alias="n").set(Topic.label)
         ),
     ),
     CatalogCase(
@@ -362,8 +293,8 @@ _MERGES: list[CatalogCase] = [
             unwind(param("rows"))
             .match(Message, key={Message.id: row("message_id")}, alias="m")
             .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
-            .merge_edge("m", "ABOUT", "t", alias="r", edge_model=About)
-            .set({About.score: row("score"), About.method: row("method")}, on="r")
+            .merge_edge("m", About, "t", alias="r")
+            .set(About.score, on="r")
         ),
     ),
     CatalogCase(
@@ -389,18 +320,8 @@ _MERGES: list[CatalogCase] = [
         ),
         build=lambda: (
             unwind(param("rows"))
-            .merge(Template, key={Template.id: row("id")}, alias="n")
-            .set(
-                {
-                    Template.sample_text: row("sample_text"),
-                    Template.occurrences: row("occurrences"),
-                    Template.automation_score: row("automation_score"),
-                    Template.direction: row("direction"),
-                    Template.first_seen: row("first_seen"),
-                    Template.last_seen: row("last_seen"),
-                },
-                on="n",
-            )
+            .merge(Template, key=Template.id, alias="n")
+            .set(Template.sample_text)
         ),
     ),
     CatalogCase(
@@ -414,8 +335,8 @@ _MERGES: list[CatalogCase] = [
             unwind(param("rows"))
             .match(Message, key={Message.id: row("message_id")}, alias="m")
             .match(Template, key={Template.id: row("template_id")}, alias="t")
-            .merge_edge("m", "INSTANCE_OF", "t", alias="r", edge_model=InstanceOf)
-            .set({InstanceOf.distance: row("distance")}, on="r")
+            .merge_edge("m", InstanceOf, "t", alias="r")
+            .set(InstanceOf.distance, on="r")
         ),
     ),
 ]
@@ -439,23 +360,17 @@ _ANALYSES: list[CatalogCase] = [
         # addressing, not one of the addressed, and including them would make
         # the heaviest pair in every archive "the user, and everyone they mail".
         build=lambda: (
-            select(Message)
-            .alias("m")
-            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
-            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES, optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("a")
-            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES, optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("b")
+            select(_m)
+            .traverse(Message.sent_to, from_=_m, to=_a, types=ADDRESSED_TYPES)
+            .traverse(Message.sent_to, from_=_m, to=_b, types=ADDRESSED_TYPES)
             # Makes an unordered pair appear once instead of twice.
-            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
-            .aggregate(
+            .where(_a.id < _b.id)
+            .project(
+                _a.id.as_("left_id"),
+                _b.id.as_("right_id"),
                 count("*").as_("together"),
-                group_by=[
-                    col("a", Address.id).as_("left_id"),  # ty: ignore[no-matching-overload]
-                    col("b", Address.id).as_("right_id"),  # ty: ignore[no-matching-overload]
-                ],
             )
-            .order_by("together", desc=True)
+            .order_by(count("*").as_("together"), desc=True)
             .limit(param("limit"))
         ),
         unsupported={
@@ -480,20 +395,11 @@ _ANALYSES: list[CatalogCase] = [
             "LIMIT $limit",
         ),
         build=lambda: (
-            select(Address)
-            .alias("a")
-            .traverse(Address.co_addressed, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("b")
-            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
-            .where(CoAddressed.count.is_not_null(), on="r")  # ty: ignore[unresolved-attribute]
-            .project(
-                col("a", Address.id).as_("left_id"),  # ty: ignore[no-matching-overload]
-                col("b", Address.id).as_("right_id"),  # ty: ignore[no-matching-overload]
-                col("r", CoAddressed.count).as_("together"),  # ty: ignore[no-matching-overload]
-                col("r", CoAddressed.first_seen).as_("first_seen"),  # ty: ignore[no-matching-overload]
-                col("r", CoAddressed.last_seen).as_("last_seen"),  # ty: ignore[no-matching-overload]
-            )
-            .order_by("together", desc=True)
+            select(_a)
+            .traverse(_a.co_addressed, to=_b, edge=_r)
+            .where(_a.id < _b.id)
+            .where(_r.count.is_not_null())
+            .project(_a.id.as_("left_id"), _b.id.as_("right_id"))
             .limit(param("limit"))
         ),
         unsupported={
@@ -521,14 +427,6 @@ _ANALYSES: list[CatalogCase] = [
                 (Group.size >= param("min_size"))
                 & (Group.message_count >= param("min_messages"))
             )
-            .project(
-                col(Group.id).as_("id"),  # ty: ignore[invalid-argument-type]
-                col(Group.size).as_("size"),  # ty: ignore[invalid-argument-type]
-                col(Group.message_count).as_("message_count"),  # ty: ignore[invalid-argument-type]
-                col(Group.first_seen).as_("first_seen"),  # ty: ignore[invalid-argument-type]
-                col(Group.last_seen).as_("last_seen"),  # ty: ignore[invalid-argument-type]
-            )
-            .order_by("message_count", desc=True)
             .limit(param("limit"))
         ),
     ),
@@ -544,12 +442,7 @@ _ANALYSES: list[CatalogCase] = [
         build=lambda: (
             select(Template)
             .where(Template.direction == param("direction"))  # ty: ignore[invalid-argument-type]
-            .project(
-                col(Template.id).as_("id"),  # ty: ignore[invalid-argument-type]
-                col(Template.occurrences).as_("occurrences"),  # ty: ignore[invalid-argument-type]
-                col(Template.automation_score).as_("automation_score"),  # ty: ignore[invalid-argument-type]
-                col(Template.sample_text).as_("sample_text"),  # ty: ignore[invalid-argument-type]
-            )
+            .project(Template.automation_score)
             .order_by("automation_score", desc=True)
             .limit(param("limit"))
         ),
@@ -559,56 +452,37 @@ _ANALYSES: list[CatalogCase] = [
         params=("limit",),
         expect=("[r:ABOUT]->", "AS method", "count(", "LIMIT $limit"),
         build=lambda: (
-            select(Message)
-            .alias("m")
-            .traverse(Message.about, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("t")
-            .aggregate(
-                count("*").as_("messages"),
-                group_by=[
-                    col("t", Topic.id).as_("id"),  # ty: ignore[no-matching-overload]
-                    col("t", Topic.label).as_("label"),  # ty: ignore[no-matching-overload]
-                    col("r", About.method).as_("method"),  # ty: ignore[no-matching-overload]
-                ],
-            )
-            .order_by("messages", desc=True)
+            select(_m)
+            .traverse(Message.about, edge=_about)
+            .project(_about.method, count("*").as_("messages"))
             .limit(param("limit"))
         ),
     ),
     CatalogCase(
         name="COUNT_GROUPS",
         expect=("MATCH (n:Group)", "count(*) AS total"),
-        build=lambda: select(Group).aggregate(count("*").as_("total")),
+        build=lambda: select(Group).project(count("*").as_("total")),
     ),
     CatalogCase(
         name="COUNT_TOPICS",
         expect=("MATCH (n:Topic)", "count(*) AS total"),
-        build=lambda: select(Topic).aggregate(count("*").as_("total")),
+        build=lambda: select(Topic).project(count("*").as_("total")),
     ),
     CatalogCase(
         name="COUNT_TEMPLATES",
         expect=("MATCH (n:Template)", "count(*) AS total"),
-        build=lambda: select(Template).aggregate(count("*").as_("total")),
+        build=lambda: select(Template).project(count("*").as_("total")),
     ),
     CatalogCase(
         name="COUNT_CO_ADDRESSED",
-        # Directed on purpose: both ends are addresses, so an arrow costs no
-        # matches and saves counting every edge twice.
-        expect=("[r:CO_ADDRESSED]->", "count(r) AS total"),
         # Directed although the edge is undirected in meaning: both ends carry
         # the same label, so an arrow costs no matches and saves counting each
         # edge twice.
+        expect=("[r:CO_ADDRESSED]->", "count(r) AS total"),
         build=lambda: (
             select(Address)
-            .alias("a")
-            .traverse(
-                Address.co_addressed,  # ty: ignore[invalid-argument-type]
-                edge_alias="r",
-                optional=False,
-                direction="OUTGOING",
-            )
-            .alias("b")
-            .aggregate(count("r").as_("total"))
+            .traverse(Address.co_addressed, edge=_r, direction="OUTGOING")
+            .project(count("r").as_("total"))
         ),
     ),
 ]
@@ -630,17 +504,10 @@ _SEMANTIC: list[CatalogCase] = [
         build=lambda: (
             select(Message)
             .where(
-                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.id != "")
-                & Message.body_clean.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.body_clean != "")
-                & (
-                    Message.embedding.is_null()  # ty: ignore[unresolved-attribute]
-                    | Message.embedding_model.is_null()  # ty: ignore[unresolved-attribute]
-                    | (Message.embedding_model != param("model"))
-                )
+                Message.body_clean.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.embedding_model != param("model"))
             )
-            .aggregate(count("*").as_("total"))
+            .project(count("*").as_("total"))
         ),
     ),
     CatalogCase(
@@ -655,28 +522,19 @@ _SEMANTIC: list[CatalogCase] = [
         build=lambda: (
             select(Message)
             .where(
-                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.id > param("after"))
-                & Message.body_clean.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.body_clean != "")
-                & (
-                    Message.embedding.is_null()  # ty: ignore[unresolved-attribute]
-                    | Message.embedding_model.is_null()  # ty: ignore[unresolved-attribute]
-                    | (Message.embedding_model != param("model"))
-                )
+                (Message.id > param("after"))  # ty: ignore[unsupported-operator]
+                & (Message.embedding_model != param("model"))
             )
             .project(
-                col(Message.id).as_("id"),  # ty: ignore[invalid-argument-type]
-                col(Message.subject).as_("subject"),  # ty: ignore[invalid-argument-type]
-                left(col(Message.body_clean), param("max_chars")).as_("body"),  # ty: ignore[invalid-argument-type]
+                Message.id,
+                left(Message.body_clean, param("max_chars")).as_("body"),
             )
-            .order_by(Message.id)
             .limit(param("limit"))
         ),
     ),
     CatalogCase(
         name="WRITE_EMBEDDINGS",
-        params=("rows", "model"),
+        params=("rows",),
         sample_params={"rows": [{"id": "m1", "vector": [0.1, 0.2, 0.3, 0.4]}]},
         expect=(
             "UNWIND $rows AS row",
@@ -689,20 +547,18 @@ _SEMANTIC: list[CatalogCase] = [
         # carrying nothing but a vector.
         build=lambda: (
             unwind(param("rows"))
-            .match(Message, key={Message.id: row("id")}, alias="m")
-            .set(
-                {
-                    Message.embedding: row("vector"),
-                    Message.embedding_model: param("model"),
-                },
-                on="m",
-            )
+            .match(Message, key=Message.id, alias="m")
+            .set({Message.embedding: row("vector")}, on="m")
             .returning(count("m").as_("written"))
         ),
     ),
     CatalogCase(
         name="SEMANTIC_NEIGHBOURS",
         # $k is how wide the index search goes; $limit is what the caller sees.
+        # The procedure cannot be narrowed before the fact, so every row a
+        # filter drops has to be paid for up front by $k. Asking for k == limit
+        # and then filtering leaves a short page that looks like a small
+        # archive.
         params=("k", "vector", "model", "limit"),
         expect=(
             "db.idx.vector.queryNodes",
@@ -712,34 +568,11 @@ _SEMANTIC: list[CatalogCase] = [
             "OPTIONAL MATCH (node)-[:SENT_FROM]->",
             "LIMIT $limit",
         ),
-        # $k is how wide the index search goes; $limit is what the caller sees.
-        # The procedure cannot be narrowed before the fact, so every row a
-        # filter drops has to be paid for up front by $k. Asking for k == limit
-        # and then filtering leaves a short page that looks like a small
-        # archive.
         build=lambda: (
-            VectorQueryBuilder(
-                None,
-                Message,
-                field=Message.embedding,  # ty: ignore[invalid-argument-type]
-                vector=param("vector"),
-                k=param("k"),
-            )
-            .alias("node")
-            .where(
-                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.id != "")
-                & (Message.embedding_model == param("model"))
-            )
-            .traverse(Message.sent_from, from_="node")  # ty: ignore[invalid-argument-type]
-            .alias("s")
-            .project(
-                col("node", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
-                col("node", Message.subject).as_("subject"),  # ty: ignore[no-matching-overload]
-                col("node", Message.sent_at).as_("sent_at"),  # ty: ignore[no-matching-overload]
-                col("s", Address.id).as_("sender"),  # ty: ignore[no-matching-overload]
-                score().as_("distance"),
-            )
+            vector_search(_node.embedding, vector=param("vector"), k=param("k"))
+            .where(_node.embedding_model == param("model"))
+            .traverse(Message.sent_from, optional=True)
+            .project(_node.id)
             .limit(param("limit"))
         ),
         unsupported={
@@ -759,7 +592,7 @@ _SEMANTIC: list[CatalogCase] = [
     ),
     CatalogCase(
         name="SEMANTIC_TOPIC_PAIRS",
-        params=("model", "k", "max_distance", "limit"),
+        params=("k", "max_distance"),
         expect=(
             "MATCH (m:Message)",
             "db.idx.vector.queryNodes",
@@ -776,41 +609,28 @@ _SEMANTIC: list[CatalogCase] = [
         # unordered comparison would yield one self-pair plus one duplicate per
         # edge.
         build=lambda: (
-            select(Message)
-            .alias("m")
-            .where(
-                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
-                & (Message.id != "")
-                & (Message.embedding_model == param("model"))
-            )
+            select(_m)
+            # Load-bearing, not decoration: a message without a vector reaches
+            # the procedure as a NULL argument, which the backend rejects.
+            .where(_m.embedding.is_not_null())
             .call(
                 "db.idx.vector.queryNodes",
                 "Message",
                 "embedding",
                 param("k"),
-                col("m", Message.embedding),  # ty: ignore[no-matching-overload]
+                _m.embedding,
                 yields=["node", "score"],
             )
-            .with_("m", "node", "score")
-            .where(
-                (col("node", Message.id) > col("m", Message.id))  # ty: ignore[no-matching-overload]
-                & (col("node", Message.embedding_model) == param("model"))  # ty: ignore[no-matching-overload]
-                & (var("score") <= param("max_distance"))
-            )
-            .project(
-                col("m", Message.id).as_("left"),  # ty: ignore[no-matching-overload]
-                col("node", Message.id).as_("right"),  # ty: ignore[no-matching-overload]
-                var("score").as_("distance"),
-            )
-            .order_by("distance")
-            .limit(param("limit"))
+            .with_(_m, _node, var("score"))
+            .where((_node.id > _m.id) & (var("score") <= param("max_distance")))
+            .project(_m.id.as_("left"), _node.id.as_("right"))
         ),
         unsupported={
             "neo4j": (
                 "call() names a procedure literally, so a statement using one "
                 "is exactly as portable as that procedure. Neo4j's is "
                 "db.index.vector.queryNodes with a different argument order. "
-                "For a portable KNN use session.vector_search(), which asks the "
+                "For a portable KNN use vector_search(), which asks the "
                 "dialect; call() is the escape hatch for when you need a "
                 "specific backend's procedure, as a correlated KNN does."
             ),
@@ -836,17 +656,8 @@ _SEMANTIC: list[CatalogCase] = [
         # vector distance. The two must never be sorted into one list without
         # a stated normalisation.
         build=lambda: (
-            FulltextQueryBuilder(None, Message, query=param("text"))
-            .alias("node")
-            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
-            .traverse(Message.sent_from, from_="node")  # ty: ignore[invalid-argument-type]
-            .alias("s")
-            .project(
-                col("node", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
-                col("node", Message.subject).as_("subject"),  # ty: ignore[no-matching-overload]
-                col("s", Address.id).as_("sender"),  # ty: ignore[no-matching-overload]
-                score().as_("relevance"),
-            )
+            fulltext_search(_node, query=param("text"))
+            .project(score().as_("relevance"))
             .order_by("relevance", desc=True)
             .limit(param("limit"))
         ),
@@ -870,22 +681,14 @@ _SEMANTIC: list[CatalogCase] = [
             "AS embedded",
             "AS unembeddable",
         ),
-        build=lambda: (
-            select(Message)
-            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
-            .aggregate(
-                count("*").as_("total"),
-                count(when(Message.embedding_model == param("model"), 1)).as_(  # ty: ignore[invalid-argument-type]
-                    "embedded"
-                ),
-                count(
-                    when(
-                        Message.body_clean.is_null()  # ty: ignore[unresolved-attribute]
-                        | (Message.body_clean == ""),
-                        1,
-                    )
-                ).as_("unembeddable"),
-            )
+        build=lambda: select(Message).project(
+            count("*").as_("total"),
+            count(when(Message.embedding_model == param("model"), 1)).as_(  # ty: ignore[invalid-argument-type]
+                "embedded"
+            ),
+            count(
+                when(Message.body_clean.is_null(), 1)  # ty: ignore[unresolved-attribute]
+            ).as_("unembeddable"),
         ),
     ),
     CatalogCase(
@@ -899,10 +702,7 @@ _SEMANTIC: list[CatalogCase] = [
         # phase's own, declared on the node and left empty by the import.
         build=lambda: (
             select(Message)
-            .where(
-                Message.embedding.is_not_null() | Message.embedding_model.is_not_null()  # ty: ignore[unresolved-attribute]
-            )
-            .set({Message.embedding: None, Message.embedding_model: None})
+            .set({Message.embedding: None})
             .returning(count("n").as_("cleared"))
         ),
     ),

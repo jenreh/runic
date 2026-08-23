@@ -226,6 +226,7 @@ class AsyncSession(_SessionBase):
             via :func:`~runic.ogm.query.select`.
         """
         self._require_query_builder(stmt, "scalars")
+        stmt._require_node_shape("scalars")  # noqa: SLF001
         with stmt._bound_to(self) as bound:  # noqa: SLF001
             cypher, _ = bound.build()
             merged = bound.bind(params)
@@ -245,6 +246,7 @@ class AsyncSession(_SessionBase):
             An unbound :class:`~runic.ogm.query.builder.QueryBuilder`.
         """
         self._require_query_builder(stmt, "scalar")
+        stmt._require_node_shape("scalar")  # noqa: SLF001
         old_limit = stmt._limit_val  # noqa: SLF001
         stmt._limit_val = 1  # noqa: SLF001
         try:
@@ -307,14 +309,12 @@ class AsyncSession(_SessionBase):
         self._require_query_builder(stmt, "count")
         # Can't call sync stmt.count() (uses sync _session.execute); replicate its logic async.
         old_limit = stmt._limit_val  # noqa: SLF001
-        old_agg = stmt._agg_exprs  # noqa: SLF001
-        old_group = stmt._group_by_alias  # noqa: SLF001
+        old_returning = stmt._returning  # noqa: SLF001
         old_return = stmt._return_aliases  # noqa: SLF001
         old_project = stmt._project_fields  # noqa: SLF001
-        stmt._agg_exprs = [_count_fn("*").as_("_count")]  # noqa: SLF001
-        stmt._group_by_alias = None  # noqa: SLF001
+        stmt._returning = []  # noqa: SLF001
         stmt._return_aliases = None  # noqa: SLF001
-        stmt._project_fields = []  # noqa: SLF001
+        stmt._project_fields = [_count_fn("*").as_("_count")]  # noqa: SLF001
         try:
             with stmt._bound_to(self) as bound:  # noqa: SLF001
                 cypher, _ = bound.build()
@@ -322,8 +322,7 @@ class AsyncSession(_SessionBase):
                 return int(result.rows[0][0]) if result.rows else 0
         finally:
             stmt._limit_val = old_limit  # noqa: SLF001
-            stmt._agg_exprs = old_agg  # noqa: SLF001
-            stmt._group_by_alias = old_group  # noqa: SLF001
+            stmt._returning = old_returning  # noqa: SLF001
             stmt._return_aliases = old_return  # noqa: SLF001
             stmt._project_fields = old_project  # noqa: SLF001
 
@@ -331,7 +330,7 @@ class AsyncSession(_SessionBase):
     # Query builder entry points
     # ------------------------------------------------------------------
 
-    def query(self, cls: type[Any]) -> Any:
+    def query(self, cls: type[Any], name: str | None = None) -> Any:
         """Return an :class:`~runic.ogm.query.builder.AsyncQueryBuilder` for *cls*.
 
         Async entry point for the fluent query builder.  Use ``await`` on the
@@ -341,10 +340,12 @@ class AsyncSession(_SessionBase):
                 users = await (
                     session.query(User).where(User.active == True).limit(20).all()
                 )
+
+        ``name`` names the root Cypher variable (default ``n``).
         """
         from runic.ogm.query.specialised import AsyncQueryBuilder
 
-        return AsyncQueryBuilder(self, cls)
+        return AsyncQueryBuilder(self, cls, name)
 
     def fulltext_search(
         self,

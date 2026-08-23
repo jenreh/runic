@@ -12,11 +12,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.ogm import select
+from runic.ogm import alias, select
 from runic.ogm.core.metadata import metadata as _real_meta
 from runic.ogm.mapper.mapper import Mapper
 from runic.ogm.query.expressions import count
 from runic.ogm.query.values import (
+    Alias,
     AliasedExpr,
     CaseExpr,
     FnCall,
@@ -59,8 +60,8 @@ def _build(stmt: Any) -> tuple[str, dict[str, Any]]:
 
 
 class TestCol:
-    def test_descriptor_form_defers_alias_to_the_builder(self) -> None:
-        cypher, _ = _build(select(Message).project(col(Message.id)))  # ty: ignore[invalid-argument-type]
+    def test_bare_descriptor_defers_alias_to_the_builder(self) -> None:
+        cypher, _ = _build(select(Message).project(Message.id))
         assert "RETURN n.id" in cypher
 
     def test_alias_first_form_pins_the_variable(self) -> None:
@@ -71,12 +72,46 @@ class TestCol:
     def test_keyword_form_pins_the_variable(self) -> None:
         assert col(Message.id, "m").alias == "m"  # ty: ignore[no-matching-overload]
 
-    def test_on_shorthand_matches_col(self) -> None:
-        assert Message.id.on("m") == col("m", Message.id)  # ty: ignore[no-matching-overload, unresolved-attribute]
+    def test_single_descriptor_is_a_type_error(self) -> None:
+        """The deferred form is the bare descriptor; col() only pins."""
+        with pytest.raises(TypeError, match="bare"):
+            col(Message.id)  # ty: ignore[no-matching-overload]
 
     def test_two_strings_is_a_type_error(self) -> None:
-        with pytest.raises(TypeError, match="field descriptor"):
+        with pytest.raises(TypeError, match="col"):
             col("m", "id")  # ty: ignore[no-matching-overload]
+
+
+class TestAliasHandle:
+    def test_renders_as_the_bare_variable(self) -> None:
+        m = alias(Message, "m")
+        assert m.to_cypher(None) == "m"
+        assert m.referenced_aliases(None) == {"m"}
+
+    def test_attribute_access_pins_a_property(self) -> None:
+        m = alias(Message, "m")
+        ref = m.id
+        assert isinstance(ref, PropertyRef)
+        assert ref.alias == "m"
+        assert ref.prop == "id"
+
+    def test_unknown_field_raises(self) -> None:
+        m = alias(Message, "m")
+        with pytest.raises(AttributeError, match="no field"):
+            _ = m.nope
+
+    def test_name_must_be_an_identifier(self) -> None:
+        with pytest.raises(ValueError, match="alias"):
+            alias(Message, "m) DETACH DELETE n //")
+
+    def test_is_a_value_expression(self) -> None:
+        assert isinstance(alias(Message, "m"), Alias)
+
+    def test_names_the_root_variable_in_select(self) -> None:
+        m = alias(Message, "m")
+        cypher, _ = _build(select(m).where(m.id == param("x")))
+        assert "MATCH (m:Message)" in cypher
+        assert "m.id = $x" in cypher
 
 
 class TestParam:
@@ -122,7 +157,7 @@ class TestFunctions:
     def test_fn_binds_its_arguments(self) -> None:
         cypher, params = _build(
             select(Message).project(
-                left(col(Message.body_clean), param("max_chars")).as_("body")  # ty: ignore[invalid-argument-type]
+                left(Message.body_clean, param("max_chars")).as_("body")
             )
         )
         assert "left(n.body_clean, $max_chars) AS body" in cypher
@@ -130,7 +165,7 @@ class TestFunctions:
 
     def test_plain_values_in_a_function_are_bound(self) -> None:
         cypher, params = _build(
-            select(Message).project(fn("left", col(Message.subject), 80).as_("s"))  # ty: ignore[invalid-argument-type]
+            select(Message).project(fn("left", Message.subject, 80).as_("s"))
         )
         assert "left(n.subject, $p0) AS s" in cypher
         assert params == {"p0": 80}
@@ -138,8 +173,8 @@ class TestFunctions:
     def test_coalesce_and_to_lower(self) -> None:
         cypher, _ = _build(
             select(Message).project(
-                coalesce(col(Message.subject), col(Message.subject_norm)).as_("t"),  # ty: ignore[invalid-argument-type]
-                to_lower(col(Message.subject)).as_("lower"),  # ty: ignore[invalid-argument-type]
+                coalesce(Message.subject, Message.subject_norm).as_("t"),
+                to_lower(Message.subject).as_("lower"),
             )
         )
         assert "coalesce(n.subject, n.subject_norm) AS t" in cypher
@@ -147,16 +182,16 @@ class TestFunctions:
 
     def test_function_name_must_be_an_identifier(self) -> None:
         with pytest.raises(ValueError, match="function name"):
-            fn("left(x) RETURN n //", col(Message.subject))  # ty: ignore[invalid-argument-type]
+            fn("left(x) RETURN n //", Message.subject)
 
     def test_is_an_fncall(self) -> None:
-        assert isinstance(left(col(Message.id), 3), FnCall)  # ty: ignore[invalid-argument-type]
+        assert isinstance(left(Message.id, 3), FnCall)
 
 
 class TestCase:
     def test_conditional_aggregation(self) -> None:
         cypher, _ = _build(
-            select(Message).aggregate(
+            select(Message).project(
                 count(when(Message.embedding_model == param("model"), 1)).as_(  # ty: ignore[invalid-argument-type]
                     "embedded"
                 )
@@ -196,13 +231,13 @@ class TestCase:
 
 class TestAliasing:
     def test_as_wraps_in_an_aliased_expression(self) -> None:
-        aliased = col(Message.id).as_("identifier")  # ty: ignore[invalid-argument-type]
+        aliased = Message.id.as_("identifier")  # ty: ignore[unresolved-attribute]
         assert isinstance(aliased, AliasedExpr)
         assert aliased.result_name == "identifier"
 
     def test_alias_must_be_an_identifier(self) -> None:
         with pytest.raises(ValueError, match="result alias"):
-            col(Message.id).as_("id, count(*)")  # ty: ignore[invalid-argument-type]
+            Message.id.as_("id, count(*)")  # ty: ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------
@@ -212,36 +247,33 @@ class TestAliasing:
 
 class TestFieldToFieldComparison:
     def test_two_properties_compare_without_a_parameter(self) -> None:
-        stmt = (
-            select(Address)
-            .alias("a")
-            .traverse(Address.co_addressed, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("b")
-            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
-        )
+        a, b = alias(Address, "a"), alias(Address, "b")
+        stmt = select(a).traverse(a.co_addressed, to=b, edge="r").where(a.id < b.id)
         cypher, params = _build(stmt)
         assert "a.id < b.id" in cypher
         assert params == {}
 
+    def test_bare_descriptors_compare_without_a_parameter(self) -> None:
+        """A field against a field never binds the descriptor as a value."""
+        cypher, params = _build(
+            select(Message).where(Message.id < Message.subject)  # ty: ignore[unsupported-operator]
+        )
+        assert "n.id < n.subject" in cypher
+        assert params == {}
+
     def test_cross_alias_predicate_follows_the_traversal(self) -> None:
         """It cannot precede the MATCH that introduces the other variable."""
-        stmt = (
-            select(Address)
-            .alias("a")
-            .traverse(Address.co_addressed, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("b")
-            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
-        )
+        a, b = alias(Address, "a"), alias(Address, "b")
+        stmt = select(a).traverse(a.co_addressed, to=b, edge="r").where(a.id < b.id)
         cypher, _ = _build(stmt)
         assert cypher.index("MATCH (a)-[r:CO_ADDRESSED]-") < cypher.index("a.id < b.id")
 
     def test_root_only_predicate_still_precedes_the_traversal(self) -> None:
+        a, b = alias(Address, "a"), alias(Address, "b")
         stmt = (
-            select(Address)
-            .alias("a")
-            .where(col("a", Address.id) == param("wanted"))  # ty: ignore[no-matching-overload]
-            .traverse(Address.co_addressed, edge_alias="r", optional=False)  # ty: ignore[invalid-argument-type]
-            .alias("b")
+            select(a)
+            .where(a.id == param("wanted"))
+            .traverse(a.co_addressed, to=b, edge="r")
         )
         cypher, _ = _build(stmt)
         assert cypher.index("a.id = $wanted") < cypher.index("MATCH (a)-[r:")

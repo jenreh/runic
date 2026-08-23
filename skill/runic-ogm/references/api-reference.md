@@ -155,11 +155,11 @@ by subclassing `TypeConverter` (`to_graph`, `from_graph`, optional `cypher_fn`).
 | `scalars` | `(stmt) -> list[T]` | Run `select()` → entities |
 | `scalar` | `(stmt) -> T \| None` | Run `select()` → one or none |
 | `count` | `(stmt) -> int` | Run `select()` → row count |
-| `all_rows` | `(stmt) -> list[dict]` | Run a `project()`/`aggregate()` statement |
+| `all_rows` | `(stmt) -> list[dict]` | Run a `project()` statement (aggregates included) |
 | `all_with_edges` | `(stmt) -> list[tuple]` | Run a traversal with `return_edge` |
-| `query` | `(cls) -> QueryBuilder` | Session-bound builder (terminal methods on it) |
-| `fulltext_search` | `(cls, *, query, fields=None) -> FulltextQueryBuilder` | FalkorDB fulltext |
-| `vector_search` | `(cls, *, field, vector, k=10) -> VectorQueryBuilder` | FalkorDB KNN |
+| `query` | `(cls, name=None) -> QueryBuilder` | Session-bound builder (terminal methods on it); `name` sets the root variable |
+| `fulltext_search` | `(cls, *, query, fields=None) -> FulltextQueryBuilder` | Session-bound fulltext (module-level `fulltext_search()` for statements) |
+| `vector_search` | `(cls, *, field, vector, k=10) -> VectorQueryBuilder` | Session-bound KNN (module-level `vector_search(Cls.field, ...)` for statements) |
 | `close` | `() -> None` | Release the session |
 
 Dirty tracking: mutating any field on a loaded (persistent) entity sets
@@ -207,21 +207,20 @@ Subclass `Repository[T]` to add domain methods; build on `self.query()` or
 ## QueryBuilder
 
 Created by `select(Cls)` (session-free) or `session.query(Cls)` (session-bound).
+Both take an optional root-variable name — `select(Cls, "u")` → `MATCH (u:…)` —
+instead of the default `n`; an `alias()` handle as *Cls* does the same.
 
 **Construction / refinement** (chainable, return the builder):
 
 | Method | Description |
 |---|---|
-| `where(expr, on=None)` | Add a filter; `on="alias"` targets an aliased node/edge. Repeated calls AND-combine |
-| `alias(name)` | Name the current pattern element for traversal/filtering |
-| `traverse(rel, edge_alias=None, optional=True)` | One hop along a `Relation`; `optional=False` = required join |
-| `repeat(rel, min_hops=1, max_hops=None)` | Variable-length path |
-| `with_(*aliases)` | `WITH` pipeline boundary |
-| `order_by(field, desc=False)` | Sort |
-| `limit(n)` / `skip(n)` | Page |
+| `where(expr, on=None)` | Add a filter; handles scope predicates directly (`r.score > 4`). Repeated calls AND-combine |
+| `traverse(rel, to=None, edge=None, optional=False, hops=None)` | One pattern, one call: `MATCH` by default, `optional=True` = left join; `hops=(min, max)` = variable-length (`edge=` excluded with it). Returns the builder |
+| `with_(*aliases)` | Explicit `WITH` pipeline boundary |
+| `order_by(field, desc=False)` | Sort; accepts a named `.as_()` expression to order by a result column |
+| `limit(n)` / `skip(n)` | Page. Written before a traverse/write they page *before* it (auto-`WITH`) |
 | `distinct()` | `DISTINCT` in the RETURN |
-| `project(*fields)` | Return scalar columns (read via `all_rows`); keys like `"n.name"` |
-| `aggregate(*exprs, group_by=None)` | Aggregations. `group_by` is kept verbatim in RETURN: pass `"alias.property"` (e.g. `"n.city"`) to group by a field, or a bare alias to group by the whole node |
+| `project(*items)` | The RETURN line: fields (auto-named `AS field`), handles, expressions, aggregates — plain items are the group keys |
 | `return_target(alias)` | Decode this alias as the result entity |
 | `return_nodes(*aliases)` / `return_edge(alias)` | Columns for `all_with_edges` |
 
@@ -241,8 +240,9 @@ Usable anywhere Cypher expects a value — WHERE, RETURN, ORDER BY.
 
 | Constructor | Emits |
 |---|---|
-| `col(Model.field)` | `n.field` (alias resolved by the builder) |
-| `col("m", Model.field)` / `Model.field.on("m")` | `m.field` |
+| `Model.field` (bare) | `n.field` — fields are values |
+| `alias(Model, "m")` → `m.field` | `m` / `m.field` — named-variable handle |
+| `col("m", Model.field)` | `m.field` — one-off pin |
 | `param("name")` | `$name` — declared, bound by the caller |
 | `literal(value)` | `$pN` — a Python value, bound not inlined |
 | `fn("name", *args)` | `name(arg, …)` |
@@ -307,7 +307,6 @@ All operands are bound as parameters; nothing is interpolated as text.
 | Call | Emits |
 |---|---|
 | `Model.list_field.any_of(v)` | `$v IN n.list_field` — element in a stored list |
-| `Model.field.on("alias")` | shorthand for `col("alias", Model.field)` |
 
 ---
 

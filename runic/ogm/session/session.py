@@ -281,6 +281,7 @@ class Session(_SessionBase):
         """
         self._require_query_builder(stmt, "scalars")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
+            bound._require_node_shape("scalars")  # noqa: SLF001
             cypher, _ = bound.build()
             merged = bound.bind(params)
             result = self._run_query(cypher, merged)
@@ -301,6 +302,7 @@ class Session(_SessionBase):
             via :func:`~runic.ogm.query.select`.
         """
         self._require_query_builder(stmt, "scalar")
+        stmt._require_node_shape("scalar")  # noqa: SLF001
         old_limit = stmt._limit_val  # noqa: SLF001
         stmt._limit_val = 1  # noqa: SLF001
         try:
@@ -366,7 +368,7 @@ class Session(_SessionBase):
     # Query builder entry points
     # ------------------------------------------------------------------
 
-    def query(self, cls: type[Any]) -> Any:
+    def query(self, cls: type[Any], name: str | None = None) -> Any:
         """Return a :class:`~runic.ogm.query.builder.QueryBuilder` for *cls*.
 
         This is the primary entry point for the fluent query builder API::
@@ -382,7 +384,12 @@ class Session(_SessionBase):
         Parameters
         ----------
         cls:
-            A registered :class:`~runic.ogm.core.models.Node` subclass.
+            A registered :class:`~runic.ogm.core.models.Node` subclass, or an
+            :func:`~runic.ogm.query.values.alias` handle.
+        name:
+            Cypher variable for the root node (default ``n``)::
+
+                session.query(User, "u")  # MATCH (u:User)
 
         Returns
         -------
@@ -390,7 +397,7 @@ class Session(_SessionBase):
         """
         from runic.ogm.query.builder import QueryBuilder
 
-        return QueryBuilder(self, cls)
+        return QueryBuilder(self, cls, name)
 
     def fulltext_search(
         self,

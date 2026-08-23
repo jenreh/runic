@@ -262,7 +262,7 @@ n = session.count(select(User).where(User.active == True))
 | `session.scalars(stmt)` | `list[Entity]` |
 | `session.scalar(stmt)` | `Entity \| None` |
 | `session.count(stmt)` | `int` |
-| `session.all_rows(stmt)` | `list[dict]` — for `project()` / `aggregate()` |
+| `session.all_rows(stmt)` | `list[dict]` — for `project()`, aggregates included |
 | `session.all_with_edges(stmt)` | `list[tuple]` — node/edge/node rows |
 
 `session.query(Cls)` returns a session-*bound* builder with terminal methods on
@@ -287,34 +287,35 @@ Operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `.contains()`, `.startswith()`,
 `.not_in_()`. Multiple `.where()` calls are AND-combined. Refinements:
 `.order_by(field, desc=True)`, `.limit(n)`, `.skip(n)`, `.distinct()`.
 
-**Value expressions** — `col()`, `param()`, `when()` and friends work anywhere
-Cypher expects a value (WHERE, RETURN, ORDER BY):
+**Value expressions** — bare fields, handles, `param()`, `when()` and friends
+work anywhere Cypher expects a value (WHERE, RETURN, ORDER BY):
 
 ```python
-from runic.ogm import col, count, left, param, select, when
+from runic.ogm import alias, count, left, param, select, when
 
-# Name result columns; all_rows() keys dicts by column name, so unaliased
-# projections give you keys like "n.body_clean".
+# A bare field IS a value and names its own column: RETURN n.id AS id.
+# Computed columns get a name with .as_().
 select(Message).project(
-    col(Message.id).as_("id"),
-    left(col(Message.body_clean), param("max_chars")).as_("body"),
+    Message.id,
+    left(Message.body_clean, param("max_chars")).as_("body"),
 )
 
-# Compare two properties — no parameter can express this
-select(Address).alias("a").traverse(Address.co_addressed, edge_alias="r",
-                                    optional=False).alias("b")
-    .where(col("a", Address.id) < col("b", Address.id))
+# Compare two properties — no parameter can express this. Handles name the
+# variables: alias(Model, "a") makes a.id read a.id in Cypher.
+a, b = alias(Address, "a"), alias(Address, "b")
+select(a).traverse(a.co_addressed, to=b, edge="r").where(a.id < b.id)
 
 # Conditional aggregation: several counts, one scan, same population
-select(Message).aggregate(
+select(Message).project(
     count("*").as_("total"),
     count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
 )
 ```
 
-Constructors: `col(Model.f)` / `col("alias", Model.f)` / `Model.f.on("alias")`,
+Constructors: `Model.f` (bare field), `alias(Model, "m")` → `m.f`,
 `param(name)`, `literal(v)`, `fn(name, *args)`, `left()`, `coalesce()`,
-`to_lower()`, `to_upper()`, `when(cond, then, else_=…)`, `.as_(name)`.
+`to_lower()`, `to_upper()`, `when(cond, then, else_=…)`, `.as_(name)`,
+`col("m", Model.f)` (one-off pin).
 
 **Named parameters** make a statement a reusable constant:
 
@@ -345,63 +346,78 @@ rows = session.all_rows(select(Product).project(Product.name, Product.price))
 # keys are "n.name", "n.price"
 
 summary = session.all_rows(
-    select(Order).where(Order.status == "done").aggregate(
+    select(Order).where(Order.status == "done").project(
         count("*").as_("total"),
         sum_(Order.amount).as_("revenue"),
         avg(Order.amount).as_("avg"),
     )
 )
-# group by a FIELD — pass "alias.property" (default node alias is "n"):
+# group by a FIELD — project it alongside the aggregate:
 per_city = session.all_rows(
-    select(User).aggregate(count("*").as_("n_users"), group_by="n.city")
+    select(User).project(User.city, count("*").as_("n_users"))
 )
-# → [{"n.city": "Berlin", "n_users": 3}, {"n.city": "Paris", "n_users": 2}, ...]
+# → [{"city": "Berlin", "n_users": 3}, {"city": "Paris", "n_users": 2}, ...]
 
-# group by the whole node — pass the bare alias (handy after a traversal):
+# group by the whole node — project the handle (handy after a traversal):
+u = alias(User, "u")
 per_user = session.all_rows(
-    select(User).alias("u").traverse(User.orders).aggregate(
-        sum_(Order.amount).as_("revenue"), group_by="u"
+    select(u).traverse(User.orders, to="o", optional=True).project(
+        u, sum_(Order.amount).as_("revenue")
     )
 )
 ```
 
-`group_by` keeps its argument verbatim in the RETURN, and Cypher groups on any
-non-aggregated term. Pass `"alias.property"` (e.g. `"n.city"`) to group by a
-field — the result key is then that same string (`"n.city"`); pass a bare alias
-to group by the whole node. Helpers: `count`, `avg`, `sum_`, `min_`, `max_`,
-`collect` (each with `.as_()`; `count`/`collect` accept `distinct=True`).
+Cypher has no GROUP BY: every non-aggregated RETURN item is a grouping key, so
+`project(key, agg)` *is* the grouped query. Helpers: `count`, `avg`, `sum_`,
+`min_`, `max_`, `collect` (each with `.as_()`; `count`/`collect` accept
+`distinct=True`). Order by an aggregate by reusing the named expression:
+`total = count("*").as_("total")` … `.project(User.city, total)
+.order_by(total, desc=True)`.
 
 **Traversal** — alias nodes, hop across relationships, filter by alias:
 
 ```python
 # Alice's active friends-of-friends who authored a post
+f = alias(User, "f")
 posts = session.scalars(
-    select(User).alias("u").where(User.id == "alice")
-    .traverse(User.friends).alias("f")
-    .where(User.active == True, on="f")
-    .traverse(User.authored).alias("post")
+    select(User).where(User.id == "alice")
+    .traverse(User.friends, to=f)
+    .where(f.active == True)
+    .traverse(User.authored, to="post")
     .return_target("post")
 )
 ```
 
-- `.traverse(Cls.rel, edge_alias="e", optional=True)` — one hop. `optional=True`
-  (default) is a left join; `optional=False` is a required (inner) join.
-- **When filtering on an edge property, use `optional=False`** — an
-  `OPTIONAL MATCH` + `WHERE` nullifies non-matching rows instead of dropping
-  them.
-- `.repeat(Cls.rel, min_hops=1, max_hops=3)` — variable-length path.
-- `.with_("alias")` — pipeline stages. `.return_target("alias")`,
+- `.traverse(Cls.rel, to="f", edge="e")` — one hop, one call; emits `MATCH`
+  (inner join, like Cypher's unmarked case). `optional=True` → `OPTIONAL MATCH`
+  (left join; a `WHERE` on it nullifies rows instead of dropping them).
+- `to=`/`edge=` take a handle or a string; name only what you reference later.
+- **Chaining is a cursor**: each traverse leaves from the variable the previous
+  step bound and advances to its own target, so consecutive calls walk a path
+  (`(n)-->(f)-->(p)`). Source precedence: `from_=` > the relation's handle
+  (`f.authored_posts` leaves from `f`) > the cursor. The bare descriptor only
+  supplies the pattern — `.traverse(User.friends, to="f")
+  .traverse(User.authored_posts, to="p")` traverses `authored_posts` from
+  `f`, not from the root.
+- `hops=(1, 3)` on the same call — variable-length path (`*1..3`); `(1, None)`
+  unbounded, an int exact. Not combinable with `edge=` (a var-length edge
+  binds a list).
+- Paging written BEFORE a traverse pages before it (compiles to a `WITH`
+  stage); written after, it bounds the final rows. Written order is compiled
+  order.
+- `.with_("alias")` — explicit pipeline stages. `.return_target("alias")`,
   `.return_nodes(...)`, `.return_edge("e")` — choose result columns.
 - Filter on an aliased node or edge with `.where(expr, on="alias")`.
 
 **Edge properties** come back via `all_with_edges()`:
 
 ```python
+u, r = alias(User, "u"), alias(Rated, "r")
 rows = session.all_with_edges(
-    select(User).alias("u").where(User.id == "alice")
-    .traverse(User.rated_movies, edge_alias="r").alias("m")
-    .where(Rated.score >= 9.0, on="r")
-    .return_nodes("u", "m").return_edge("r")
+    select(u).where(u.id == "alice")
+    .traverse(User.rated_movies, to="m", edge=r)
+    .where(r.score >= 9.0)
+    .return_nodes(u, "m").return_edge(r)
 )
 for user, edge, movie in rows:    # (User, Rated, Movie) tuples
     ...
@@ -434,14 +450,15 @@ session.all_rows(
     session.vector_search(Message, field=Message.embedding,
                           vector=param("vector"), k=param("k"))
       .where(Message.embedding_model == param("model"))
-      .project(col(Message.id).as_("id"), score().as_("distance"))
+      .project(Message.id, score().as_("distance"))
       .limit(param("limit")),
     {"vector": v, "k": 200, "model": m, "limit": 20})
 
 # Backend-specific procedure, correlated with the match — one round trip
-select(Message).alias("m").call(
+m = alias(Message, "m")
+select(m).call(
     "db.idx.vector.queryNodes", "Message", "embedding",
-    param("k"), col("m", Message.embedding), yields=["node", "score"])
+    param("k"), m.embedding, yields=["node", "score"])
 ```
 
 - **`k` is NOT `limit`.** `k` is how wide the index search goes; `limit` is what
@@ -501,26 +518,30 @@ Rules that bite:
 - Prefer `MERGE` over `session.add()` (a `CREATE`) whenever a job may re-run:
   derived labels carry no unique constraint to stop a duplicate.
 
-**Multi-stage `WITH`** — repeatable, and stages interleave with traversals in
-call order. Its `ORDER BY`/`LIMIT` bound the rows entering the *next* stage:
+**Page before you expand** — paging written before a traversal compiles into a
+`WITH` stage that bounds the rows entering it:
 
 ```python
-(select(Message).alias("m")
-   .where(Message.id > param("after"))
-   .with_("m", order_by=Message.id, limit=param("limit"))   # page cut HERE
-   .traverse(Message.sent_to, from_="m").alias("r")
-   .aggregate(collect(col("r", Address.id), distinct=True).as_("addressed"),
-              group_by=col("m", Message.id).as_("id")))
+m, r = alias(Message, "m"), alias(Address, "r")
+(select(m)
+   .where(m.id > param("after"))
+   .order_by(m.id).limit(param("limit"))          # page cut HERE
+   .traverse(Message.sent_to, to=r, optional=True)
+   .project(m.id, collect(r.id, distinct=True).as_("addressed")))
 ```
 
-A trailing `.limit()` instead would expand the whole graph and then discard all
-but one page. `with_(..., where=...)` is Cypher's `HAVING` — the only way to
-filter an aggregated value. **Always pass `order_by` when you pass `limit`**:
-paging without an order is undefined and two runs can return different pages.
+The same calls written after the traversal bound the final rows instead — the
+written order is the compiled order. A trailing `.limit()` on this query would
+expand the whole graph and then discard all but one page. `with_(..., where=...)`
+is Cypher's `HAVING` — the only way to filter an aggregated value. **Always
+order when you limit**: paging without an order is undefined and two runs can
+return different pages.
 
-**Fan-out**: `traverse(rel, from_="m")` anchors to a named variable instead of
-continuing the chain, so several traversals can leave the same node. Without
-`from_` each traversal starts where the last one landed.
+**Fan-out**: `traverse(rel, from_=m)` anchors to a named variable instead of
+continuing the cursor's chain, so several traversals can leave the same node —
+without it, the second of two traversals leaves from the first one's target.
+(A handle's own attribute also names its source: `traverse(a.co_addressed,
+...)` leaves from `a` whatever the cursor says.)
 
 **Alternation**: `traverse(rel, types=["SENT_TO", "COPIED_TO"])` emits
 `[:SENT_TO|COPIED_TO]`. Use it when the relationship *is* the walk over both —

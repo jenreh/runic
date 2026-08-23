@@ -7,7 +7,7 @@ Demonstrates:
   - sum_(field) — sum
   - min_(field) / max_(field) — min/max
   - collect(field) — collect values into a list
-  - .aggregate(*exprs, group_by="alias") — grouped aggregation
+  - .project(key, *exprs) — grouped aggregation (a plain item is the group key)
   - .all_rows() — returns list[dict] for mixed-type results
   - .scalar() — single aggregation value
   - distinct() — DISTINCT in RETURN clause
@@ -38,6 +38,7 @@ from runic.ogm import (  # noqa: E402
     Node,
     Relation,
     Session,
+    alias,
     avg,
     collect,
     count,
@@ -160,7 +161,7 @@ def run() -> None:
     # --- count(DISTINCT field) ---
     with Session(driver) as session:
         rows_dr = session.all_rows(
-            select(Order).aggregate(count(Order.region, distinct=True).as_("regions"))
+            select(Order).project(count(Order.region, distinct=True).as_("regions"))
         )
         distinct_regions: int | None = rows_dr[0]["regions"] if rows_dr else None
         log.info("count(DISTINCT region): %s", distinct_regions)
@@ -170,7 +171,7 @@ def run() -> None:
         rows_avg = session.all_rows(
             select(Order)
             .where(Order.status == "completed")
-            .aggregate(avg(Order.amount).as_("avg_amount"))
+            .project(avg(Order.amount).as_("avg_amount"))
         )
         avg_amount: float | None = rows_avg[0]["avg_amount"] if rows_avg else None
         log.info("avg amount (completed): %.2f", avg_amount or 0.0)
@@ -180,7 +181,7 @@ def run() -> None:
         rows_rev = session.all_rows(
             select(Order)
             .where(Order.status == "completed")
-            .aggregate(sum_(Order.amount).as_("revenue"))
+            .project(sum_(Order.amount).as_("revenue"))
         )
         total_revenue: float | None = rows_rev[0]["revenue"] if rows_rev else None
         log.info("sum amount (completed): %.2f", total_revenue or 0.0)
@@ -188,11 +189,11 @@ def run() -> None:
     # --- min_() and max_() ---
     with Session(driver) as session:
         rows_min = session.all_rows(
-            select(Order).aggregate(min_(Order.amount).as_("min_amount"))
+            select(Order).project(min_(Order.amount).as_("min_amount"))
         )
         min_amount: float | None = rows_min[0]["min_amount"] if rows_min else None
         rows_max = session.all_rows(
-            select(Order).aggregate(max_(Order.amount).as_("max_amount"))
+            select(Order).project(max_(Order.amount).as_("max_amount"))
         )
         max_amount: float | None = rows_max[0]["max_amount"] if rows_max else None
         log.info("min=%.2f, max=%.2f", min_amount or 0.0, max_amount or 0.0)
@@ -202,7 +203,7 @@ def run() -> None:
         summary: list[dict[str, Any]] = session.all_rows(
             select(Order)
             .where(Order.status == "completed")
-            .aggregate(
+            .project(
                 count("*").as_("total"),
                 avg(Order.amount).as_("avg"),
                 sum_(Order.amount).as_("revenue"),
@@ -212,40 +213,33 @@ def run() -> None:
         )
         log.info("Multi-agg summary: %s", summary)
 
-    # --- Grouped aggregation: totals per region ---
+    # --- Grouped aggregation ---
+    # A non-aggregated projection item is the grouping key: RETURN o, ...
+    o = alias(Order, "o")
     with Session(driver) as session:
         by_region: list[dict[str, Any]] = session.all_rows(
-            select(Order)
-            .alias("o")
-            .aggregate(
+            select(o).project(
+                o,
                 count("*").as_("total"),
                 sum_(Order.amount).as_("revenue"),
                 avg(Order.amount).as_("avg"),
-                group_by="o",
             )
         )
         log.info(
-            "Aggregation by alias (no projection on group key): %d rows", len(by_region)
+            "Aggregation by alias (whole node as group key): %d rows", len(by_region)
         )
 
     # --- collect() — gather values into a list ---
     with Session(driver) as session:
         ids_by_status: list[dict[str, Any]] = session.all_rows(
-            select(Order)
-            .alias("o")
-            .aggregate(
-                collect(Order.id).as_("order_ids"),
-                group_by="o",
-            )
+            select(o).project(o, collect(Order.id).as_("order_ids"))
         )
         log.info("collect() returned %d rows", len(ids_by_status))
 
     # --- collect(distinct=True) ---
     with Session(driver) as session:
         rows_cs = session.all_rows(
-            select(Order).aggregate(
-                collect(Order.status, distinct=True).as_("statuses")
-            )
+            select(Order).project(collect(Order.status, distinct=True).as_("statuses"))
         )
         unique_statuses: list[str] | None = rows_cs[0]["statuses"] if rows_cs else None
         log.info("collect(DISTINCT status): %s", unique_statuses)
@@ -253,7 +247,7 @@ def run() -> None:
     # --- distinct() on RETURN clause ---
     with Session(driver) as session:
         rows_reg = session.all_rows(select(Order).project(Order.region).distinct())
-        regions: list[str] = [r["n.region"] for r in rows_reg]
+        regions: list[str] = [r["region"] for r in rows_reg]
         log.info("DISTINCT regions via project+distinct: %s", sorted(regions))
 
     # --- all_rows(): single aggregation value ---
@@ -261,7 +255,7 @@ def run() -> None:
         rows_pt = session.all_rows(
             select(Order)
             .where(Order.status == "pending")
-            .aggregate(sum_(Order.amount).as_("pending_total"))
+            .project(sum_(Order.amount).as_("pending_total"))
         )
         pending_total: float | None = rows_pt[0]["pending_total"] if rows_pt else None
         log.info("pending total amount: %.2f", pending_total or 0.0)
@@ -270,10 +264,9 @@ def run() -> None:
     cypher: str
     params: dict[str, Any]
     cypher, params = (
-        select(Order)
-        .alias("o")
+        select(o)
         .where(Order.status == "completed")
-        .aggregate(
+        .project(
             count("*").as_("total"),
             sum_(Order.amount).as_("revenue"),
         )

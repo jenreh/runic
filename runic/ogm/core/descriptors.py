@@ -331,19 +331,19 @@ class FieldDescriptor:
             reverse=True,
         )
 
-    # Aliasing ----------------------------------------------------------
+    # Result naming -----------------------------------------------------
 
-    def on(self, alias: str) -> Any:
-        """Reference this property on a specific Cypher variable.
+    def as_(self, result_alias: str) -> Any:
+        """Name the result column this field projects to: ``AS result_alias``.
 
-        Shorthand for :func:`~runic.ogm.query.values.col`, for when a query
-        holds the same class under more than one variable::
+        Bare fields are auto-named after themselves in a projection, so this
+        is only needed to *rename*::
 
-            select(Message).where(Address.id.on("a") < Address.id.on("b"))
+            select(Message).project(Message.id.as_("message_id"))
         """
-        from runic.ogm.query.values import col
+        from runic.ogm.query.values import _prop_ref
 
-        return col(alias, self)
+        return _prop_ref(self).as_(result_alias)
 
 
 class FieldInfo:

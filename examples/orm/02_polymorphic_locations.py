@@ -231,7 +231,7 @@ def run() -> None:
         rows = session.all_rows(
             select(Location).order_by(Location.title).project(Location.title)
         )
-        titles: list[str] = [r["n.title"] for r in rows]
+        titles: list[str] = [r["title"] for r in rows]
         log.info("All location titles (projected): %s", titles)
 
     # --- Query builder: null check (locations without coordinates) ---

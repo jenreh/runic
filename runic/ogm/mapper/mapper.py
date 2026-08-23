@@ -260,9 +260,7 @@ class Mapper:
 
             rows = (
                 session.query(User)
-                .alias("u")
-                .traverse(User.rated, edge_alias="r")
-                .alias("m")
+                .traverse(User.rated, to="m", edge="r")
                 .return_nodes("u", "m")
                 .return_edge("r")
                 .all_with_edges()

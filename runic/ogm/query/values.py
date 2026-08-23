@@ -11,19 +11,18 @@ counted conditionally.
 
 .. code-block:: python
 
-    from runic.ogm.query import col, count, left, param, row, when
+    from runic.ogm.query import alias, count, left, param, row, when
 
-    # A property on a named alias, given a RETURN alias
-    col("m", Message.subject).as_("subject")
+    # A field is a value: project it, name it, wrap it in a function
+    Message.subject.as_("subject")
+    left(Message.body_clean, param("max_chars")).as_("body")
 
     # A caller-bound parameter, not an auto-numbered one
     Message.id > param("after")
 
     # Two properties compared against each other, which no $parameter can express
-    col("a", Address.id) < col("b", Address.id)
-
-    # A scalar function, evaluated in the store
-    left(col("m", Message.body_clean), param("max_chars")).as_("body")
+    a, b = alias(Address, "a"), alias(Address, "b")
+    a.id < b.id
 
     # Conditional aggregation — one scan, several counts
     count(when(Message.embedding_model == param("model"), 1)).as_("embedded")
@@ -67,6 +66,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "Alias",
     "AliasedExpr",
     "CaseExpr",
     "FnCall",
@@ -75,6 +75,7 @@ __all__ = [
     "PropertyRef",
     "RowRef",
     "ValueExpr",
+    "alias",
     "coalesce",
     "col",
     "encode_rows",
@@ -148,6 +149,48 @@ class ValueExpr:
     def __le__(self, other: Any) -> FilterExpr:
         return self._compare("<=", other)
 
+    # -- predicate helpers, mirroring FieldDescriptor's ------------------
+
+    def is_null(self) -> FilterExpr:
+        """``IS NULL`` predicate."""
+        return self._compare("IS NULL", None)
+
+    def is_not_null(self) -> FilterExpr:
+        """``IS NOT NULL`` predicate."""
+        return self._compare("IS NOT NULL", None)
+
+    def contains(self, value: Any) -> FilterExpr:
+        """``CONTAINS`` predicate."""
+        return self._compare("CONTAINS", value)
+
+    def startswith(self, value: Any) -> FilterExpr:
+        """``STARTS WITH`` predicate."""
+        return self._compare("STARTS WITH", value)
+
+    def endswith(self, value: Any) -> FilterExpr:
+        """``ENDS WITH`` predicate."""
+        return self._compare("ENDS WITH", value)
+
+    def matches(self, pattern: Any) -> FilterExpr:
+        """Regex predicate: ``=~``."""
+        return self._compare("=~", pattern)
+
+    def in_(self, values: Any) -> FilterExpr:
+        """``IN`` predicate: is this value one of *values*?"""
+        return self._compare("IN", values)
+
+    def not_in_(self, values: Any) -> FilterExpr:
+        """``NOT … IN`` predicate."""
+        return FilterExpr(
+            cls=type(self), prop="", op="IN", value=values, left=self, negate=True
+        )
+
+    def any_of(self, value: Any) -> FilterExpr:
+        """Membership against a **list-valued** expression: ``$value IN expr``."""
+        return FilterExpr(
+            cls=type(self), prop="", op="IN", value=value, left=self, reverse=True
+        )
+
     __hash__ = object.__hash__
 
 
@@ -181,6 +224,69 @@ class PropertyRef(ValueExpr):
         if self.owner is not None:
             return compiler._alias_for_cls(self.owner)  # noqa: SLF001
         return compiler._root_alias  # noqa: SLF001
+
+
+class Alias(ValueExpr):
+    """A named Cypher variable bound to a model class.
+
+    Created by :func:`alias`.  A handle is both things a variable is in
+    Cypher: used bare it *is* the variable (``project(m)`` → ``RETURN m``),
+    and attribute access reaches its properties (``m.id`` → ``m.id``).
+
+    The same class under two handles is what makes a self-join readable::
+
+        a, b = alias(Address, "a"), alias(Address, "b")
+        select(a).traverse(a.co_addressed, to=b).where(a.id < b.id)
+    """
+
+    # Private storage: attribute access is the API (m.id → m.id), so the
+    # handle's own state must not shadow a model field — "name" would.
+    __slots__ = ("_cls", "_name")
+
+    _name: str
+    _cls: type
+
+    def __init__(self, name: str, cls: type) -> None:
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_cls", cls)
+
+    def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
+        return self._name
+
+    def referenced_aliases(self, compiler: Any) -> set[str]:  # noqa: ARG002
+        return {self._name}
+
+    def __getattr__(self, item: str) -> PropertyRef:
+        if item.startswith("_"):
+            raise AttributeError(item)
+        from runic.ogm.core.descriptors import FieldDescriptor
+
+        cls: type = object.__getattribute__(self, "_cls")
+        descriptor = getattr(cls, item, None)
+        if not isinstance(descriptor, FieldDescriptor):
+            msg = f"{cls.__name__!r} has no field {item!r}"
+            raise AttributeError(msg)
+        return PropertyRef(
+            alias=self._name, prop=descriptor.field_name, owner=descriptor.owner
+        )
+
+    def __repr__(self) -> str:
+        return f"Alias({self._name!r}, {self._cls.__name__})"
+
+
+def alias(cls: type, name: str) -> Alias:
+    """Bind *cls* to a named Cypher variable and return the handle.
+
+    The handle replaces alias strings everywhere: ``select(m)`` names the
+    root, ``traverse(…, to=r)`` names a traversal target, ``m.id`` references
+    a property on it, ``project(m)`` returns it whole.
+
+    Example::
+
+        m, r = alias(Message, "m"), alias(Address, "r")
+        select(m).traverse(Message.sent_to, from_=m, to=r).where(m.id > r.id)
+    """
+    return Alias(validate_identifier(name, "alias"), cls)
 
 
 @dataclass(eq=False)
@@ -314,6 +420,17 @@ class AliasedExpr(ValueExpr):
 # ---------------------------------------------------------------------------
 
 
+def _prop_ref(descriptor: Any) -> PropertyRef:
+    """Wrap a bare field descriptor as a deferred-alias property reference.
+
+    The internal counterpart of writing ``Message.id`` in a query: the Cypher
+    variable is resolved from the owning class at compile time.
+    """
+    return PropertyRef(
+        alias=_DEFERRED_ALIAS, prop=descriptor.field_name, owner=descriptor.owner
+    )
+
+
 def _aliases_of(values: tuple[Any, ...], compiler: Any) -> set[str]:
     """Union the Cypher variables read by a tuple of operands."""
     from runic.ogm.core.descriptors import FieldDescriptor
@@ -323,7 +440,7 @@ def _aliases_of(values: tuple[Any, ...], compiler: Any) -> set[str]:
         if isinstance(value, ValueExpr):
             found |= value.referenced_aliases(compiler)
         elif isinstance(value, FieldDescriptor):
-            found |= col(value).referenced_aliases(compiler)
+            found |= _prop_ref(value).referenced_aliases(compiler)
     return found
 
 
@@ -338,7 +455,7 @@ def _render(value: Any, compiler: Any) -> str:
     if isinstance(value, ValueExpr):
         return value.to_cypher(compiler)
     if isinstance(value, FieldDescriptor):
-        return col(value).to_cypher(compiler)
+        return _prop_ref(value).to_cypher(compiler)
     return f"${compiler._next_param(value)}"  # noqa: SLF001
 
 
@@ -348,7 +465,7 @@ def _render(value: Any, compiler: Any) -> str:
 
 
 @overload
-def col(field: FieldDescriptor, on: str | None = None) -> PropertyRef: ...
+def col(field: FieldDescriptor, on: str) -> PropertyRef: ...
 
 
 @overload
@@ -356,39 +473,42 @@ def col(field: str, on: FieldDescriptor) -> PropertyRef: ...
 
 
 def col(field: Any, on: Any = None) -> PropertyRef:
-    """Reference a property, optionally on a named Cypher variable.
+    """Pin a property to a named Cypher variable.
 
-    ``col(Message.id)`` uses the alias the builder assigned to ``Message``;
-    ``col(Message.id, "m")`` (or ``col("m", Message.id)``) pins it to ``m``,
-    which is what a query with the same class under two aliases needs.
+    The one-off form of an :func:`alias` handle: ``col("m", Message.id)`` (or
+    ``col(Message.id, "m")``) reads ``m.id``.  Prefer a handle when the
+    variable is referenced more than once — ``m = alias(Message, "m")`` then
+    ``m.id``.
 
-    Examples
-    --------
-    .. code-block:: python
-
-        col(Message.subject)  # n.subject
-        col(Message.id, "m")  # m.id
-        col("a", Address.id)  # a.id  — alias-first reads better in a self-join
+    For the builder-assigned default variable no wrapper is needed at all:
+    pass the bare descriptor (``Message.id``) anywhere a value is expected.
     """
     from runic.ogm.core.descriptors import FieldDescriptor
 
     # Alias-first form: col("a", Address.id)
     if isinstance(field, str) and isinstance(on, FieldDescriptor):
-        alias, descriptor = field, on
+        pinned, descriptor = field, on
         return PropertyRef(
-            alias=alias, prop=descriptor.field_name, owner=descriptor.owner
+            alias=pinned, prop=descriptor.field_name, owner=descriptor.owner
         )
 
-    if isinstance(field, str):
+    # Descriptor-first form: col(Address.id, "a")
+    if isinstance(field, FieldDescriptor) and isinstance(on, str):
+        return PropertyRef(alias=on, prop=field.field_name, owner=field.owner)
+
+    if isinstance(field, FieldDescriptor) and on is None:
         msg = (
-            "col() needs a field descriptor; got two strings. Use "
-            "col(Model.field) or col('alias', Model.field)."
+            "col() pins a property to a named variable and needs both: "
+            "col('m', Model.field). For the default variable, pass the bare "
+            "descriptor (Model.field) instead — no wrapper needed."
         )
         raise TypeError(msg)
 
-    return PropertyRef(
-        alias=on or _DEFERRED_ALIAS, prop=field.field_name, owner=field.owner
+    msg = (
+        "col() takes an alias and a field descriptor: col('alias', Model.field) "
+        "or col(Model.field, 'alias')."
     )
+    raise TypeError(msg)
 
 
 #: Sentinel alias meaning "resolve from the owning class at compile time".

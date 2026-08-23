@@ -36,7 +36,7 @@
     {
       "id": 1,
       "prompt": "Using runic.ogm, I have User and Project nodes. A user can be a member of many projects, and each membership stores a role (owner/member) and a joined_at date on the relationship itself. Show how to model this (including the edge), how to add a membership between an existing user and project, and how to read back the role for a given user/project pair.",
-      "expected_output": "An Edge subclass (type=\"MEMBER_OF\" or similar) with role and joined_at fields. User declares a Relation(relationship=..., direction=\"OUTGOING\", target=\"Project\", edge_model=Membership) annotated as list[Project]. Membership created via session.relate(user, User.projects, project, edge=Membership(role=..., joined_at=...)). Reading the role uses a traversal with edge_alias + all_with_edges() (or session.query / repository.cypher) — not a plain attribute read, since edge properties live on the edge.",
+      "expected_output": "An Edge subclass (type=\"MEMBER_OF\" or similar) with role and joined_at fields. User declares a Relation(relationship=..., direction=\"OUTGOING\", target=\"Project\", edge_model=Membership) annotated as list[Project]. Membership created via session.relate(user, User.projects, project, edge=Membership(role=..., joined_at=...)). Reading the role uses a traversal with edge= + all_with_edges() (or session.query / repository.cypher) — not a plain attribute read, since edge properties live on the edge.",
       "files": [],
       "assertions": [
         {
@@ -64,7 +64,7 @@
     {
       "id": 2,
       "prompt": "With runic.ogm and a User node (fields: name, city, active: bool, joined_at: datetime), write the queries for: (a) all active users whose name starts with 'Al', ordered by name; (b) the number of users in each city; (c) the 10 most recently joined users. Show the exact runic query-builder calls and how you execute each one.",
-      "expected_output": "(a) session.scalars(select(User).where((User.active == True) & (User.name.startswith('Al'))).order_by(User.name)). (b) grouped aggregation: select(User).alias('u').aggregate(count('*').as_('n'), group_by='u') with project/group on city, read via session.all_rows(). (c) select(User).order_by(User.joined_at, desc=True).limit(10) via session.scalars(). Correct execution methods: scalars() for entity lists, all_rows() for aggregation/projection, count() for a single count.",
+      "expected_output": "(a) session.scalars(select(User).where((User.active == True) & (User.name.startswith('Al'))).order_by(User.name)). (b) grouped aggregation: select(User).project(User.city, count('*').as_('n_users')) \u2014 a plain projected item is the group key \u2014 read via session.all_rows(). (c) select(User).order_by(User.joined_at, desc=True).limit(10) via session.scalars(). Correct execution methods: scalars() for entity lists, all_rows() for aggregation/projection, count() for a single count.",
       "files": [],
       "assertions": [
         {
@@ -77,7 +77,7 @@
         },
         {
           "name": "aggregation-grouped",
-          "description": "Query (b) uses an aggregation (count) with group_by to count users per city"
+          "description": "Query (b) projects the city alongside count(*) to count users per city (plain projected items are the group keys)"
         },
         {
           "name": "correct-execution-methods",
@@ -92,7 +92,7 @@
     {
       "id": 3,
       "prompt": "In a runic.ogm app I have User-[FOLLOWS]->User. (a) How do I load a user together with everyone they follow in a single query (no extra round-trips)? (b) How do I find the friends-of-friends (2 hops) for a given user id? (c) Briefly explain lazy vs eager loading in runic, including what happens in an async session.",
-      "expected_output": "(a) Eager load via session.get(User, uid, fetch=[\"following\"]). (b) Query-builder traversal: select(User).alias('u').where(User.id == uid).traverse(User.following).alias('f').traverse(User.following).alias('fof').return_target('fof') executed with session.scalars. (c) Lazy (default) loads on first attribute access and needs a live session (detached access raises DetachedEntityError); eager via fetch= does it in one query. In AsyncSession lazy access raises LazyLoadError — you must use await session.get(..., fetch=[...]).",
+      "expected_output": "(a) Eager load via session.get(User, uid, fetch=[\"following\"]). (b) Query-builder traversal: select(User).where(User.id == uid).traverse(User.following, to='f').traverse(User.following, to='fof').return_target('fof') executed with session.scalars. (c) Lazy (default) loads on first attribute access and needs a live session (detached access raises DetachedEntityError); eager via fetch= does it in one query. In AsyncSession lazy access raises LazyLoadError — you must use await session.get(..., fetch=[...]).",
       "files": [],
       "assertions": [
         {
@@ -120,7 +120,7 @@
     {
       "id": 4,
       "prompt": "Using runic.ogm, write a query that returns each Message id together with the ids of everyone it was sent to, for one page of messages ordered by id. There may be many recipients per message and the archive is large, so it must not expand the whole graph.",
-      "expected_output": "select(Message).alias('m').where(Message.id > param('after')).with_('m', order_by=Message.id, limit=param('limit')) BEFORE the traversal, then .traverse(Message.sent_to, from_='m').alias('r') and .aggregate(collect(col('r', Address.id), distinct=True).as_('recipients'), group_by=col('m', Message.id).as_('id')). The WITH stage takes the page off the index first; a trailing .limit() would expand every message in the graph and then discard all but the page. from_='m' anchors the traversal to the message rather than continuing from wherever the previous one landed. Read via session.all_rows().",
+      "expected_output": "With handles m = alias(Message, 'm') and r = alias(Address, 'r'): select(m).where(m.id > param('after')).order_by(m.id).limit(param('limit')) BEFORE the traversal (paging written before a traverse compiles into a WITH stage that takes the page off the index first), then .traverse(Message.sent_to, to=r, optional=True).project(m.id, collect(r.id, distinct=True).as_('recipients')). A trailing .limit() would expand every message in the graph and then discard all but the page. Read via session.all_rows().",
       "files": [],
       "assertions": [
         {
@@ -133,7 +133,7 @@
         },
         {
           "name": "collect-distinct",
-          "description": "Uses collect(..., distinct=True) with a group_by key"
+          "description": "Uses collect(..., distinct=True) with the message id projected as the group key"
         },
         {
           "name": "explains-page-before-expansion",
@@ -168,7 +168,7 @@
     {
       "id": 6,
       "prompt": "In runic.ogm, how do I delete all the derived Group nodes before a rebuild, and separately all the derived CO_ADDRESSED edges between Address nodes, on a large graph that other things are reading?",
-      "expected_output": "Batched deletes through a WITH stage, looping until the returned count is zero. Nodes: select(Group).with_('n', limit=param('batch')).delete(detach=True).returning(count('n').as_('removed')) — detach=True because Cypher refuses to delete a node that still has relationships. Edges: traverse to bind the edge with edge_alias='r', then .with_('r', limit=param('batch')).delete('r') — plain DELETE and NEVER detach=True, because detaching an edge takes both endpoint Address nodes down with it and every relationship on them. returning() is required for the write to report anything; without it no RETURN is emitted.",
+      "expected_output": "Batched deletes through a WITH stage, looping until the returned count is zero. Nodes: select(Group).limit(param('batch')).delete(detach=True).returning(count('n').as_('removed')) — the limit written before the delete bounds the batch, and detach=True because Cypher refuses to delete a node that still has relationships. Edges: traverse to bind the edge with edge='r', then .with_('r', limit=param('batch')).delete('r') — plain DELETE and NEVER detach=True, because detaching an edge takes both endpoint Address nodes down with it and every relationship on them. returning() is required for the write to report anything; without it no RETURN is emitted.",
       "files": [],
       "assertions": [
         {

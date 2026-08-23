@@ -30,10 +30,9 @@ class _TerminalMixin:
         # type-check. Not defined at runtime — a stub would shadow the real
         # implementation, because the mixin comes first in the MRO.
         _session: Any
-        _agg_exprs: list[Any]
-        _group_by_alias: Any
         _return_aliases: list[str] | None
         _project_fields: list[Any]
+        _returning: list[Any]
         _limit_val: Any
 
         def _check_bound(self) -> None: ...
@@ -62,6 +61,7 @@ class _TerminalMixin:
             ``return_target()`` was called).
         """
         self._check_bound()
+        self._require_node_shape("all")
         cypher, _ = self.build()
         log.debug("QueryBuilder.all: %s", cypher)
         result = self._session.execute(cypher, self.bind(params))
@@ -96,12 +96,11 @@ class _TerminalMixin:
         -------
         .. code-block:: python
 
+            u, m = alias(User, "u"), alias(Movie, "m")
             rows = (
-                session.query(User)
-                .alias("u")
-                .traverse(User.rated, edge_alias="r")
-                .alias("m")
-                .return_nodes("u", "m")
+                session.query(u)
+                .traverse(User.rated, to=m, edge="r")
+                .return_nodes(u, m)
                 .return_edge("r")
                 .all_with_edges()
             )
@@ -120,8 +119,8 @@ class _TerminalMixin:
         Useful for multi-alias returns, aggregations, or scalar projections
         where mixed types are in the result set::
 
-            rows = q.aggregate(count("*").as_("n"), group_by="u").all_rows()
-            # [{"u": <User>, "n": 5}, ...]
+            rows = q.project(u, count("*").as_("total")).all_rows()
+            # [{"u": <User>, "total": 5}, ...]
         """
         self._check_bound()
         cypher, _ = self.build()
@@ -136,17 +135,15 @@ class _TerminalMixin:
         Ignores :meth:`limit` and :meth:`skip`.
         """
         self._check_bound()
-        saved_agg = self._agg_exprs
-        saved_group = self._group_by_alias
+        saved_returning = self._returning
         saved_return = self._return_aliases
         saved_project = self._project_fields
 
         from runic.ogm.query.expressions import count as _count_fn
 
-        self._agg_exprs = [_count_fn("*").as_("_count")]
-        self._group_by_alias = None
+        self._returning = []
         self._return_aliases = None
-        self._project_fields = []
+        self._project_fields = [_count_fn("*").as_("_count")]
 
         try:
             cypher, _ = self.build()
@@ -155,8 +152,7 @@ class _TerminalMixin:
         finally:
             # Always restore builder state, even if build()/execute() raises, so
             # the instance stays reusable.
-            self._agg_exprs = saved_agg
-            self._group_by_alias = saved_group
+            self._returning = saved_returning
             self._return_aliases = saved_return
             self._project_fields = saved_project
 
@@ -167,6 +163,7 @@ class _TerminalMixin:
     def scalar(self, params: Mapping[str, Any] | None = None) -> Any:
         """Execute and return the first column of the first row, or ``None``."""
         self._check_bound()
+        self._require_single_column("scalar")
         cypher, _ = self.build()
         result = self._session.execute(cypher, self.bind(params))
         if result.rows and result.rows[0]:
@@ -176,6 +173,35 @@ class _TerminalMixin:
     def scalars(self, params: Mapping[str, Any] | None = None) -> list[Any]:
         """Execute and return the first column of every row as a flat list."""
         self._check_bound()
+        self._require_single_column("scalars")
         cypher, _ = self.build()
         result = self._session.execute(cypher, self.bind(params))
         return [row[0] for row in result.rows]
+
+    # ------------------------------------------------------------------
+    # Result-shape guards
+    # ------------------------------------------------------------------
+
+    def _require_node_shape(self, method: str) -> None:
+        """Refuse to decode entities from a statement that projects columns.
+
+        ``all()`` decodes whole nodes; a projecting or aggregating statement
+        returns columns, which the mapper cannot decode as entities. Failing
+        here names the right terminal instead of failing inside the decoder.
+        """
+        if self._project_fields or self._returning:
+            msg = (
+                f"{method}() decodes whole nodes, but this statement projects "
+                f"columns — use .all_rows() (or session.all_rows(stmt)) instead"
+            )
+            raise TypeError(msg)
+
+    def _require_single_column(self, method: str) -> None:
+        """Refuse a scalar read of a statement returning several columns."""
+        if len(self._project_fields) > 1:
+            msg = (
+                f"{method}() reads one column, but this statement projects "
+                f"{len(self._project_fields)} — use .all_rows() "
+                f"(or session.all_rows(stmt)) instead"
+            )
+            raise TypeError(msg)

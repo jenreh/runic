@@ -188,9 +188,9 @@ _INJECTIONS = [
 class TestNoFreeCypher:
     """The raw-string escape hatches must not accept a second clause.
 
-    ``project()``, ``order_by()`` and ``aggregate()`` interpolate raw strings
-    into RETURN and ORDER BY.  A caller-supplied value reaching one of them
-    would otherwise execute as Cypher — which is precisely the property a
+    ``project()``, ``order_by()`` and the aggregate helpers interpolate raw
+    strings into RETURN and ORDER BY.  A caller-supplied value reaching one of
+    them would otherwise execute as Cypher — which is precisely the property a
     statement catalogue exists to guarantee, so it is asserted here.
     """
 
@@ -201,15 +201,6 @@ class TestNoFreeCypher:
 
         with pytest.raises(ValueError, match="order_by term"):
             select(Message).order_by(payload)
-
-    @pytest.mark.parametrize("payload", _INJECTIONS)
-    def test_group_by_rejects_injection(self, payload: str) -> None:
-        from runic.ogm import select
-        from runic.ogm.query.expressions import count
-        from tests.runic.ogm.catalog_models import Message
-
-        with pytest.raises(ValueError, match="group_by key"):
-            select(Message).aggregate(count("*").as_("t"), group_by=payload)
 
     @pytest.mark.parametrize("payload", _INJECTIONS)
     def test_projection_rejects_injection(self, payload: str) -> None:
@@ -225,7 +216,7 @@ class TestNoFreeCypher:
         from runic.ogm.query.expressions import count
         from tests.runic.ogm.catalog_models import Message
 
-        stmt = select(Message).aggregate(count(payload).as_("t"))
+        stmt = select(Message).project(count(payload).as_("t"))
         with pytest.raises(ValueError, match="aggregate operand"):
             _build(CatalogCase(name="injection-probe", build=lambda: stmt))
 
@@ -237,7 +228,7 @@ class TestNoFreeCypher:
 
         stmt = (
             select(Message)
-            .aggregate(count("*").as_("total"), group_by="n.subject")
+            .project("n.subject", count("*").as_("total"))
             .order_by("total DESC")
         )
         cypher, _ = _build(CatalogCase(name="raw-ok", build=lambda: stmt))

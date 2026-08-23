@@ -86,17 +86,15 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         self, params: Mapping[str, Any] | None = None
     ) -> int:
         """Async version of :meth:`~QueryBuilder.count`."""
-        saved_agg = self._agg_exprs
-        saved_group = self._group_by_alias
+        saved_returning = self._returning
         saved_return = self._return_aliases
         saved_project = self._project_fields
 
         from runic.ogm.query.expressions import count as _count_fn
 
-        self._agg_exprs = [_count_fn("*").as_("_count")]
-        self._group_by_alias = None
+        self._returning = []
         self._return_aliases = None
-        self._project_fields = []
+        self._project_fields = [_count_fn("*").as_("_count")]
 
         try:
             cypher, _ = self.build()
@@ -105,8 +103,7 @@ class AsyncQueryBuilder(QueryBuilder[T]):  # noqa: UP046
         finally:
             # Always restore builder state, even if build()/execute() raises, so
             # the instance stays reusable.
-            self._agg_exprs = saved_agg
-            self._group_by_alias = saved_group
+            self._returning = saved_returning
             self._return_aliases = saved_return
             self._project_fields = saved_project
 
@@ -229,7 +226,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
     def __init__(
         self,
         session: Any,
-        root_cls: type[T],
+        root_cls: type[T] | Any,
         query: Any,
         fields: list[str] | None = None,
     ) -> None:
@@ -323,7 +320,7 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
     def __init__(
         self,
         session: Any,
-        root_cls: type[T],
+        root_cls: type[T] | Any,
         field: FieldDescriptor,
         vector: Any,
         k: Any = 10,

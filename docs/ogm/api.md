@@ -463,10 +463,14 @@ Raised when model metadata is missing, duplicated, or otherwise inconsistent.
 
 `runic.ogm.query.select`
 
-Entry-point function for building a query. Returns a `QueryBuilder` pre-scoped to the given model class.
+Entry-point function for building a query. Returns a `QueryBuilder` pre-scoped
+to the given model class. `select(cls, name=None)` — the second argument names
+the root Cypher variable (default `n`); an `alias()` handle as *cls* does the
+same while also giving later calls something to reference.
 
 ```python
-q = select(Person).where(Person.age > 30).limit(10)
+q = select(Person).where(Person.age > 30).limit(10)       # MATCH (n:Person)
+q = select(Person, "p").where(Person.age > 30).limit(10)  # MATCH (p:Person)
 ```
 
 ### QueryBuilder
@@ -478,24 +482,23 @@ Fluent query builder. All non-terminal methods return `self`.
 **Filtering and shaping**
 
 - `where(expr, on=None)` — add a predicate; repeated calls are AND-combined
-- `alias(name)` — name the current Cypher variable
-- `order_by(field, desc=False)` — a descriptor, value expression, or `"name DESC"`
-- `limit(n)` / `skip(n)` — accept an integer or `param("name")`
+- `order_by(field, desc=False)` — a descriptor, a named `.as_()` expression, or `"name DESC"`
+- `limit(n)` / `skip(n)` — accept an integer or `param("name")`; written before a
+  traversal or a write they compile into a `WITH` stage (positional paging)
 - `distinct()` — `RETURN DISTINCT`
-- `project(*values)` — return specific values; use `.as_()` to name the columns
-- `aggregate(*aggs, group_by=None)` — `group_by` takes one key or several
+- `project(*values)` — the RETURN line: fields, handles, expressions, aggregates;
+  bare fields auto-name their columns, mixing values and aggregates groups
 - `return_target(alias)` / `return_nodes(*aliases)` / `return_edge(alias)`
 
 **Traversal**
 
-- `traverse(relation, edge_alias=None, optional=True, from_=None, types=None, direction=None)`
-- `repeat(relation, min_hops=1, max_hops=None, optional=False, from_=None)`
+- `traverse(relation, to=None, edge=None, optional=False, from_=None, types=None, direction=None, hops=None)` — returns the builder; `hops=(min, max)` is the variable-length quantifier (`edge=` excluded with it)
 - `with_(*vars, order_by=, desc=, limit=, skip=, where=, distinct=)` — repeatable
 
 **Procedures and writes**
 
 - `call(procedure, *args, yields=())` — invoke a procedure, optionally correlated
-- `set(assignments, on=None)` — bulk property assignment; `None` clears
+- `set(*assignments, on=None)` — mappings and/or bare descriptors (which read the same-named `$rows` key); `None` clears
 - `delete(*variables, detach=False)` — defaults to the current target
 - `returning(*values)` — what a write reports; without it a write returns nothing
 
@@ -517,7 +520,8 @@ each is a coroutine. The generated Cypher is identical.
 
 `runic.ogm.query.specialised.FulltextQueryBuilder`
 
-Built by `Session.fulltext_search(cls, query=..., fields=None)`. Opens with the
+Built by `fulltext_search(cls, query=..., fields=None)` (or the session-bound
+`Session.fulltext_search`). Opens with the
 backend's fulltext procedure; everything after behaves as on any other builder.
 
 The match score is available as `score()` — a **relevance**, higher being
@@ -527,8 +531,8 @@ better. Not available on ArcadeDB or Apache AGE.
 
 `runic.ogm.query.specialised.VectorQueryBuilder`
 
-Built by `Session.vector_search(cls, field=..., vector=..., k=...)`. Opens with
-the backend's vector index procedure.
+Built by `vector_search(Cls.field, vector=..., k=...)` (or the session-bound
+`Session.vector_search`). Opens with the backend's vector index procedure.
 
 `k` is the index search width; `limit` is how many rows the caller sees. They are
 separate because a procedure cannot be narrowed before the fact — a following
@@ -543,9 +547,9 @@ available on Apache AGE.
 
 Built by `unwind(source, as_="row")`. A statement whose root is an `UNWIND`.
 
-- `merge(cls, key=..., alias=None)` — upsert a node on its key
+- `merge(cls, key=..., alias=None)` — upsert a node on its key; `key=Cls.id` reads the same-named row key
 - `match(cls, key=..., alias=None)` — bind an existing node
-- `merge_edge(source, relationship, target, alias=None, edge_model=None, directed=True)`
+- `merge_edge(source, relationship, target, alias=None, edge_model=None, directed=True)` — *relationship* may be an Edge class, a Relation field, or a type string
 
 `set()`, `returning()` and the terminals come from `QueryBuilder`.
 
@@ -555,7 +559,9 @@ Built by `unwind(source, as_="row")`. A statement whose root is an `UNWIND`.
 
 | Constructor | Emits |
 |-------------|-------|
-| `col(Model.field)` / `col("m", Model.field)` | `n.field` / `m.field` |
+| `Model.field` (bare) | `n.field` — fields are values |
+| `alias(Model, "m")` / `m.field` | `m` / `m.field` — a named variable handle |
+| `col("m", Model.field)` | `m.field` — one-off pin |
 | `param("name")` | `$name` — declared, bound by the caller |
 | `var("name")` | a bare Cypher variable (a procedure yield, a `WITH` binding) |
 | `score()` | the score a search procedure yielded |
@@ -573,19 +579,8 @@ Built by `unwind(source, as_="row")`. A statement whose root is an `UNWIND`.
 Opens a bulk write over a list parameter. Returns a `MutationBuilder`.
 
 ```python
-unwind(param("rows")).merge(Group, key={Group.id: row("id")})
+unwind(param("rows")).merge(Group, key=Group.id)
 ```
-
-### TraversalStep
-
-`runic.ogm.query.traversal.TraversalStep`
-
-Represents one hop in a graph traversal.
-
-- `relation_type` — the Cypher relationship type to traverse
-- `target_model` — expected model class at the target
-- `direction` — `"outgoing"`, `"incoming"`, or `"both"`
-- `depth` — fixed depth or `(min, max)` range tuple
 
 ### Expr
 

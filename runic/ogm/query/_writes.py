@@ -9,6 +9,7 @@ the builder's shared attributes.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from runic.cypher import validate_reference
@@ -17,7 +18,7 @@ from runic.ogm.driver import CypherFeature
 from runic.ogm.query.clauses import CallClause, Clause, DeleteClause, SetClause
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class _WriteMixin:
         # Not defined at runtime — a stub would shadow the real implementation,
         # because the mixin comes first in the MRO.
         def _alias_for_cls(self, cls: type) -> str: ...
+        def _flush_pending_paging(self) -> None: ...
 
     # ------------------------------------------------------------------
     # Procedures
@@ -74,20 +76,20 @@ class _WriteMixin:
         Every message's nearest neighbours in one statement, rather than a KNN
         query per message::
 
+            m, node = alias(Message, "m"), alias(Message, "node")
             (
-                select(Message)
-                .alias("m")
-                .where(Message.embedding_model == param("model"))
+                select(m)
+                .where(m.embedding_model == param("model"))
                 .call(
                     "db.idx.vector.queryNodes",
                     "Message",
                     "embedding",
                     param("k"),
-                    col("m", Message.embedding),
+                    m.embedding,
                     yields=["node", "score"],
                 )
-                .with_("m", "node", "score")
-                .where(col("node", Message.id) > col("m", Message.id))
+                .with_(m, node, var("score"))
+                .where(node.id > m.id)
             )
 
         .. note::
@@ -112,15 +114,23 @@ class _WriteMixin:
 
     def set(
         self,
-        assignments: Mapping[Any, Any],
-        *,
-        on: str | None = None,
+        *assignments: Any,
+        on: Any = None,
     ) -> Any:
         """Assign properties on matched rows — a bulk ``SET``.
 
-        Keys are field descriptors (or ``"alias.property"`` strings); values are
-        Python values, :mod:`~runic.ogm.query.values` expressions, or ``None``
-        to clear the property.
+        Takes a mapping of property → value, bare field descriptors, or a mix.
+        Mapping keys are field descriptors (or ``"alias.property"`` strings);
+        values are Python values, :mod:`~runic.ogm.query.values` expressions,
+        or ``None`` to clear the property.
+
+        In an ``UNWIND $rows`` statement a **bare descriptor** assigns from the
+        same-named row key — ``set(Group.size)`` means
+        ``SET n.size = row.size`` — so a bulk upsert never echoes a name::
+
+            unwind(param("rows"))
+            .merge(Group, key=Group.id)
+            .set(Group.size, Group.message_count, Group.first_seen)
 
         Field converters and the dialect's wrapping functions (``vecf32``,
         ``point``, ``intern``) are applied, so a value written this way is
@@ -135,20 +145,49 @@ class _WriteMixin:
 
         Parameters
         ----------
-        assignments:
-            Property → value mapping.
+        *assignments:
+            Property → value mappings and/or bare field descriptors.
         on:
-            Cypher variable to assign on, when the property's own class is not
-            the one being written (or appears under several aliases).
+            Cypher variable (or handle) to assign on, when the property's own
+            class is not the one being written (or appears under several
+            aliases).
         """
+        from runic.ogm.query.builder import _alias_name
+
+        on_name = _alias_name(on, "set on") if on is not None else None
+        self._flush_pending_paging()
         triples: list[tuple[str, str, Any]] = []
-        for target, value in assignments.items():
-            alias, prop = self._resolve_write_target(target, on)
-            triples.append((alias, prop, value))
+        for entry in assignments:
+            for target, value in self._set_entries(entry):
+                alias, prop = self._resolve_write_target(target, on_name)
+                triples.append((alias, prop, value))
         self._pipeline.append(SetClause(assignments=tuple(triples)))
         return self
 
-    def delete(self, *variables: str, detach: bool = False) -> Any:
+    def _set_entries(self, entry: Any) -> list[tuple[Any, Any]]:
+        """Expand one ``set()`` argument into ``(target, value)`` pairs.
+
+        A bare descriptor defaults its value to the same-named key of the
+        ``UNWIND`` row variable — only meaningful on a statement that has one.
+        """
+        if isinstance(entry, Mapping):
+            return list(entry.items())
+        if isinstance(entry, FieldDescriptor):
+            row_var = getattr(self, "_row_var", None)
+            if row_var is None:
+                msg = (
+                    f"set({entry.field_name!r}) without a value only works in "
+                    f"an UNWIND statement, where it reads the same-named row "
+                    f"key; pass a mapping ({{field: value}}) here"
+                )
+                raise TypeError(msg)
+            from runic.ogm.query.values import RowRef
+
+            return [(entry, RowRef(key=entry.field_name, var=row_var))]
+        msg = f"set() takes mappings or field descriptors; got {entry!r}"
+        raise TypeError(msg)
+
+    def delete(self, *variables: Any, detach: bool = False) -> Any:
         """Delete the named variables, defaulting to the current target.
 
         Parameters
@@ -165,24 +204,28 @@ class _WriteMixin:
             computed one::
 
                 # A batch of derived nodes, and the edges that hang off them
-                select(Group).with_("n", limit=param("batch")).delete(detach=True)
+                select(Group).limit(param("batch")).delete(detach=True)
 
                 # A batch of derived edges, keeping both endpoints
+                r = alias(CoAddressed, "r")
                 (
-                    select(Address)
-                    .alias("a")
-                    .traverse(Address.co_addressed, edge_alias="r", optional=False)
-                    .alias("b")
-                    .with_("r", limit=param("batch"))
-                    .delete("r")
+                    select(alias(Address, "a"))
+                    .traverse(Address.co_addressed, to="b", edge=r)
+                    .with_(r, limit=param("batch"))
+                    .delete(r)
                 )
 
         Batching through a ``WITH`` stage keeps one delete from becoming a
         single long stall on a store something else is also reading; loop until
         the returned count is zero.
         """
-        targets = variables or (self._last_alias,)
-        self._pipeline.append(DeleteClause(variables=tuple(targets), detach=detach))
+        from runic.ogm.query.builder import _alias_name
+
+        self._flush_pending_paging()
+        targets = tuple(_alias_name(v, "delete target") for v in variables) or (
+            self._last_alias,
+        )
+        self._pipeline.append(DeleteClause(variables=targets, detach=detach))
         return self
 
     def returning(self, *values: Any) -> Any:

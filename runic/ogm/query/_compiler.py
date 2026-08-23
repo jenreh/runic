@@ -38,9 +38,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     _root_alias: str
     _where_exprs: list[Expr]
     _distinct: bool
-    _agg_exprs: list[AggExpr]
-    _group_by_alias: Any
-    _project_fields: list[FieldDescriptor | ValueExpr | str]
+    _project_fields: list[FieldDescriptor | ValueExpr | AggExpr | str]
     _alias_map: dict[str, type]
     _returning: list[Any]
     _param_counter: int
@@ -137,6 +135,12 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
         if isinstance(expr.value, ValueExpr):
             return expr.value.to_cypher(self)
+        if isinstance(expr.value, FieldDescriptor):
+            # A field compared against a field: render the property reference
+            # rather than binding the descriptor object as a parameter.
+            from runic.ogm.query.values import _prop_ref
+
+            return _prop_ref(expr.value).to_cypher(self)
 
         fi = self._find_field_info(expr.cls, expr.prop)
         converter = fi.field.converter if fi is not None else None
@@ -154,7 +158,13 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         return f"{cypher_fn}(${param_name})" if cypher_fn else f"${param_name}"
 
     def _compile_return(self) -> str:
-        """Compile the RETURN clause."""
+        """Compile the RETURN clause.
+
+        Cypher has no GROUP BY: every non-aggregated RETURN item is a grouping
+        key, so a projection mixing plain values and aggregates *is* the
+        grouped query — ``project(u, count("*").as_("n"))`` → ``RETURN u,
+        count(*) AS n``.
+        """
         distinct_kw = "DISTINCT " if self._distinct else ""
 
         # Explicit expressions, set by returning() — usually a write reporting
@@ -163,18 +173,9 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             rendered = [self._compile_return_item(v) for v in self._returning]
             return f"RETURN {distinct_kw}{', '.join(rendered)}"
 
-        # Aggregation mode
-        if self._agg_exprs:
-            cls_to_alias = self._cls_alias_map()
-            agg_parts = [self._compile_agg(e, cls_to_alias) for e in self._agg_exprs]
-            group_parts = [self._compile_value(g) for g in self._group_by_keys()]
-            all_parts = [*group_parts, *agg_parts]
-            return f"RETURN {distinct_kw}{', '.join(all_parts)}"
-
-        # Scalar projection
+        # Projection — values, aggregates, or both
         if self._project_fields:
-            proj_parts = [self._compile_value(f) for f in self._project_fields]
-            return f"RETURN {distinct_kw}{', '.join(proj_parts)}"
+            return f"RETURN {distinct_kw}{', '.join(self._compile_projection())}"
 
         # Explicit return aliases
         if self._return_aliases:
@@ -190,19 +191,56 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         # Default: return last alias
         return f"RETURN {distinct_kw}{self._last_alias}"
 
-    def _group_by_keys(self) -> list[Any]:
-        """Normalise the grouping key(s) to a list.
+    def _compile_projection(self) -> list[str]:
+        """Render every projected item, auto-naming bare fields.
 
-        Cypher has no GROUP BY: every non-aggregated RETURN item is a grouping
-        key.  Several keys are needed whenever a row is identified by more than
-        one value — a pair of ids, or a topic plus the signal that drew it.
+        A bare field is emitted as ``alias.prop AS prop`` so result rows are
+        keyed by the field's own name rather than ``"n.prop"``.  Two items
+        auto-naming to the same column is ambiguous and raises — ``.as_()``
+        one of them.
         """
-        group_by = self._group_by_alias
-        if group_by is None:
-            return []
-        if isinstance(group_by, (list, tuple)):
-            return list(group_by)
-        return [group_by]
+        parts: list[str] = []
+        seen: dict[str, Any] = {}
+        for item in self._project_fields:
+            rendered, name = self._compile_projection_item(item)
+            if name is not None:
+                if name in seen:
+                    msg = (
+                        f"projection names the column {name!r} twice; "
+                        f"rename one with .as_()"
+                    )
+                    raise ValueError(msg)
+                seen[name] = item
+            parts.append(rendered)
+        return parts
+
+    def _compile_projection_item(self, item: Any) -> tuple[str, str | None]:
+        """Render one projected item; return ``(cypher, result_column_name)``.
+
+        The name is ``None`` when nothing is claimed: a raw string passes
+        through verbatim, and a computed expression without ``.as_()`` gets
+        whatever name the store reports.
+        """
+        from runic.ogm.query.values import (
+            Alias,
+            AliasedExpr,
+            PropertyRef,
+            _prop_ref,
+        )
+
+        if isinstance(item, AggExpr):
+            return self._compile_agg(item, self._cls_alias_map()), item.result_alias
+        if isinstance(item, AliasedExpr):
+            return item.to_cypher(self), item.alias
+        if isinstance(item, Alias):
+            return item.to_cypher(self), item.to_cypher(self)
+        if isinstance(item, FieldDescriptor):
+            item = _prop_ref(item)
+        if isinstance(item, PropertyRef) and item.prop:
+            return f"{item.to_cypher(self)} AS {item.prop}", item.prop
+        if isinstance(item, ValueExpr):
+            return item.to_cypher(self), None
+        return validate_reference(str(item), "projection"), None
 
     def _compile_return_item(self, value: Any) -> str:
         """Render one explicit RETURN expression, aggregate or value."""
@@ -251,12 +289,12 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         Accepts a :class:`~runic.ogm.query.values.ValueExpr`, a field descriptor,
         or a validated raw reference string.
         """
-        from runic.ogm.query.values import ValueExpr, col
+        from runic.ogm.query.values import ValueExpr, _prop_ref
 
         if isinstance(value, ValueExpr):
             return value.to_cypher(self)
         if isinstance(value, FieldDescriptor):
-            return col(value).to_cypher(self)
+            return _prop_ref(value).to_cypher(self)
         return validate_reference(str(value), "projection")
 
     def _expr_aliases(self, expr: Expr) -> set[str]:
