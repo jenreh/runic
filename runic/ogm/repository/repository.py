@@ -111,7 +111,7 @@ class Repository[T](_RepositoryBase[T], RepositoryProtocol[T]):
     # Custom Cypher helpers
     # ------------------------------------------------------------------
 
-    def query(self) -> Any:
+    def query(self, name: str | None = None) -> Any:
         """Return a :class:`~runic.ogm.query.builder.QueryBuilder` for this repository's entity type.
 
         Shorthand for ``select(self._cls)`` bound to the current session.  Prefer
@@ -131,7 +131,7 @@ class Repository[T](_RepositoryBase[T], RepositoryProtocol[T]):
         """
         from runic.ogm.query.builder import QueryBuilder
 
-        return QueryBuilder(self._session, self._cls)
+        return QueryBuilder(self._session, self._cls, name)
 
     def cypher(
         self,

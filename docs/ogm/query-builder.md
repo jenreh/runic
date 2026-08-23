@@ -6,6 +6,20 @@ the common cases. This page explains *how* the builder works, *what Cypher it
 emits*, and *when* to use each feature so you can read the result confidently
 and know when to reach for something else.
 
+The whole API fits in five sentences:
+
+1. **Fields are values.** `Message.id` works anywhere Cypher expects a value —
+   compare it, project it, pass it to a function, `.as_()` it.
+2. **`alias()` names graph variables, `.as_()` names result columns.**
+   `m = alias(Message, "m")` makes `m.id` read `m.id` in Cypher.
+3. **The builder compiles in the order you write.** Paging before a traverse
+   pages before the traverse, exactly like Cypher clauses.
+4. **`where()` filters, `project()` returns.** Filters are AND-ed and placed
+   optimally by the compiler; `project()` is the RETURN line — aggregates
+   included, because Cypher has no `GROUP BY`.
+5. **Everything else mirrors a Cypher keyword** — `traverse()` ≙ `MATCH`,
+   `unwind`/`merge`/`set`/`delete`, `param()` ≙ `$name`, `call()` ≙ `CALL`.
+
 ---
 
 ## How the query builder works
@@ -39,12 +53,19 @@ cypher: str
 params: dict[str, Any]
 cypher, params = select(User).where(User.active == True).build()
 print(cypher)
-# MATCH (n:User) WHERE (n.active = $p0) RETURN n
+# MATCH (n:User)
+# WHERE n.active = $p0
+# RETURN n
 print(params)
 # {'p0': True}
 ```
 
 Use `.build()` freely while learning the builder or debugging unexpected results.
+
+Note the root variable in that output: it defaults to **`n`**. A silent
+default is easy to trip over once raw fragments or several variables are in
+play — name it at the source with `select(User, "u")`, or with a handle when
+later calls reference it (see [Aliases](#aliases)).
 
 ::: info See also
 [examples/orm/07_query_builder_basics.py](https://github.com/jenreh/runic/blob/main/examples/orm/07_query_builder_basics.py)
@@ -62,11 +83,12 @@ There are four starting points for a query. All four return a
 
 | Call | When to use |
 |------|-------------|
-| `select(NodeCls)` | **Preferred.** Session-independent statement; execute via `session.scalars(stmt)` etc. Enables dynamic query composition. |
+| `select(NodeCls)` | **Preferred.** Session-independent statement; execute via `session.scalars(stmt)` etc. Enables dynamic query composition. Also accepts a handle: `select(alias(User, "u"))`. |
+| `vector_search(Cls.field, vector=..., k=...)` | Session-independent nearest-neighbour statement. See [Vector KNN search](#vector-knn-search). |
+| `fulltext_search(Cls, query=...)` | Session-independent full-text search statement. See [Full-text search](#full-text-search). |
 | `session.query(NodeCls)` | Session-bound query; terminal methods (`all()`, `count()`, …) execute immediately. Equivalent to `session.scalars(select(NodeCls)...)`. |
 | `repo.query()` | Equivalent to `session.query(T)`; useful when the repository type is already in scope. |
-| `session.fulltext_search(Cls, query=...)` | Full-text search queries — wraps a backend-specific `CALL` procedure. See [Full-text search](#full-text-search). |
-| `session.vector_search(Cls, field=..., vector=..., k=...)` | Approximate nearest-neighbour vector queries. See [Vector KNN search](#vector-knn-search). |
+| `session.fulltext_search(...)` / `session.vector_search(...)` | Session-bound forms of the search statements. |
 
 ---
 
@@ -203,15 +225,21 @@ short-circuit and discard the filter objects:
 ```python
 # AND — both conditions must match
 select(User).where((User.age > 18) & (User.active == True))
+# MATCH (n:User)
 # WHERE (n.age > $p0) AND (n.active = $p1)
+# RETURN n
 
 # OR — either condition can match
 select(User).where((User.role == "admin") | (User.role == "mod"))
+# MATCH (n:User)
 # WHERE (n.role = $p0) OR (n.role = $p1)
+# RETURN n
 
 # NOT — negate a predicate
 select(User).where(~(User.banned == True))
+# MATCH (n:User)
 # WHERE NOT (n.banned = $p0)
+# RETURN n
 ```
 
 **Multiple `.where()` calls are always joined by AND.** The following two
@@ -261,9 +289,199 @@ Use `.distinct()` to deduplicate the `RETURN` clause:
 ```python
 # Unique countries across all users — project() + all_rows() for scalar columns
 rows: list[dict] = session.all_rows(select(User).distinct().project(User.country))
-countries: list[str] = [r["n.country"] for r in rows]
-# RETURN DISTINCT n.country
+countries: list[str] = [r["country"] for r in rows]
+# MATCH (n:User)
+# RETURN DISTINCT n.country AS country
 ```
+
+---
+
+## Value expressions
+
+Filters compare *values*, `RETURN` projects them, `ORDER BY` sorts on them. One
+set of constructors covers every one of those positions, so a reference written
+once can be projected, aliased, wrapped in a function, or compared against
+another property.
+
+```python
+from runic.ogm import alias, coalesce, fn, left, literal, param, to_lower, when
+```
+
+| Constructor | Emits | For |
+|---|---|---|
+| `Model.field` | `n.field` | a bare field **is** a value; the builder resolves the variable |
+| `alias(Model, "m")` | `m` | a **handle**: a named variable bound to a class |
+| `m.field` (on a handle) | `m.field` | a property on that named variable |
+| `param("name")` | `$name` | a value the caller binds |
+| `literal(v)` | `$p0` | a Python value, bound not inlined |
+| `fn("name", …)` | `name(…)` | any scalar function |
+| `left(v, n)` · `coalesce(…)` · `to_lower(v)` | `left(…)` … | the common ones |
+| `when(cond, then)` | `CASE WHEN … THEN … END` | conditional values |
+| `.as_("name")` | `… AS name` | renaming the result column |
+| `col("m", Model.field)` | `m.field` | one-off pin without a handle (rare) |
+
+Every operand is bound as a parameter. A Python value anywhere inside an
+expression tree reaches the graph as `$pN` — nothing is spliced into the query
+as text.
+
+### Naming result columns
+
+A bare field names its own column — `project(Message.id)` emits
+`RETURN n.id AS id`, so `all_rows()` keys its dicts by field name. `.as_()`
+is for *renaming*, and for computed expressions, which have no obvious name:
+
+```python
+rows = session.all_rows(
+    select(Message).project(Message.id, Message.sent_at)
+)
+# MATCH (n:Message)
+# RETURN n.id AS id, n.sent_at AS sent_at
+# [{"id": "m1", "sent_at": "2026-01-02T…"}, …]
+```
+
+Two items auto-naming to the same column (`a.id` and `b.id`, say) is
+ambiguous and raises at build time — `.as_()` one of them.
+
+### Computing in the store
+
+`left()` truncates before the value crosses the wire, which matters when the
+property is large and the caller only wants a prefix:
+
+```python
+select(Message).project(
+    Message.id,
+    left(Message.body_clean, param("max_chars")).as_("body"),
+)
+# MATCH (n:Message)
+# RETURN n.id AS id, left(n.body_clean, $max_chars) AS body
+```
+
+### Comparing two properties
+
+A parameter cannot express "this property is less than that one", because both
+sides are in the graph. Two field references can — on the same variable it is
+just `Model.a < Model.b`, and across two variables a pair of handles:
+
+```python
+a, b = alias(Address, "a"), alias(Address, "b")
+stmt = (
+    select(a)
+    .traverse(a.co_addressed, to=b, edge="r")
+    .where(a.id < b.id)
+)
+# MATCH (a:Address)
+# MATCH (a)-[r:CO_ADDRESSED]-(b:Address)
+# WHERE a.id < b.id
+# RETURN b
+```
+
+That predicate is what turns an unordered pair into a single row: without it an
+undirected pattern matches each pair twice, once from each end.
+
+### Conditional aggregation
+
+`when()` inside an aggregate gives several differently filtered numbers from one
+scan — which also guarantees they are counted over the same population:
+
+```python
+from runic.ogm import count
+
+session.all_rows(
+    select(Message).project(
+        count("*").as_("total"),
+        count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
+    )
+)
+# MATCH (n:Message)
+# RETURN count(*) AS total,
+#        count(CASE WHEN n.embedding_model = $model THEN $p0 END) AS embedded
+```
+
+Asking those as two queries lets the populations drift apart between them.
+
+---
+
+## Named parameters
+
+`param()` **declares** a parameter instead of binding a value. The statement
+becomes a constant that callers supply values to, rather than a query rebuilt
+per call:
+
+```python
+from typing import Final
+from runic.ogm import param, select
+
+RECENT_MESSAGES: Final = (
+    select(Message)
+    .where(Message.id > param("after"))
+    .order_by(Message.id)
+    .limit(param("limit"))
+)
+
+rows = session.scalars(RECENT_MESSAGES, {"after": cursor, "limit": 500})
+```
+
+Every execution method takes the bindings as a second argument: `scalars()`,
+`scalar()`, `all_rows()`, `all_with_edges()`, `count()`, and the bound-builder
+equivalents.
+
+`LIMIT` and `SKIP` accept them too, so a page size is a value rather than part
+of the statement.
+
+### Knowing what a statement expects
+
+```python
+RECENT_MESSAGES.parameter_names()
+# ('after', 'limit')
+```
+
+Read off the compiled statement, not maintained beside it, so it cannot drift.
+
+### A missing parameter is an error, not an empty result
+
+```python
+session.scalars(RECENT_MESSAGES, {"after": cursor})
+# ValueError: statement is missing values for declared parameter(s): limit
+```
+
+This is deliberate. An unsupplied `$parameter` is a null in Cypher: it matches
+nothing and returns an empty result that looks exactly like an empty database.
+Failing loudly is the only way that distinction survives.
+
+### Why this shape matters
+
+A statement that binds all its input as named parameters can be a module-level
+constant — reviewable in a diff, reusable across calls, and testable by
+enumerating the statements, binding each one's parameters, and running the lot.
+Caller input can then never change what a statement *does*, only which rows it
+returns. That property is what makes it safe to put a query layer behind an
+interface you do not control, such as an MCP server answering a model's
+questions.
+
+---
+
+## List properties: `any_of()` vs `in_()`
+
+The two ask opposite questions, and on a list-valued property only one of them
+is meaningful:
+
+```python
+# Message.refs is list[str]
+
+select(Message).where(Message.refs.any_of(param("token")))
+# MATCH (n:Message)
+# WHERE $token IN n.refs      ← does the stored list contain this element?
+# RETURN n
+
+select(Message).where(Message.id.in_(["m1", "m2"]))
+# MATCH (n:Message)
+# WHERE n.id IN $p0           ← is this property one of these values?
+# RETURN n
+```
+
+Calling `in_()` on a list property compiles to `n.refs IN $values` — asking
+whether the whole list is an element of the parameter. Nothing answers that
+`true`, so the filter silently returns no rows.
 
 ---
 
@@ -277,12 +495,14 @@ data transferred from the database.
 ```python
 # Single field → flat list via session.all_rows() then extract
 rows = session.all_rows(select(User).project(User.email))
-emails: list[str] = [r["n.email"] for r in rows]
-# RETURN n.email  →  ["alice@example.com", "bob@example.com", ...]
+emails: list[str] = [r["email"] for r in rows]
+# MATCH (n:User)
+# RETURN n.email AS email  →  ["alice@example.com", ...]
 
-# Multiple fields → list of dicts via session.all_rows()
+# Multiple fields → list of dicts, keyed by field name
 rows: list[dict[str, Any]] = session.all_rows(select(User).project(User.name, User.age))
-# RETURN n.name, n.age  →  [{"n.name": "Alice", "n.age": 30}, ...]
+# MATCH (n:User)
+# RETURN n.name AS name, n.age AS age  →  [{"name": "Alice", "age": 30}, ...]
 ```
 
 When to use projection vs full node loading:
@@ -296,51 +516,54 @@ When to use projection vs full node loading:
 
 ## Aggregation
 
-The query builder ships aggregation helpers that map to Cypher's built-in
-aggregate functions. Import them from `runic.ogm.query`:
+Cypher has no `GROUP BY`: every non-aggregated item in the `RETURN` line *is*
+a grouping key. The builder mirrors that exactly — an aggregate goes in
+`project()` like any other value, and mixing plain items with aggregates is
+the grouped query. Import the helpers from `runic.ogm`:
 
 ```python
-from runic.ogm.query import count, avg, sum_, min_, max_, collect
+from runic.ogm import count, avg, sum_, min_, max_, collect
 ```
-
-Use `QueryBuilder.aggregate()` to add one or more
-aggregation expressions to the `RETURN` clause. The `.as_("name")` call
-sets the Cypher alias for that column, which you use to retrieve the value from
-the result dict returned by `.all_rows()`.
 
 ### Simple aggregation (no grouping)
 
-When there is no `group_by`, the query collapses to a single row:
+With only aggregates projected, the query collapses to a single row:
 
 ```python
 # Total number of users
-rows = session.all_rows(select(User).aggregate(count().as_("total")))
+rows = session.all_rows(select(User).project(count().as_("total")))
 total: int = rows[0]["total"]
-# MATCH (n:User) RETURN count(*) AS total
+# MATCH (n:User)
+# RETURN count(*) AS total
 
 # Average score
-rows = session.all_rows(select(User).aggregate(avg(User.score).as_("avg")))
+rows = session.all_rows(select(User).project(avg(User.score).as_("avg")))
 avg_score: float = rows[0]["avg"]
-# MATCH (n:User) RETURN avg(n.score) AS avg
+# MATCH (n:User)
+# RETURN avg(n.score) AS avg
 
 # Convenience shortcut — count via session.count()
 n: int = session.count(select(User).where(User.active == True))
-# MATCH (n:User) WHERE n.active = $p0 RETURN count(*)
+# MATCH (n:User)
+# WHERE n.active = $p0
+# RETURN count(*) AS _count
 ```
 
 ### Grouped aggregation
 
-Pass `group_by=` to partition results. The named alias must match an alias
-previously set with `.alias()`:
+Project the grouping key alongside the aggregate — a handle for the whole
+node, or a field for one property:
 
 ```python
+u = alias(User, "u")
 stmt = (
-    select(User).alias("u")
-    .traverse(User.posts).alias("p")
-    .aggregate(count("*").as_("post_count"), group_by="u")
+    select(u)
+    .traverse(User.posts, to="p", optional=True)
+    .project(u, count("*").as_("post_count"))
 )
 rows: list[dict[str, Any]] = session.all_rows(stmt)
-# OPTIONAL MATCH (u:User)-[:AUTHORED]->(p:Post)
+# MATCH (u:User)
+# OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
 # RETURN u, count(*) AS post_count
 
 for row in rows:
@@ -349,25 +572,45 @@ for row in rows:
     print(user.name, "has", post_count, "posts")
 ```
 
+Group by a *property* rather than the whole node when the key is a value —
+`project(User.city, count("*").as_("total"))` emits
+`RETURN n.city AS city, count(*) AS total`, one row per city.
+
 ### Collecting values into a list
 
 `collect` maps to Cypher's `collect()` aggregate, which gathers values
 across rows into a list:
 
 ```python
+u, t = alias(User, "u"), alias(Tag, "t")
 stmt = (
-    select(User).alias("u")
-    .traverse(User.tags).alias("t")
-    .aggregate(collect("t").as_("tags"), group_by="u")
+    select(u)
+    .traverse(User.tags, to=t, optional=True)
+    .project(u, collect(t).as_("tags"))
 )
 rows: list[dict[str, Any]] = session.all_rows(stmt)
+# MATCH (u:User)
+# OPTIONAL MATCH (u)-[:TAGGED]->(t:Tag)
 # RETURN u, collect(t) AS tags
+```
+
+### Ordering by an aggregate
+
+Bind the named expression once and reference it twice — the `ORDER BY` reuses
+the column name the projection introduced:
+
+```python
+total = count("*").as_("total")
+stmt = select(User).project(User.city, total).order_by(total, desc=True)
+# MATCH (n:User)
+# RETURN n.city AS city, count(*) AS total
+# ORDER BY total DESC
 ```
 
 ::: info See also
 [examples/orm/10_query_builder_aggregation.py](https://github.com/jenreh/runic/blob/main/examples/orm/10_query_builder_aggregation.py)
 — `count`, `avg`, `sum_`, `min_`, `max_`, `collect`; grouped
-aggregation with `group_by`; `.scalar()` and `.all_rows()`.
+aggregation via `project()`; `.scalar()` and `.all_rows()`.
 :::
 
 ---
@@ -378,105 +621,144 @@ The traversal API lets you follow relationship patterns declared on your models
 using `Relation` fields — without writing
 `MATCH (a)-[:TYPE]->(b)` by hand.
 
-### Understanding OPTIONAL MATCH vs MATCH
+### Understanding MATCH vs OPTIONAL MATCH
 
-By default, `.traverse()` generates an `OPTIONAL MATCH` clause. This is a
-**left join**: nodes that have no matching relationship are still returned, with
-`None` for the related node.
-
-Pass `optional=False` to get an inner join (`MATCH`), which excludes root
-nodes that have no matching relationship:
+`.traverse()` emits a plain `MATCH` — Cypher's unmarked case, an inner join:
+root nodes without the relationship are dropped. Pass `optional=True` for an
+`OPTIONAL MATCH` — a **left join** where sources without the relationship
+survive, carrying `None` for the related node:
 
 ```text
-OPTIONAL MATCH (u)-[:FRIENDS]->(f)    # all users, friends may be None
-MATCH (u)-[:WORKS_FOR]->(c)           # only users with a company
+MATCH (u)-[:WORKS_FOR]->(c)                          # only users with a company
+OPTIONAL MATCH (u)-[:FRIENDS]->(f)    # optional=True: all users, f may be None
 ```
+
+Note that a `where()` on an optional traversal *nullifies* unmatched rows
+rather than dropping them — mark a traversal optional only when missing
+relationships are valid data.
 
 Choose based on whether missing relationships are valid data or an error.
 
 ### Single-hop traversal
 
 `QueryBuilder.traverse()` takes a
-`Relation` field reference. Call
-`.alias()` on the returned step to name the target node variable and continue
-the builder chain:
+`Relation` field reference. One call is one Cypher pattern; `to=` names the
+target — with a handle when anything later references it:
 
 ```python
 # Find all friends of a specific user, aged over 25
+u, f = alias(User, "u"), alias(User, "f")
 stmt = (
-    select(User).alias("u")
-    .where(User.id == user_id)
-    .traverse(User.friends).alias("f")
-    .where(User.age > 25, on="f")   # predicate scoped to "f", not "u"
-    .return_target("f")
+    select(u)
+    .where(u.id == user_id)
+    .traverse(User.friends, to=f)
+    .where(f.age > 25)              # the handle scopes the predicate
+    .return_target(f)
 )
 friends: list[User] = session.scalars(stmt)
-# MATCH (u:User) WHERE u.id = $p0
-# OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
+# MATCH (u:User)
+# WHERE u.id = $p0
+# MATCH (u)-[:FRIENDS]->(f:User)
 # WHERE f.age > $p1
 # RETURN f
 ```
 
-The `on=` argument on `.where()` scopes a predicate to a specific alias.
-Without it, predicates are applied to the root node.
+A string works too (`to="f"` plus `where(..., on="f")`) — handles are just
+the form that lets predicates and projections say `f.age` directly. Omit
+`to=` entirely when nothing references the target.
 
-### Multi-hop traversal
+### Multi-hop traversal — the cursor
 
-Chain multiple `.traverse()` calls to follow a path through several
-relationships. Each step names a new alias:
+The builder keeps a **cursor**: the variable the most recent step bound. Every
+`traverse()` leaves from the cursor and then moves it to its own target, so
+consecutive calls walk a path — the same way your eye reads a Cypher pattern
+left to right: `(n)-->(f)-->(p)`.
 
 ```python
+p = alias(Post, "p")
 stmt = (
-    select(User).alias("u")
-    .traverse(User.friends).alias("f")
-    .traverse(User.authored_posts).alias("p")
-    .where(Post.title.contains("graph"), on="p")
-    .return_target("p")
+    select(User)                             # cursor: n
+    .traverse(User.friends, to="f")          # (n)-[:FRIENDS]->(f)      cursor: f
+    .traverse(User.authored_posts, to=p)     # (f)-[:AUTHORED]->(p)     cursor: p
+    .where(p.title.contains("graph"))
+    .return_target(p)
 )
 posts_by_friends: list[Post] = session.scalars(stmt)
-# MATCH (u:User)
-# OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
-# OPTIONAL MATCH (f)-[:AUTHORED]->(p:Post)
+# MATCH (n:User)
+# MATCH (n)-[:FRIENDS]->(f:User)
+# MATCH (f)-[:AUTHORED]->(p:Post)
 # WHERE p.title CONTAINS $p0
 # RETURN p
 ```
 
+The cursor is also why the default `RETURN` names the last target, and why a
+bare `delete()` deletes it.
+
+Note the second call: it says `User.authored_posts` but traverses from `f`.
+The descriptor contributes only the *pattern* (`[:AUTHORED]->(:Post)`) —
+**which** node it leaves from is the cursor's job. Since `f` is a `User`,
+that is exactly "posts authored by friends". To state the source in the call
+itself, use the handle's attribute instead — it compiles identically:
+
+```python
+f = alias(User, "f")
+select(User).traverse(User.friends, to=f).traverse(f.authored_posts, to=p)
+```
+
+A traversal's source is resolved in this order:
+
+1. **`from_=`**, when given — the fan-out lever (see
+   [Fanning out from one node](#fanning-out-from-one-node)).
+2. **The relation's own handle** — `f.authored_posts` leaves from `f`,
+   whatever the cursor says.
+3. **The cursor** — where the previous step landed; the root to begin with.
+
 ### Variable-length paths
 
-Use `QueryBuilder.repeat()` when you need to
-traverse an unknown number of hops — equivalent to Cypher's `*min..max`
-quantifier. This is useful for hierarchies (org charts, category trees,
-dependency graphs):
+A variable-length walk is the same pattern with a quantifier — Cypher spells
+it `*min..max` inside the relationship, and the builder spells it `hops=` on
+the same `traverse()` call. Useful for hierarchies (org charts, category
+trees, dependency graphs):
 
 ```python
 # Find all managers in the chain above an employee (1 to 5 hops)
+e = alias(Employee, "e")
 stmt = (
-    select(Employee).alias("e")
-    .where(Employee.id == emp_id)
-    .repeat(Employee.reports_to, min_hops=1, max_hops=5).alias("anc")
+    select(e)
+    .where(e.id == emp_id)
+    .traverse(Employee.reports_to, to="anc", hops=(1, 5))
 )
 ancestors: list[Employee] = session.scalars(stmt)
-# MATCH (e:Employee) WHERE e.id = $p0
+# MATCH (e:Employee)
+# WHERE e.id = $p0
 # MATCH (e)-[:REPORTS_TO*1..5]->(anc:Employee)
 # RETURN anc
 
 # No upper bound — all reachable nodes
-stmt = select(Station).repeat(Station.connected_to, min_hops=1).alias("s2")
+stmt = select(Station).traverse(Station.connected_to, to="s2", hops=(1, None))
 all_reachable: list[Station] = session.scalars(stmt)
-# MATCH (n:Station)-[:CONNECTED_TO*1..]->(s2:Station) RETURN s2
+# MATCH (n:Station)
+# MATCH (n)-[:CONNECTED_TO*1..]->(s2:Station)
+# RETURN s2
 ```
+
+`hops=3` (an int) means exactly three: `*3..3`. Because the quantifier lives
+on `traverse()`, it composes with everything else there — `types=` gives a
+variable-length alternation (`[:A|B*1..3]`), `direction=` and `optional=`
+apply as usual. The one exclusion: `edge=` cannot be combined with `hops=` —
+a relationship variable on a variable-length pattern binds a *list* of edges,
+which the mapper does not decode.
 
 ::: warning
 Variable-length paths with no upper bound (`*1..`) can be extremely
-expensive on dense graphs. Always set `max_hops` unless you are certain
+expensive on dense graphs. Always set an upper bound unless you are certain
 the graph has bounded depth.
 :::
 
 ::: info See also
 [examples/orm/08_query_builder_traversal.py](https://github.com/jenreh/runic/blob/main/examples/orm/08_query_builder_traversal.py)
-— Single-hop and multi-hop traversal, `optional=False` inner-join,
-`repeat()`, `return_target()`, `with_()`, and alias-scoped
-`where(on=)`.
+— Single-hop and multi-hop traversal, `optional=True` left-join,
+variable-length `hops=`, `return_target()`, `with_()`, and handle-scoped predicates.
 :::
 
 ---
@@ -484,17 +766,21 @@ the graph has bounded depth.
 ## Aliases
 
 Every node variable in a generated Cypher query has a name. The root node
-defaults to `n`; traversal targets default to a generated name. Use
-`.alias()` to assign readable names — this is important when:
-
-* You need to scope a `.where()` to a specific node (via `on=`).
-* You need to reference a node in a `.with_()` clause.
-* You read the generated Cypher via `.build()` and want it to be legible.
+defaults to `n`; traversal targets default to a generated name. Naming happens
+where a variable is *introduced* — `select()` for the root, `traverse(to=,
+edge=)` for a traversal — and the `alias()` handle is the tool:
 
 ```python
-select(User).alias("u").where(User.name == "Alice", on="u")
-# MATCH (u:User) WHERE u.name = $p0 RETURN u
+u = alias(User, "u")
+select(u).where(u.name == "Alice")
+# MATCH (u:User)
+# WHERE u.name = $p0
+# RETURN u
 ```
+
+A handle is worth creating whenever a variable is referenced more than once —
+`u.name` reads like the Cypher and survives renames. The split to remember:
+**`alias()` names graph variables, `.as_()` names result columns.**
 
 ---
 
@@ -502,7 +788,7 @@ select(User).alias("u").where(User.name == "Alice", on="u")
 
 By default, relationship patterns are anonymous: `(a)-[:TYPE]->(b)`. This is
 sufficient for most traversals. When you need to **filter on edge properties**
-or **return edge data alongside the nodes**, pass `edge_alias=` to
+or **return edge data alongside the nodes**, pass `edge=` to
 `.traverse()` to name the relationship variable:
 
 ```python
@@ -517,14 +803,16 @@ class User(Node, labels=["User"]):
         edge_model=Rated,
     )
 
+u, r = alias(User, "u"), alias(Rated, "r")
 stmt = (
-    select(User).alias("u")
-    .traverse(User.rated, edge_alias="r").alias("m")
-    .where(Rated.score > 4.0, on="r")       # filter on edge property
-    .return_nodes("u", "m").return_edge("r")
+    select(u)
+    .traverse(User.rated, to="m", edge=r)
+    .where(r.score > 4.0)                   # filter on edge property
+    .return_nodes(u, "m").return_edge(r)
 )
 rows: list[tuple[User, Rated, Movie]] = session.all_with_edges(stmt)
-# OPTIONAL MATCH (u:User)-[r:RATED]->(m:Movie)
+# MATCH (u:User)
+# MATCH (u)-[r:RATED]->(m:Movie)
 # WHERE r.score > $p0
 # RETURN u, r, m
 
@@ -542,45 +830,368 @@ rows into typed tuples.
 ::: info
 The existing lazy/eager loading paths (`session.get(..., fetch=[...])`)
 continue to use anonymous relationship patterns. Named edge variables are
-only emitted by the query builder when `edge_alias=` is given.
+only emitted by the query builder when `edge=` is given.
 :::
 
 ::: info See also
 [examples/orm/09_query_builder_edges.py](https://github.com/jenreh/runic/blob/main/examples/orm/09_query_builder_edges.py)
-— `traverse(edge_alias=)`, `return_nodes()` + `return_edge()`,
+— `traverse(edge=)`, `return_nodes()` + `return_edge()`,
 `all_with_edges()`, and filtering on edge properties.
 :::
 
 ---
 
-## WITH clause — multi-stage pipelining
+## Multi-stage queries: paging before expanding
 
-Cypher's `WITH` clause ends one query stage and begins the next, carrying
-forward only the named variables. This is useful when you need to filter an
-intermediate result before continuing a traversal — for example, taking the top
-N users by score before expanding their relationships:
+`WITH` is the only place Cypher lets a query order and cut **mid-flight**. Its
+`ORDER BY` and `LIMIT` apply to the rows entering the next stage, not to the
+final result — which is what makes it possible to take a page *before* paying
+for expansions.
+
+The builder compiles in the order you write, so the common shape needs no
+explicit `WITH` at all: paging calls written before a traversal page before it.
 
 ```python
-stmt = (
-    select(User).alias("u")
-    .where(User.active == True)
-    .order_by(User.score, desc=True)
-    .limit(10)
-    .with_("u")                       # WITH u  — only u carries forward
-    .traverse(User.authored_posts).alias("p")
-    .return_target("p")
+m, r = alias(Message, "m"), alias(Address, "r")
+(
+    select(m)
+    .where(m.id > param("after"))
+    .order_by(m.id).limit(param("limit"))   # written before the traverse
+    .traverse(Message.sent_to, to=r, optional=True)
+    .project(m.id, collect(r.id, distinct=True).as_("addressed"))
 )
-top_authors: list[Post] = session.scalars(stmt)
-# MATCH (u:User) WHERE u.active = $p0
-# ORDER BY u.score DESC LIMIT 10
-# WITH u
-# OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post)
-# RETURN p
 ```
 
-Without `WITH`, `LIMIT` applies to the final result, not to the
-intermediate set of users. The stage boundary created by `WITH` ensures the
-limit is applied before the traversal.
+```cypher
+MATCH (m:Message)
+WHERE m.id > $after
+WITH m               -- page taken off the index here,
+ORDER BY m.id ASC    -- before any expansion runs
+LIMIT $limit
+OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+RETURN m.id AS id, collect(DISTINCT r.id) AS addressed
+```
+
+Write the same paging calls *after* the traversal and they bound the final
+result instead — exactly as the reading order claims. With several optional
+matches that cross-multiply — a message with fifty recipients and twenty
+attachments is a thousand intermediate rows — that difference is the whole
+cost of the query.
+
+Reach for an explicit `with_()` when a stage *computes* something — carries an
+aggregate forward, or filters on one:
+
+| `with_()` argument | Effect |
+|---|---|
+| `*variables` | Cypher variables, or expressions, to carry forward |
+| `order_by=` / `desc=` | Sort the rows entering the next stage |
+| `limit=` / `skip=` | Bound them; accepts `param()` |
+| `where=` | Filter *after* the stage — Cypher's `HAVING` |
+| `distinct=` | `WITH DISTINCT` |
+
+`with_()` is repeatable, and stages interleave with traversals in the order you
+write them — the positional rule again: **pipeline stages are positional,
+filters are declarative** (`where()` calls are AND-ed and placed at the
+earliest legal point regardless of position).
+
+::: warning Always order before you limit
+Paging without an order is undefined in Cypher. Two runs of the same statement
+may return different pages, which silently produces different results from the
+same data.
+:::
+
+### Filtering on an aggregate
+
+`where=` on a stage is the only way to filter a computed value, because a
+`WHERE` before the aggregation cannot see it:
+
+```python
+m = alias(Message, "m")
+(
+    select(m)
+    .traverse(Message.sent_to, to="r", optional=True)
+    .with_(m, count("*").as_("fanout"), where=var("fanout") > param("min"))
+    .return_target(m)
+)
+# MATCH (m:Message)
+# OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+# WITH m, count(*) AS fanout
+# WHERE fanout > $min
+# RETURN m
+```
+
+---
+
+## Fanning out from one node
+
+By default the [cursor](#multi-hop-traversal--the-cursor) walks a chain: each
+`traverse()` continues from wherever the previous one landed. `from_` anchors
+a traversal to a named variable instead, so several can leave the same node —
+without it, the second traversal below would leave from `s`, not `m`:
+
+```python
+m = alias(Message, "m")
+q = select(m)
+q = q.traverse(Message.sent_from, from_=m, to="s", optional=True)
+q = q.traverse(Message.sent_to, from_=m, to="r", optional=True)
+q = q.traverse(Message.has_attachment, from_=m, to="f", optional=True)
+```
+
+```cypher
+MATCH (m:Message)
+OPTIONAL MATCH (m)-[:SENT_FROM]->(s:Address)
+OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+OPTIONAL MATCH (m)-[:HAS_ATTACHMENT]->(f:Attachment)
+RETURN f             -- the default: the last variable bound
+```
+
+The alternative — one query per relationship — reads the same node once per edge
+type. Fanning out reads it once, at the cost of intermediate rows that
+`collect(distinct=True)` folds back:
+
+```python
+s, f = alias(Address, "s"), alias(Attachment, "f")
+.project(
+    m.id,
+    collect(s.id, distinct=True).as_("senders"),
+    collect(f.id, distinct=True).as_("attachments"),
+)
+```
+
+---
+
+## Relationship type alternation
+
+Some relationships are *defined* as the walk over more than one type. `types=`
+matches them in a single pattern:
+
+```python
+m = alias(Message, "m")
+select(m).traverse(
+    Message.sent_to, to="r", types=["SENT_TO", "COPIED_TO"], optional=True
+)
+# MATCH (m:Message)
+# OPTIONAL MATCH (m)-[:SENT_TO|COPIED_TO]->(r:Address)
+# RETURN r
+```
+
+Matching the two types as separate patterns is **not** the same query: anything
+carrying both is matched twice and counted twice.
+
+::: warning Not available on Apache AGE
+AGE's openCypher subset has no alternation. runic refuses to emit it there with
+a `NotImplementedError` naming the construct, rather than sending Cypher the
+backend answers with a syntax error pointing at a character.
+:::
+
+### Direction override
+
+A relation declared `direction="BOTH"` is undirected in *meaning*. When both
+endpoints carry the same label, though, a directed pattern still matches every
+edge — exactly once, where the undirected form matches it from each end:
+
+```python
+a, b = alias(Address, "a"), alias(Address, "b")
+
+# Counting: an arrow avoids counting every edge twice
+select(a).traverse(a.co_addressed, to=b, edge="r", direction="OUTGOING")
+# MATCH (a:Address)
+# MATCH (a)-[r:CO_ADDRESSED]->(b:Address)
+# RETURN b
+
+# Reading: no arrow, because which way it was stored is an accident of
+# who was written to first — pair it with a.id < b.id to keep one row
+select(a).traverse(a.co_addressed, to=b, edge="r")
+# MATCH (a:Address)
+# MATCH (a)-[r:CO_ADDRESSED]-(b:Address)
+# RETURN b
+```
+
+---
+
+## Backend capability differences
+
+Backends implement different subsets of Cypher, and a statement using an
+unsupported construct otherwise fails at the driver with a syntax error naming a
+character — which says nothing about which builder call caused it. runic checks
+before sending:
+
+```python
+NotImplementedError: AGE does not support relationship type alternation
+([:A|B]). Express the query without it, or drop to a backend-specific
+statement via session.execute().
+```
+
+The check happens when the statement is compiled for a session, not when it is
+built, because a `select()` statement does not know its backend yet.
+
+| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE |
+|---|---|---|---|---|---|
+| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ |
+
+---
+
+## Writes: bulk upserts, batched deletes
+
+The session's identity map is the right tool for writing a handful of entities.
+It is the wrong one for a job that writes tens of thousands: that is one round
+trip per node, and every one of them stays in memory until the session closes.
+
+The write pipeline sends the lot in a single statement instead.
+
+```python
+from runic.ogm import count, encode_rows, param, row, select, unwind
+```
+
+### `UNWIND` + `MERGE` — upserting nodes
+
+```python
+MERGE_GROUPS = (
+    unwind(param("rows"))
+    .merge(Group, key=Group.id, alias="g")
+    .set(Group.size, Group.message_count)
+)
+
+session.execute_statement(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
+```
+
+A bare descriptor reads the same-named `$rows` key — `key=Group.id` means
+`{id: row.id}` and `set(Group.size)` means `SET g.size = row.size` — so a bulk
+upsert never echoes a field name. When a row key is named differently, the
+mapping form spells it out: `key={Message.id: row("message_id")}`.
+
+```cypher
+UNWIND $rows AS row
+MERGE (g:Group {id: row.id})
+SET g.size = row.size, g.message_count = row.message_count
+```
+
+::: tip Only the key goes in the `MERGE` pattern
+Everything else belongs in the following `set()`. A property whose value changed
+between runs would make `MERGE` fail to find the existing node and create a
+second one.
+:::
+
+`MERGE` rather than `CREATE` because idempotence is usually the contract. A
+derived label carries no unique constraint, so re-running a job that `CREATE`d
+its output silently produces a second copy of every node — and every edge written
+afterwards is written twice.
+
+### Attaching edges
+
+Match both endpoints, then merge between them:
+
+```python
+MERGE_ABOUT = (
+    unwind(param("rows"))
+    .match(Message, key={Message.id: row("message_id")}, alias="m")
+    .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
+    .merge_edge("m", About, "t", alias="r")
+    .set(About.score, About.method, on="r")
+)
+```
+
+The Edge class *is* the relationship argument — `About` carries the type
+(`ABOUT`) and the edge model for `set()`'s converters, so neither is repeated.
+A raw type string still works for edges that have no model.
+
+`match()` and not `merge()` on the endpoints: a row naming a node that is not
+there is a bug in the caller's ordering, and merging it would paper over that
+with an empty node carrying nothing but a key — one no import can ever
+reconcile.
+
+Pass `directed=False` when the relationship is symmetric in meaning and the
+stored direction is an accident of which end was written first:
+
+```python
+(
+    unwind(param("rows"))
+    .match(Address, key={Address.id: row("left")}, alias="a")
+    .match(Address, key={Address.id: row("right")}, alias="b")
+    .merge_edge("a", CoAddressed, "b", alias="r", directed=False)
+)
+# UNWIND $rows AS row
+# MATCH (a:Address {id: row.left})
+# MATCH (b:Address {id: row.right})
+# MERGE (a)-[r:CO_ADDRESSED]-(b)
+```
+
+::: warning FalkorDB rejects an undirected `MERGE`
+It supports directed edges only. runic refuses to emit one there. Order the pair
+canonically in the caller and merge with an arrow instead — and read it back the
+same way.
+:::
+
+### `SET` — bulk property assignment
+
+```python
+CLEAR_EMBEDDINGS = (
+    select(Message)
+    .where(Message.embedding.is_not_null())
+    .set({Message.embedding: None, Message.embedding_model: None})
+    .returning(count("n").as_("cleared"))
+)
+```
+
+`None` emits the literal `NULL`, which removes the property. Field converters
+and the dialect's wrapping functions apply, so a value written here is stored the
+way the mapper would store it — `vecf32()` on FalkorDB, raw elsewhere.
+
+### `DELETE` — in batches
+
+```python
+DELETE_GROUPS = (
+    select(Group)
+    .limit(param("batch"))
+    .delete(detach=True)
+    .returning(count("n").as_("removed"))
+)
+```
+
+The limit is written before the delete, so it bounds the rows deleted — the
+positional rule again, compiled as a `WITH n LIMIT $batch` stage. Loop until
+`removed` is zero: batching keeps one delete from becoming a single long stall
+on a store something else is also reading.
+
+::: danger `detach=True` on an edge destroys its endpoints
+`DETACH DELETE` removes the incident edges of whatever it deletes. That is
+required for a node. On an *edge* it takes both endpoints down with it — and for
+a derived edge between two ground-truth nodes, that means destroying real data
+to clean up a computed one.
+
+```python
+# Nodes: detach, because Cypher will not delete a node that has edges
+.limit(param("batch")).delete(detach=True)
+
+# Edges: never detach — keep both endpoints
+.with_("r", limit=param("batch")).delete("r")
+```
+:::
+
+### A write returns nothing unless you ask
+
+`returning()` is what makes a write report itself. Without it no `RETURN` is
+emitted at all — the default would name the matched variable, which after a
+`DELETE` names a node that no longer exists, and after a bulk `SET` would ship
+every touched row back to the caller.
+
+### Rows and converters
+
+Values inside `$rows` never pass through the mapper, so a `datetime` there would
+reach the driver as an object it has no encoding for. `encode_rows()` applies the
+same field converters the mapper would:
+
+```python
+rows = encode_rows(Group, [{"id": "g1", "first_seen": some_datetime}])
+# [{"id": "g1", "first_seen": "2026-03-04T00:00:00+00:00"}]
+```
+
+Keys that are not fields of the class pass through untouched, so an edge row can
+carry `message_id` and `topic_id` alongside the edge's own properties.
 
 ---
 
@@ -594,7 +1205,7 @@ closes the builder chain.
 | `.all()` | `list[T]` — fully decoded, session-tracked node instances |
 | `.one()` | `T \| None` — first result (adds `LIMIT 1`); `None` if empty |
 | `.all_with_edges()` | `list[tuple]` — `(NodeA, Edge, NodeB)` tuples (requires `return_nodes` + `return_edge`) |
-| `.all_rows()` | `list[dict]` — raw column-keyed dicts; used with `project()` and `aggregate()` |
+| `.all_rows()` | `list[dict]` — column-keyed dicts; used with `project()`, aggregates included |
 | `.count()` | `int` — adds `count(*)` to `RETURN`; no node decoding |
 | `.scalar()` | `Any` — first column of the first row; convenient for single-value aggregates |
 | `.scalars()` | `list[Any]` — first column of every row; convenient with `project()` |
@@ -613,10 +1224,9 @@ closes the builder chain.
 ## Full-text search
 
 Full-text search uses a backend-specific `CALL` procedure instead of a
-`MATCH` clause. The entry point is
-`Session.fulltext_search()`, which returns a
-specialised builder that has the same chaining and terminal methods as
-`QueryBuilder`.
+`MATCH` clause. `fulltext_search()` is `select()` for a search: a
+session-independent statement with the same chaining and terminal methods
+(`session.fulltext_search()` is the session-bound form).
 
 The backend procedure invoked depends on which driver you are using:
 
@@ -637,19 +1247,19 @@ class Post(Node, labels=["Post"]):
     title: str = Field(index_type="FULLTEXT")
     body: str = Field(index_type="FULLTEXT")
 
-posts: list[Post] = (
-    session.fulltext_search(Post, query="graph databases")
+SEARCH = (
+    fulltext_search(Post, query=param("text"))
     .where(Post.published == True)
     .order_by(Post.created_at, desc=True)
     .limit(20)
-    .all()
 )
+posts: list[Post] = session.scalars(SEARCH, {"text": "graph databases"})
 ```
 
 The generated Cypher for FalkorDB:
 
 ```text
-CALL db.idx.fulltext.queryNodes('Post', $__fts_query) YIELD node AS n
+CALL db.idx.fulltext.queryNodes('Post', $text) YIELD node AS n
 WHERE n.published = $p0
 RETURN n
 ORDER BY n.created_at DESC
@@ -691,17 +1301,16 @@ class Document(Node, labels=["Document"]):
     id: str = Field(primary_key=True)
     embedding: Vector = Field(index_type="VECTOR")
 
-similar: list[Document] = (
-    session.vector_search(
-        Document,
-        field=Document.embedding,
-        vector=query_embedding,   # list[float]
-        k=10,
-    )
+KNN = (
+    vector_search(Document.embedding, vector=param("vector"), k=10)
     .where(Document.active == True)
-    .all()
 )
+similar: list[Document] = session.scalars(KNN, {"vector": query_embedding})
 ```
+
+The field descriptor knows its owner, so the class is not repeated. To name
+the yielded variable, pass a handle's attribute instead:
+`vector_search(node.embedding, ...)` with `node = alias(Document, "node")`.
 
 The generated Cypher for FalkorDB:
 
@@ -726,6 +1335,140 @@ migration op or direct DDL.
 
 ---
 
+## Procedures: `call()`
+
+Some things a query needs are not patterns — an index search, a graph algorithm.
+`call()` invokes a procedure mid-query, and its arguments are ordinary
+expressions, so it can be driven by a value from a node already matched:
+
+```python
+m = alias(Message, "m")
+(
+    select(m)
+    .where(m.embedding_model == param("model"))
+    .call(
+        "db.idx.vector.queryNodes",
+        "Message", "embedding", param("k"), m.embedding,
+        yields=["node", "score"],
+    )
+    .with_(m, var("node"), var("score"))
+    .where(var("node").is_not_null() & (var("score") <= param("max_distance")))
+)
+```
+
+That is every node's nearest neighbours in **one** round trip, rather than one
+KNN query per node.
+
+Arguments follow one rule: a plain `str` is emitted as a Cypher string literal —
+an index or label name the *model* supplies — and everything else is bound.
+`var(name)` references something the query introduced rather than something a
+model declares, such as a procedure's yield.
+
+::: warning `call()` names a procedure literally
+A statement using it is exactly as portable as that procedure. FalkorDB's vector
+procedure is `db.idx.vector.queryNodes`, Neo4j's is `db.index.vector.queryNodes`
+with a different argument order, Memgraph's is `vector_search.search`. For a
+portable KNN use `vector_search()`, which asks the dialect. Reach for
+`call()` when you need a specific backend's procedure — as a correlated KNN
+does. ArcadeDB and Apache AGE have no `CALL … YIELD` at all.
+:::
+
+---
+
+## Search scores
+
+Both search builders expose the score the index produced, via `score()`. It can
+be projected, filtered, or sorted on:
+
+```python
+from runic.ogm import param, score, vector_search
+
+session.all_rows(
+    vector_search(Message.embedding, vector=param("vector"), k=param("k"))
+    .where(Message.embedding_model == param("model"))
+    .project(Message.id, score().as_("distance"))
+    .limit(param("limit")),
+    {"vector": query_vec, "k": 200, "model": model, "limit": 20},
+)
+```
+
+::: danger The two scores mean opposite things
+A **vector** score is a *distance* — lower is closer. A **fulltext** score is a
+*relevance* — higher is better. They are not comparable, and merging both into
+one ranking without a stated normalisation invents an ordering neither index
+produced.
+
+runic normalises across backends so a vector score always means distance
+(Neo4j reports a similarity; it is inverted for you). An exact match can come
+back marginally negative, so anything converting it to a percentage must clamp.
+:::
+
+### Search width is not the row limit
+
+`k` is how far into the index the search reaches. `limit` is how many rows the
+caller sees. They are different numbers because **a procedure cannot be narrowed
+before the fact**: a `MATCH` above it does not restrict what it searches, so
+every row a following `where()` drops has already been paid for by `k`.
+
+Asking for `k == limit` and then filtering returns a short page — which looks
+exactly like a small database.
+
+::: tip A missing vector is invisible, not low-ranked
+A row with no vector is absent from the index entirely, and nothing in the
+result says so. Report coverage alongside any semantic answer, or "the embedding
+job is a third done" and "there is nothing here" produce the same output.
+
+```python
+select(Message).project(
+    count("*").as_("total"),
+    count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
+)
+```
+:::
+
+---
+
+## Index DDL at runtime
+
+Indexes are declared on the model and created by a migration, and that is still
+where they belong: a migration is a versioned statement about the schema every
+installation shares.
+
+A vector index is the exception. Its dimension follows whichever embedding model
+is configured — a *setting*, chosen per installation — and re-running one
+revision with a different constant is not something a migration chain can
+express.
+
+```python
+from runic.ogm.schema.runtime_index import IndexOperations
+
+ops = IndexOperations.from_driver(driver)
+
+ops.create_vector_index(Message, Message.embedding, dimension=1536)
+ops.resize_vector_index(Message, Message.embedding, dimension=768)
+ops.drop_vector_index(Message, Message.embedding)
+
+for spec in ops.describe():
+    print(spec.label, spec.property, spec.index_type)
+```
+
+This is the same `IndexAdapter` the migration tool drives — exposure, not new
+DDL. `from_driver()` works where the driver carries enough to build an adapter
+(FalkorDB); elsewhere build one with `create_adapter(...)` and pass it in.
+
+::: danger A wrong-length vector is accepted and never indexed
+Backends store a vector of the wrong dimension as an ordinary property and
+decline to index it — no exception, no log line. A job run against a mismatched
+index therefore reports every row embedded and leaves every one unfindable.
+
+Read `describe()` before writing vectors. And when the dimension changes, clear
+the stored vectors: one kept at the old length is skipped by the very job meant
+to replace it, because that job selects on "embedded by a different model", not
+"embedded at a different length".
+:::
+
+---
+
 ## Async usage
 
 `AsyncSession` returns an
@@ -737,11 +1480,9 @@ only the terminal methods are `async` and must be awaited:
 from runic.ogm import select
 
 stmt = select(User).where(User.active == True).order_by(User.name).limit(50)
-stmt_friends = (
-    select(User).alias("u")
-    .traverse(User.friends).alias("f")
-    .where(User.age > 25, on="f")
-)
+
+u, f = alias(User, "u"), alias(User, "f")
+stmt_friends = select(u).traverse(User.friends, to=f).where(f.age > 25)
 
 async with AsyncSession(driver) as session:
     users: list[User] = await session.scalars(stmt)
@@ -772,19 +1513,21 @@ from runic.ogm import select
 
 cypher: str
 params: dict[str, Any]
+u, f = alias(User, "u"), alias(User, "f")
 cypher, params = (
-    select(User).alias("u")
-    .where(User.age > 18)
-    .traverse(User.friends).alias("f")
-    .where(User.active == True, on="f")
-    .return_target("f")
+    select(u)
+    .where(u.age > 18)
+    .traverse(User.friends, to=f)
+    .where(f.active == True)
+    .return_target(f)
     .build()
 )
 
 print(cypher)
-# MATCH (u:User) WHERE (u.age > $p0)
-# OPTIONAL MATCH (u)-[:FRIENDS]->(f:User)
-# WHERE (f.active = $p1)
+# MATCH (u:User)
+# WHERE u.age > $p0
+# MATCH (u)-[:FRIENDS]->(f:User)
+# WHERE f.active = $p1
 # RETURN f
 
 print(params)
@@ -816,11 +1559,9 @@ result = session.execute(cypher, params)
 Use raw Cypher when you need:
 
 * `UNION` / `UNION ALL` across multiple patterns.
-* `CASE` expressions in `RETURN`.
 * `EXISTS { ... }` subqueries.
 * `CALL { ... }` subqueries (correlated or uncorrelated).
 * Pattern comprehensions (`[(a)-[:T]->(b) | b.prop]`).
-* Procedure calls not wrapped by the builder (e.g. graph algorithms).
 
 For everything else, prefer the builder — it handles parameter binding,
 alias generation, and result decoding automatically.
@@ -839,20 +1580,36 @@ alias generation, and result decoding automatically.
 | WHERE (list) | ✓ | `.in_()`, `.not_in_()` |
 | WHERE (boolean logic) | ✓ | `&`, `\|`, `~` |
 | RETURN | ✓ | Automatic; customised by `return_target()`, `project()` |
+| RETURN column aliases (`AS`) | ✓ | `.as_("name")` on any value expression |
+| Scalar functions (`left`, `coalesce`, …) | ✓ | `fn()` and the named helpers |
+| Property-to-property comparison | ✓ | `a.f < b.f` with handles, or `M.f < M.g` |
+| Named bound parameters | ✓ | `param("name")`, `parameter_names()` |
+| List membership on a list property | ✓ | `.any_of(value)` |
 | ORDER BY | ✓ | `.order_by(field, desc=False)` |
-| SKIP / LIMIT | ✓ | `.skip(n)`, `.limit(n)` |
+| SKIP / LIMIT | ✓ | `.skip(n)`, `.limit(n)`; accepts `param("limit")` |
 | DISTINCT | ✓ | `.distinct()` |
-| WITH | ✓ | `.with_("alias")` |
-| Aggregation (count/avg/sum/…) | ✓ | `.aggregate(...)` + helpers from `runic.ogm.query` |
-| Edge property filter | ✓ | `traverse(edge_alias=)` + `where(on=)` |
+| WITH (multi-stage) | ✓ | `.with_(vars, order_by=, limit=, where=)`, repeatable |
+| Relationship alternation `[:A\|B]` | ✓ | `.traverse(rel, types=[…])` — not on AGE |
+| Fan-out from one node | ✓ | `.traverse(rel, from_="m")` |
+| Direction override | ✓ | `.traverse(rel, direction="OUTGOING")` |
+| Aggregation (count/avg/sum/…) | ✓ | `.project(...)` + helpers from `runic.ogm` |
+| UNWIND (bulk rows) | ✓ | `unwind(param("rows"))` |
+| MERGE (node upsert) | ✓ | `.merge(Model, key={…})` |
+| MERGE (edge upsert) | ✓ | `.merge_edge(src, "TYPE", tgt)` |
+| SET (bulk assignment) | ✓ | `.set({Model.field: value})` |
+| DELETE / DETACH DELETE | ✓ | `.delete(detach=True)` |
+| Edge property filter | ✓ | `traverse(edge=r)` + `where(r.prop > x)` |
 | Relationship traversal (1-hop) | ✓ | `.traverse(Cls.relation)` |
 | Multi-hop traversal | ✓ | Chained `.traverse()` calls |
-| Variable-length paths (`*n..m`) | ✓ | `.repeat(Cls.relation, min_hops=, max_hops=)` |
-| Full-text search (CALL) | ✓ | `session.fulltext_search()` |
-| Vector KNN | ✓ | `session.vector_search()` |
+| Variable-length paths (`*n..m`) | ✓ | `.traverse(Cls.relation, hops=(n, m))` |
+| Full-text search | ✓ | `session.fulltext_search()`; score via `score()` |
+| Vector KNN (index-backed) | ✓ | `session.vector_search()`; `k` ≠ `limit` |
+| Procedure calls (`CALL … YIELD`) | ✓ | `.call(name, *args, yields=[…])` |
+| Correlated procedure calls | ✓ | pass a handle's property as an argument |
+| Runtime index DDL | ✓ | `IndexOperations` (not a statement — DDL is not a query) |
 | TypeConverter in WHERE | ✓ | Auto-applied for `datetime`, `Enum`, `Vector`, `GeoLocation` |
 | UNION / UNION ALL | ✗ | Use `repo.cypher()` |
-| CASE expressions | ✗ | Use `repo.cypher()` |
+| CASE expressions | ✓ | `when(cond, value)` — including inside aggregates |
 | EXISTS { subpattern } | ✗ | Use `repo.cypher()` |
 | CALL { ... } subqueries | ✗ | Use `repo.cypher()` |
 | Pattern comprehensions | ✗ | Use `repo.cypher()` |
@@ -863,17 +1620,18 @@ alias generation, and result decoding automatically.
 
 **Use `all_rows()` for projections and aggregations, not `scalars()`**
 
-`project()` and `aggregate()` return dictionaries, not entities.
-`scalars()` will try to decode a dict as a node and fail:
+`project()` returns columns, not entities. `session.scalars()` decodes whole
+nodes, so a projecting statement raises immediately, naming the fix:
 
 ```python
-from runic.ogm.query import count
+from runic.ogm import count
 
-# BAD
-results = session.scalars(select(User).aggregate(count("*").as_("total")))
+# Raises: "scalars() decodes whole nodes, but this statement projects
+# columns — use .all_rows() (or session.all_rows(stmt)) instead"
+session.scalars(select(User).project(count("*").as_("total")))
 
 # GOOD
-results = session.all_rows(select(User).aggregate(count("*").as_("total")))
+results = session.all_rows(select(User).project(count("*").as_("total")))
 # [{"total": 42}]
 ```
 
@@ -891,46 +1649,37 @@ stmt = select(User).where(User.active == True & User.region == "DE")
 stmt = select(User).where((User.active == True) & (User.region == "DE"))
 ```
 
-**Edge property filters need `optional=False`**
+**A `where()` on an *optional* traversal nullifies instead of dropping**
 
-The default `traverse()` emits `OPTIONAL MATCH`. A `WHERE` clause on
-an `OPTIONAL MATCH` nullifies unmatched rows rather than dropping them,
-causing `None` values in results. Use `optional=False` when you need to
-filter on edge properties:
+`traverse()` emits a plain `MATCH` by default, so filters on the target or
+edge drop rows as expected. If you marked the traversal `optional=True`, a
+`WHERE` on it produces `None` rows rather than removing them — mark a
+traversal optional only when missing relationships are valid data.
 
-```python
-stmt = (
-    select(User).alias("u")
-    .traverse(User.articles, edge_alias="e", optional=False)
-    .alias("a")
-    .where(Article.published == True, on="a")
-)
-```
+**Don't name an aggregation column after a node variable**
 
-**Don't alias an aggregation column the same as the node alias**
-
-The default node alias is `n`. Naming an aggregation column `n` collides
-with it and causes the decoder to treat the integer as a node:
+The default node variable is `n`. Naming a column `n` collides with it and
+causes the decoder to treat the integer as a node:
 
 ```python
-# BAD — "n" collides with the node alias
-stmt = select(User).aggregate(count("*").as_("n"), group_by="n.city")
+# BAD — "n" collides with the node variable
+stmt = select(User).project(User.city, count("*").as_("n"))
 
 # GOOD
-stmt = select(User).aggregate(count("*").as_("total"), group_by="n.city")
+stmt = select(User).project(User.city, count("*").as_("total"))
 ```
 
-**Group by a field path, not the whole node alias**
+**Group by a property, not the whole node, when the key is a value**
 
-`group_by="u"` groups by the entire node — one row per node. Pass the
-field path to group by a property value:
+Projecting a handle groups by the entire node — one row per node. Project the
+field to group by its value:
 
 ```python
-# BAD — groups per node, not per city
-stmt = select(User).alias("u").aggregate(count("*").as_("total"), group_by="u")
+# Groups per node — one row per user
+stmt = select(u).project(u, count("*").as_("total"))
 
-# GOOD
-stmt = select(User).alias("u").aggregate(count("*").as_("total"), group_by="u.city")
+# Groups per city
+stmt = select(User).project(User.city, count("*").as_("total"))
 ```
 
 **Keep `datetime` values timezone-aware**
@@ -948,3 +1697,31 @@ article.published_at = datetime(2026, 1, 1)
 # GOOD — timezone-aware
 article.published_at = datetime(2026, 1, 1, tzinfo=UTC)
 ```
+
+---
+
+## Migrating from the pre-0.5 builder API
+
+The 0.5 ergonomics overhaul removed the redundant spellings. One table covers
+the whole migration:
+
+| Before | After |
+|---|---|
+| `select(User).alias("u")` | `select(alias(User, "u"))` |
+| `.traverse(X).alias("b")` | `.traverse(X, to=b)` |
+| `.traverse(X, edge_alias="r")` | `.traverse(X, edge=r)` |
+| `.repeat(X, min_hops=1, max_hops=5)` | `.traverse(X, hops=(1, 5))` — `(1, None)` for unbounded |
+| `.traverse(X)` (OPTIONAL by default) | `.traverse(X, optional=True)` — plain `MATCH` is now the default |
+| `.aggregate(aggs, group_by=keys)` | `.project(*keys, *aggs)` |
+| `col(Message.id)` | `Message.id` — bare fields are values |
+| `col("a", Address.id)` / `Address.id.on("a")` | `a.id` on a handle (or `col("a", Address.id)` for a one-off pin) |
+| `.where(Rated.score > 4, on="r")` | `.where(r.score > 4)` with an edge handle |
+| `.with_("m", order_by=…, limit=…)` before a traverse | `.order_by(m.id).limit(…)` before the traverse — written order is compiled order |
+| `.with_("n", limit=batch).delete(...)` | `.limit(batch).delete(...)` |
+| `merge(cls, key={Cls.id: row("id")})` | `merge(cls, key=Cls.id)` |
+| `.set({Cls.f: row("f")}, on=…)` | `.set(Cls.f, on=…)` in an UNWIND statement |
+| `merge_edge("m", "ABOUT", "t", edge_model=About)` | `merge_edge("m", About, "t")` |
+| `VectorQueryBuilder(None, Cls, field=…, …)` | `vector_search(Cls.field, …)` |
+| `FulltextQueryBuilder(None, Cls, query=…)` | `fulltext_search(Cls, query=…)` |
+| `.order_by("total", desc=True)` | `total = count("*").as_("total")` … `.order_by(total, desc=True)` (string still works) |
+| unaliased `project(User.name)` → key `"n.name"` | auto-named: key is `"name"` |

@@ -108,8 +108,8 @@ def main() -> None:
     # Read EDGE PROPERTIES via traversal + all_with_edges().
     with Session(driver) as session:
         rows = session.all_with_edges(
-            select(User).alias("u").where(User.id == "alice")
-            .traverse(User.articles, edge_alias="e").alias("a")
+            select(User).where(User.id == "alice")
+            .traverse(User.articles, to="a", edge="e")
             .return_nodes("u", "a").return_edge("e")
         )
         for user, edge, article in rows:  # (User, Authored, Article) tuples

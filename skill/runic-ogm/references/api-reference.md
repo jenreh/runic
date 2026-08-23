@@ -155,11 +155,11 @@ by subclassing `TypeConverter` (`to_graph`, `from_graph`, optional `cypher_fn`).
 | `scalars` | `(stmt) -> list[T]` | Run `select()` → entities |
 | `scalar` | `(stmt) -> T \| None` | Run `select()` → one or none |
 | `count` | `(stmt) -> int` | Run `select()` → row count |
-| `all_rows` | `(stmt) -> list[dict]` | Run a `project()`/`aggregate()` statement |
+| `all_rows` | `(stmt) -> list[dict]` | Run a `project()` statement (aggregates included) |
 | `all_with_edges` | `(stmt) -> list[tuple]` | Run a traversal with `return_edge` |
-| `query` | `(cls) -> QueryBuilder` | Session-bound builder (terminal methods on it) |
-| `fulltext_search` | `(cls, *, query, fields=None) -> FulltextQueryBuilder` | FalkorDB fulltext |
-| `vector_search` | `(cls, *, field, vector, k=10) -> VectorQueryBuilder` | FalkorDB KNN |
+| `query` | `(cls, name=None) -> QueryBuilder` | Session-bound builder (terminal methods on it); `name` sets the root variable |
+| `fulltext_search` | `(cls, *, query, fields=None) -> FulltextQueryBuilder` | Session-bound fulltext (module-level `fulltext_search()` for statements) |
+| `vector_search` | `(cls, *, field, vector, k=10) -> VectorQueryBuilder` | Session-bound KNN (module-level `vector_search(Cls.field, ...)` for statements) |
 | `close` | `() -> None` | Release the session |
 
 Dirty tracking: mutating any field on a loaded (persistent) entity sets
@@ -207,21 +207,20 @@ Subclass `Repository[T]` to add domain methods; build on `self.query()` or
 ## QueryBuilder
 
 Created by `select(Cls)` (session-free) or `session.query(Cls)` (session-bound).
+Both take an optional root-variable name — `select(Cls, "u")` → `MATCH (u:…)` —
+instead of the default `n`; an `alias()` handle as *Cls* does the same.
 
 **Construction / refinement** (chainable, return the builder):
 
 | Method | Description |
 |---|---|
-| `where(expr, on=None)` | Add a filter; `on="alias"` targets an aliased node/edge. Repeated calls AND-combine |
-| `alias(name)` | Name the current pattern element for traversal/filtering |
-| `traverse(rel, edge_alias=None, optional=True)` | One hop along a `Relation`; `optional=False` = required join |
-| `repeat(rel, min_hops=1, max_hops=None)` | Variable-length path |
-| `with_(*aliases)` | `WITH` pipeline boundary |
-| `order_by(field, desc=False)` | Sort |
-| `limit(n)` / `skip(n)` | Page |
+| `where(expr, on=None)` | Add a filter; handles scope predicates directly (`r.score > 4`). Repeated calls AND-combine |
+| `traverse(rel, to=None, edge=None, optional=False, hops=None)` | One pattern, one call: `MATCH` by default, `optional=True` = left join; `hops=(min, max)` = variable-length (`edge=` excluded with it). Returns the builder |
+| `with_(*aliases)` | Explicit `WITH` pipeline boundary |
+| `order_by(field, desc=False)` | Sort; accepts a named `.as_()` expression to order by a result column |
+| `limit(n)` / `skip(n)` | Page. Written before a traverse/write they page *before* it (auto-`WITH`) |
 | `distinct()` | `DISTINCT` in the RETURN |
-| `project(*fields)` | Return scalar columns (read via `all_rows`); keys like `"n.name"` |
-| `aggregate(*exprs, group_by=None)` | Aggregations. `group_by` is kept verbatim in RETURN: pass `"alias.property"` (e.g. `"n.city"`) to group by a field, or a bare alias to group by the whole node |
+| `project(*items)` | The RETURN line: fields (auto-named `AS field`), handles, expressions, aggregates — plain items are the group keys |
 | `return_target(alias)` | Decode this alias as the result entity |
 | `return_nodes(*aliases)` / `return_edge(alias)` | Columns for `all_with_edges` |
 
@@ -232,6 +231,82 @@ Created by `select(Cls)` (session-free) or `session.query(Cls)` (session-bound).
 
 **Inspect:** `build() -> (cypher: str, params: dict)` — generate Cypher without
 executing.
+
+---
+
+## Value expressions
+
+Usable anywhere Cypher expects a value — WHERE, RETURN, ORDER BY.
+
+| Constructor | Emits |
+|---|---|
+| `Model.field` (bare) | `n.field` — fields are values |
+| `alias(Model, "m")` → `m.field` | `m` / `m.field` — named-variable handle |
+| `col("m", Model.field)` | `m.field` — one-off pin |
+| `param("name")` | `$name` — declared, bound by the caller |
+| `literal(value)` | `$pN` — a Python value, bound not inlined |
+| `fn("name", *args)` | `name(arg, …)` |
+| `left(v, n)`, `coalesce(*v)`, `to_lower(v)`, `to_upper(v)` | the named helpers |
+| `when(cond, then, *pairs, else_=…)` | `CASE WHEN … THEN … [ELSE …] END` |
+| `expr.as_("name")` | `expr AS name` |
+| `encode_rows(Model, rows)` | applies field converters across `$rows` payloads |
+
+All operands are bound as parameters; nothing is interpolated as text.
+
+### Named parameters
+
+| Call | Does |
+|---|---|
+| `param("name")` | declare a caller-bound parameter |
+| `stmt.parameter_names()` | the declared names, sorted, read off the compiled statement |
+| `stmt.bind(values)` | merge caller values over auto-bound ones; raises on a missing one |
+| `session.scalars(stmt, values)` | every execution method takes bindings as a second argument |
+| `.limit(param("limit"))`, `.skip(param("offset"))` | paging bounds as parameters |
+
+### Clause methods
+
+| Call | Emits |
+|---|---|
+| `with_(*vars, order_by=, desc=, limit=, skip=, where=, distinct=)` | a `WITH` stage; repeatable |
+| `traverse(rel, from_="m")` | anchors the traversal to a named variable |
+| `traverse(rel, types=["A", "B"])` | `[:A\|B]` — not on Apache AGE |
+| `traverse(rel, direction="OUTGOING")` | overrides a `BOTH` relation's direction |
+| `call(proc, *args, yields=[…])` | `CALL proc(…) YIELD …`, optionally correlated |
+| `set({Model.f: value}, on=alias)` | bulk `SET`; `None` clears the property |
+| `delete(*vars, detach=False)` | `DELETE` / `DETACH DELETE` |
+| `returning(*values)` | what a write reports; without it, no `RETURN` |
+
+### Bulk writes
+
+| Call | Emits |
+|---|---|
+| `unwind(source, as_="row")` | `UNWIND $rows AS row` |
+| `.merge(Model, key={…}, alias=)` | `MERGE (n:L {k: row.k})` — key only |
+| `.match(Model, key={…}, alias=)` | `MATCH (n:L {k: row.k})` |
+| `.merge_edge(src, "TYPE", tgt, alias=, edge_model=, directed=)` | `MERGE (a)-[r:T]->(b)` |
+
+### Search
+
+| Call | Notes |
+|---|---|
+| `session.vector_search(cls, field=, vector=, k=)` | index-backed; `k` ≠ `limit` |
+| `session.fulltext_search(cls, query=, fields=)` | absent on ArcadeDB, AGE |
+| `score()` | vector = distance (lower closer); fulltext = relevance (higher better) |
+
+### Index DDL — `runic.ogm.schema.runtime_index`
+
+| Call | Notes |
+|---|---|
+| `IndexOperations.from_driver(driver)` | FalkorDB; elsewhere pass an adapter |
+| `.create_vector_index(cls, field, dimension=, similarity=)` | dimension must be the embedder's real length |
+| `.drop_vector_index(cls, field)` / `.resize_vector_index(...)` | |
+| `.describe()` | every index the graph has — read before writing vectors |
+
+### Descriptor predicates added
+
+| Call | Emits |
+|---|---|
+| `Model.list_field.any_of(v)` | `$v IN n.list_field` — element in a stored list |
 
 ---
 

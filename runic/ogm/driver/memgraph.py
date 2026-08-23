@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import yield_as
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
 if TYPE_CHECKING:
@@ -47,6 +48,8 @@ class MemgraphDialect:
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
 
+    unsupported_features: frozenset[str] = frozenset()
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
@@ -62,7 +65,7 @@ class MemgraphDialect:
         # text_search.search_all accepts plain text; no Lucene field prefix required.
         return (
             f"CALL text_search.search_all('{label}', ${query_param}) "
-            f"YIELD node AS {alias}, score"
+            f"YIELD {yield_as('node', alias)}, score"
         )
 
     def vector_knn_start(
@@ -77,12 +80,27 @@ class MemgraphDialect:
         index_name = f"{type_name}_{field_name}"
         return (
             f"CALL vector_search.search('{index_name}', $__knn_k, $__knn_vec) "
-            f"YIELD node AS {alias}, distance, similarity"
+            f"YIELD {yield_as('node', alias)}, distance, similarity"
         )
 
     def vector_knn_score_expr(self, alias: str, field_name: str) -> str:  # noqa: ARG002
         # Use distance as the score: lower = more similar, consistent with ASC ordering.
         return "distance AS __score"
+
+    def vector_knn_call(
+        self, alias: str, label: str, field_name: str, k_ref: str, vec_ref: str
+    ) -> str:
+        index_name = f"{label}_{field_name}"
+        return (
+            f"CALL vector_search.search('{index_name}', {k_ref}, {vec_ref}) "
+            f"YIELD {yield_as('node', alias)}, distance"
+        )
+
+    def vector_score_expr(self) -> str:
+        return "distance"
+
+    def fulltext_yields_score(self) -> bool:
+        return True
 
     def wrap_node(self, raw: Any) -> BoltNode:
         return BoltNode(raw)

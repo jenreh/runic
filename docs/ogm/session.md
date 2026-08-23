@@ -116,7 +116,9 @@ session.expunge_all()
 `select()` creates a
 `QueryBuilder` that is **not bound to a
 session**. Build the statement freely — including conditional filters — then
-pass it to one of the session execution methods:
+pass it to one of the session execution methods. The root Cypher variable
+defaults to `n`; name it with `select(Person, "p")` (and the same second
+argument works on `session.query(Person, "p")`):
 
 ```python
 from runic.ogm import select
@@ -155,9 +157,15 @@ code paths before executing.
 
 ## Raw Cypher
 
-For the common cases prefer the [query builder](./query-builder.md).
-`session.execute()` is the escape hatch for write mutations and Cypher
-features not covered by the builder.
+Prefer the [query builder](./query-builder.md). It covers writes too —
+`set()`, `delete()`, and bulk `unwind()`/`merge()` — so a mutation is no longer
+a reason to reach for a string. Check the [feature coverage
+table](./query-builder.md#cypher-feature-coverage) before deciding you need one.
+
+`session.execute()` remains the escape hatch for a backend-specific construct
+the builder does not model. When a statement genuinely needs one, keep it a
+named constant with bound parameters — see [Statement
+Catalogues](./statements.md).
 
 ```python
 from runic.ogm import select
@@ -166,8 +174,7 @@ from runic.ogm import select
 stmt = (
     select(Person)
     .where(Person.id == "alice")
-    .alias("p")
-    .traverse(Person.knows).alias("f")
+    .traverse(Person.knows, to="f")
 )
 friends: list[Person] = session.scalars(stmt)
 
@@ -252,8 +259,8 @@ For a *collection* of parents, use a traversal query instead of a loop of
 from runic.ogm import select
 
 stmt = (
-    select(User).alias("u")
-    .traverse(User.articles, edge_alias="e").alias("a")
+    select(User)
+    .traverse(User.articles, to="a", edge="e")
     .return_nodes("u", "a")
 )
 rows = session.all_with_edges(stmt)

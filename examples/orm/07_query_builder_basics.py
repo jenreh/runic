@@ -322,7 +322,7 @@ def run() -> None:
         rows_cats = session.all_rows(
             select(Product).project(Product.category).distinct()
         )
-        cats: list[str] = [r["n.category"] for r in rows_cats]
+        cats: list[str] = [r["category"] for r in rows_cats]
         log.info("DISTINCT categories: %s", sorted(cats))
 
     # --- Terminal: count() ---
@@ -352,7 +352,7 @@ def run() -> None:
     # --- Aggregate: min() — single aggregation value via all_rows() ---
     with Session(driver) as session:
         rows_min = session.all_rows(
-            select(Product).aggregate(min_(Product.price).as_("min_price"))
+            select(Product).project(min_(Product.price).as_("min_price"))
         )
         lowest_price: float | None = rows_min[0]["min_price"] if rows_min else None
         log.info("scalar() min price: %s", lowest_price)
@@ -362,7 +362,7 @@ def run() -> None:
         rows_ids = session.all_rows(
             select(Product).order_by(Product.id).project(Product.id)
         )
-        all_ids: list[str] = [r["n.id"] for r in rows_ids]
+        all_ids: list[str] = [r["id"] for r in rows_ids]
         log.info("scalars() all ids: %s", all_ids)
 
     # --- project() → all_rows() — multi-field projection as dicts ---
@@ -406,15 +406,15 @@ def run() -> None:
     # --- Aggregation: avg, sum, max ---
     with Session(driver) as session:
         rows_avg = session.all_rows(
-            select(Product).aggregate(avg(Product.price).as_("avg_price"))
+            select(Product).project(avg(Product.price).as_("avg_price"))
         )
         avg_price: float | None = rows_avg[0]["avg_price"] if rows_avg else None
         rows_sum = session.all_rows(
-            select(Product).aggregate(sum_(Product.stock).as_("total_stock"))
+            select(Product).project(sum_(Product.stock).as_("total_stock"))
         )
         total_stock: int | None = rows_sum[0]["total_stock"] if rows_sum else None
         rows_max = session.all_rows(
-            select(Product).aggregate(max_(Product.price).as_("max_price"))
+            select(Product).project(max_(Product.price).as_("max_price"))
         )
         max_price: float | None = rows_max[0]["max_price"] if rows_max else None
         log.info(
@@ -427,7 +427,7 @@ def run() -> None:
     # --- count(DISTINCT field) ---
     with Session(driver) as session:
         rows_dc = session.all_rows(
-            select(Product).aggregate(
+            select(Product).project(
                 count(Product.category, distinct=True).as_("distinct_cats")
             )
         )

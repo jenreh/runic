@@ -1,5 +1,5 @@
 {
-  "skill_name": "runic-orm",
+  "skill_name": "runic-ogm",
   "evals": [
     {
       "id": 0,
@@ -36,7 +36,7 @@
     {
       "id": 1,
       "prompt": "Using runic.ogm, I have User and Project nodes. A user can be a member of many projects, and each membership stores a role (owner/member) and a joined_at date on the relationship itself. Show how to model this (including the edge), how to add a membership between an existing user and project, and how to read back the role for a given user/project pair.",
-      "expected_output": "An Edge subclass (type=\"MEMBER_OF\" or similar) with role and joined_at fields. User declares a Relation(relationship=..., direction=\"OUTGOING\", target=\"Project\", edge_model=Membership) annotated as list[Project]. Membership created via session.relate(user, User.projects, project, edge=Membership(role=..., joined_at=...)). Reading the role uses a traversal with edge_alias + all_with_edges() (or session.query / repository.cypher) — not a plain attribute read, since edge properties live on the edge.",
+      "expected_output": "An Edge subclass (type=\"MEMBER_OF\" or similar) with role and joined_at fields. User declares a Relation(relationship=..., direction=\"OUTGOING\", target=\"Project\", edge_model=Membership) annotated as list[Project]. Membership created via session.relate(user, User.projects, project, edge=Membership(role=..., joined_at=...)). Reading the role uses a traversal with edge= + all_with_edges() (or session.query / repository.cypher) — not a plain attribute read, since edge properties live on the edge.",
       "files": [],
       "assertions": [
         {
@@ -64,7 +64,7 @@
     {
       "id": 2,
       "prompt": "With runic.ogm and a User node (fields: name, city, active: bool, joined_at: datetime), write the queries for: (a) all active users whose name starts with 'Al', ordered by name; (b) the number of users in each city; (c) the 10 most recently joined users. Show the exact runic query-builder calls and how you execute each one.",
-      "expected_output": "(a) session.scalars(select(User).where((User.active == True) & (User.name.startswith('Al'))).order_by(User.name)). (b) grouped aggregation: select(User).alias('u').aggregate(count('*').as_('n'), group_by='u') with project/group on city, read via session.all_rows(). (c) select(User).order_by(User.joined_at, desc=True).limit(10) via session.scalars(). Correct execution methods: scalars() for entity lists, all_rows() for aggregation/projection, count() for a single count.",
+      "expected_output": "(a) session.scalars(select(User).where((User.active == True) & (User.name.startswith('Al'))).order_by(User.name)). (b) grouped aggregation: select(User).project(User.city, count('*').as_('n_users')) \u2014 a plain projected item is the group key \u2014 read via session.all_rows(). (c) select(User).order_by(User.joined_at, desc=True).limit(10) via session.scalars(). Correct execution methods: scalars() for entity lists, all_rows() for aggregation/projection, count() for a single count.",
       "files": [],
       "assertions": [
         {
@@ -77,7 +77,7 @@
         },
         {
           "name": "aggregation-grouped",
-          "description": "Query (b) uses an aggregation (count) with group_by to count users per city"
+          "description": "Query (b) projects the city alongside count(*) to count users per city (plain projected items are the group keys)"
         },
         {
           "name": "correct-execution-methods",
@@ -92,7 +92,7 @@
     {
       "id": 3,
       "prompt": "In a runic.ogm app I have User-[FOLLOWS]->User. (a) How do I load a user together with everyone they follow in a single query (no extra round-trips)? (b) How do I find the friends-of-friends (2 hops) for a given user id? (c) Briefly explain lazy vs eager loading in runic, including what happens in an async session.",
-      "expected_output": "(a) Eager load via session.get(User, uid, fetch=[\"following\"]). (b) Query-builder traversal: select(User).alias('u').where(User.id == uid).traverse(User.following).alias('f').traverse(User.following).alias('fof').return_target('fof') executed with session.scalars. (c) Lazy (default) loads on first attribute access and needs a live session (detached access raises DetachedEntityError); eager via fetch= does it in one query. In AsyncSession lazy access raises LazyLoadError — you must use await session.get(..., fetch=[...]).",
+      "expected_output": "(a) Eager load via session.get(User, uid, fetch=[\"following\"]). (b) Query-builder traversal: select(User).where(User.id == uid).traverse(User.following, to='f').traverse(User.following, to='fof').return_target('fof') executed with session.scalars. (c) Lazy (default) loads on first attribute access and needs a live session (detached access raises DetachedEntityError); eager via fetch= does it in one query. In AsyncSession lazy access raises LazyLoadError — you must use await session.get(..., fetch=[...]).",
       "files": [],
       "assertions": [
         {
@@ -114,6 +114,102 @@
         {
           "name": "no-hallucinated-api",
           "description": "Does not invent non-existent traversal/loading API"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Using runic.ogm, write a query that returns each Message id together with the ids of everyone it was sent to, for one page of messages ordered by id. There may be many recipients per message and the archive is large, so it must not expand the whole graph.",
+      "expected_output": "With handles m = alias(Message, 'm') and r = alias(Address, 'r'): select(m).where(m.id > param('after')).order_by(m.id).limit(param('limit')) BEFORE the traversal (paging written before a traverse compiles into a WITH stage that takes the page off the index first), then .traverse(Message.sent_to, to=r, optional=True).project(m.id, collect(r.id, distinct=True).as_('recipients')). A trailing .limit() would expand every message in the graph and then discard all but the page. Read via session.all_rows().",
+      "files": [],
+      "assertions": [
+        {
+          "name": "with-before-traversal",
+          "description": "The WITH stage with limit comes BEFORE the traversal, not after"
+        },
+        {
+          "name": "from-anchors-traversal",
+          "description": "Uses from_= to anchor the traversal to the message variable"
+        },
+        {
+          "name": "collect-distinct",
+          "description": "Uses collect(..., distinct=True) with the message id projected as the group key"
+        },
+        {
+          "name": "explains-page-before-expansion",
+          "description": "Explains that a trailing limit would expand the whole graph"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "With runic.ogm I need to write about 50,000 derived Topic nodes and attach them to messages. The job re-runs nightly and must be idempotent. Show the writes.",
+      "expected_output": "Bulk writes with unwind(param('rows')): unwind(param('rows')).merge(Topic, key={Topic.id: row('id')}, alias='t').set({Topic.label: row('label')}, on='t'). MERGE rather than session.add() (which compiles to CREATE) because a derived label carries no unique constraint, so a re-run would silently duplicate every node. Only the KEY goes in merge(); other properties go in set(), or a changed value makes MERGE miss the existing node. Edges: .match(Message, key={Message.id: row('message_id')}, alias='m').match(Topic, ...).merge_edge('m', 'ABOUT', 't', alias='r', edge_model=About) — match and not merge on the endpoints. Run the $rows payload through encode_rows(Topic, rows) first, because values inside $rows never pass through the mapper and a datetime would reach the driver unencodable.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "uses-unwind-merge",
+          "description": "Uses unwind(param('rows')) with merge(), not session.add() per entity"
+        },
+        {
+          "name": "key-only-in-merge",
+          "description": "Only the key goes in merge(); other properties in set()"
+        },
+        {
+          "name": "match-not-merge-endpoints",
+          "description": "Edge endpoints are matched, not merged"
+        },
+        {
+          "name": "encode-rows",
+          "description": "Runs the payload through encode_rows() before binding $rows"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "In runic.ogm, how do I delete all the derived Group nodes before a rebuild, and separately all the derived CO_ADDRESSED edges between Address nodes, on a large graph that other things are reading?",
+      "expected_output": "Batched deletes through a WITH stage, looping until the returned count is zero. Nodes: select(Group).limit(param('batch')).delete(detach=True).returning(count('n').as_('removed')) — the limit written before the delete bounds the batch, and detach=True because Cypher refuses to delete a node that still has relationships. Edges: traverse to bind the edge with edge='r', then .with_('r', limit=param('batch')).delete('r') — plain DELETE and NEVER detach=True, because detaching an edge takes both endpoint Address nodes down with it and every relationship on them. returning() is required for the write to report anything; without it no RETURN is emitted.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "batched-through-with",
+          "description": "Deletes in batches via a WITH stage, looping until the count is zero"
+        },
+        {
+          "name": "detach-for-nodes",
+          "description": "Uses detach=True for nodes"
+        },
+        {
+          "name": "no-detach-for-edges",
+          "description": "Does NOT use detach=True for the edge delete, and says why"
+        },
+        {
+          "name": "returning-required",
+          "description": "Uses returning() to report the count"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Using runic.ogm, run a vector similarity search over Message.embedding, keep only messages embedded by the current model, and return the 20 closest with their distance. Roughly 30% of messages have no embedding yet.",
+      "expected_output": "session.vector_search(Message, field=Message.embedding, vector=param('vector'), k=param('k')).where(Message.embedding_model == param('model')).project(col(Message.id).as_('id'), score().as_('distance')).limit(param('limit')). k and limit are DIFFERENT numbers: k is how wide the index search goes and limit is what the caller sees, because a procedure cannot be narrowed before the fact — every row the where() drops was already paid for by k, so k must exceed limit (e.g. k=200 for limit=20) or the page comes back short and looks like a small archive. score() is a distance: lower is closer, normalised across backends. A message with no vector is absent from the index entirely and nothing in the result says so, so report coverage alongside, e.g. count(when(Message.embedding_model == param('model'), 1)).as_('embedded').",
+      "files": [],
+      "assertions": [
+        {
+          "name": "k-differs-from-limit",
+          "description": "k and limit are different numbers, with k larger"
+        },
+        {
+          "name": "explains-no-pre-filtering",
+          "description": "Explains that a procedure cannot be narrowed before the fact"
+        },
+        {
+          "name": "score-is-distance",
+          "description": "States that score() is a distance, lower being closer"
+        },
+        {
+          "name": "reports-coverage",
+          "description": "Mentions reporting embedding coverage alongside the result"
         }
       ]
     }

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import yield_as
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
 if TYPE_CHECKING:
@@ -46,6 +47,8 @@ class Neo4jDialect:
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
 
+    unsupported_features: frozenset[str] = frozenset()
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
@@ -60,7 +63,7 @@ class Neo4jDialect:
         # Index must be pre-created as: CREATE FULLTEXT INDEX {label} FOR (n:{label}) ON EACH [...]
         return (
             f"CALL db.index.fulltext.queryNodes('{label}', ${query_param}) "
-            f"YIELD node AS {alias}, score"
+            f"YIELD {yield_as('node', alias)}, score"
         )
 
     def vector_knn_start(
@@ -74,13 +77,30 @@ class Neo4jDialect:
         index_name = f"{type_name}_{field_name}"
         return (
             f"CALL db.index.vector.queryNodes('{index_name}', $__knn_k, $__knn_vec) "
-            f"YIELD node AS {alias}, score"
+            f"YIELD {yield_as('node', alias)}, score"
         )
 
     def vector_knn_score_expr(self, alias: str, field_name: str) -> str:  # noqa: ARG002
         # Neo4j returns cosine similarity (1.0=identical); invert to distance so
         # ORDER BY __score ASC still places the closest match first.
         return "(1.0 - score) AS __score"
+
+    def vector_knn_call(
+        self, alias: str, label: str, field_name: str, k_ref: str, vec_ref: str
+    ) -> str:
+        index_name = f"{label}_{field_name}"
+        return (
+            f"CALL db.index.vector.queryNodes('{index_name}', {k_ref}, {vec_ref}) "
+            f"YIELD {yield_as('node', alias)}, score"
+        )
+
+    def vector_score_expr(self) -> str:
+        # Neo4j yields a cosine similarity (1.0 = identical); invert it so the
+        # score means the same thing on every backend: lower is closer.
+        return "(1.0 - score)"
+
+    def fulltext_yields_score(self) -> bool:
+        return True
 
     def wrap_node(self, raw: Any) -> BoltNode:
         return BoltNode(raw)

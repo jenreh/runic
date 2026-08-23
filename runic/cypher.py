@@ -13,6 +13,13 @@ query parameters.  These helpers make such interpolation safe:
 
 Both functions reject control characters, which can never appear in a legal
 identifier or option value and are a strong signal of an injection attempt.
+
+A second group validates *references* — the ``alias`` and ``alias.property``
+strings the query builder accepts as an escape hatch in ``project()``,
+``order_by()`` and ``project()``.  These are interpolated into RETURN and
+ORDER BY, so they are validated rather than escaped: anything richer than a
+property reference must be built from expression objects, not smuggled through
+as text.
 """
 
 from __future__ import annotations
@@ -74,3 +81,59 @@ def escape_string(value: str) -> str:
     _reject_control_chars(value, "string literal")
     escaped = value.replace("\\", "\\\\").replace("'", "\\'")
     return f"'{escaped}'"
+
+
+# A reference the query builder may interpolate into RETURN / ORDER BY: a bare
+# Cypher variable (``n``, ``total``) or one property access on it (``n.id``).
+# Deliberately no function calls, operators, or whitespace — richer expressions
+# must be built from expression objects so their operands are bound, not typed.
+_REFERENCE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
+
+_ORDER_DIRECTIONS = frozenset({"ASC", "DESC"})
+
+
+def validate_reference(
+    expr: str, kind: str = "reference", *, allow_star: bool = False
+) -> str:
+    """Return ``expr`` if it is a bare alias or ``alias.property``, else raise.
+
+    The query builder interpolates these directly, so a value that is not a
+    reference — a function call, a second clause, a comment — would execute as
+    Cypher.  ``allow_star`` additionally permits ``"*"`` for ``count(*)``.
+    """
+    if allow_star and expr == "*":
+        return expr
+    if not isinstance(expr, str) or not _REFERENCE_RE.fullmatch(expr):
+        star = ' or "*"' if allow_star else ""
+        msg = (
+            f"invalid Cypher {kind} {expr!r}; must be a bare alias or "
+            f"'alias.property' reference{star} (use field descriptors or "
+            "expression objects for anything richer)"
+        )
+        raise ValueError(msg)
+    return expr
+
+
+def validate_order_term(expr: str, kind: str = "order term") -> str:
+    """Return ``expr`` if it is a reference with an optional ASC/DESC suffix.
+
+    Accepts ``"n.created_at"``, ``"total DESC"``, ``"score asc"``.  Rejects
+    anything that would let a caller append a clause to the ORDER BY.
+    """
+    if not isinstance(expr, str):
+        raise ValueError(f"invalid Cypher {kind} {expr!r}; expected a string")
+    parts = expr.split()
+    if not parts or len(parts) > 2:
+        msg = (
+            f"invalid Cypher {kind} {expr!r}; expected 'reference' or "
+            "'reference ASC|DESC'"
+        )
+        raise ValueError(msg)
+    validate_reference(parts[0], kind)
+    if len(parts) == 2 and parts[1].upper() not in _ORDER_DIRECTIONS:
+        msg = (
+            f"invalid sort direction {parts[1]!r} in Cypher {kind} {expr!r}; "
+            "expected ASC or DESC"
+        )
+        raise ValueError(msg)
+    return expr

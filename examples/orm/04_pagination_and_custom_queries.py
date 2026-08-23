@@ -31,6 +31,7 @@ from runic.ogm import (  # noqa: E402
     Node,
     Repository,
     Session,
+    alias,
     avg,
     count,
     select,
@@ -262,16 +263,17 @@ def run() -> None:
         )
         log.info("QueryBuilder count: published=%d archived=%d", pub_count, arc_count)
 
-    # --- Query builder: aggregate per article ---
+    # --- Query builder: grouped aggregation per article ---
+    # A non-aggregated projection item is the grouping key (Cypher has no
+    # GROUP BY): RETURN a, count(*) AS total, ...
+    a = alias(Article, "a")
     with Session(driver) as session:
         rows: list[dict[str, Any]] = session.all_rows(
-            select(Article)
-            .alias("a")
-            .aggregate(
+            select(a).project(
+                a,
                 count("*").as_("total"),
                 avg(Article.views).as_("avg_views"),
                 sum_(Article.views).as_("total_views"),
-                group_by="a",
             )
         )
         log.info("QueryBuilder aggregate all_rows: %d rows returned", len(rows))

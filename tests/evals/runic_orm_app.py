@@ -12,7 +12,8 @@ import subprocess
 from pathlib import Path
 
 # tests/evals/runic_orm_app.py -> repo root is parents[2]
-_SKILL_PATH = Path(__file__).resolve().parents[2] / "skill" / "runic" / "SKILL.md"
+_SKILL_DIR = Path(__file__).resolve().parents[2] / "skill" / "runic-ogm"
+_SKILL_PATH = _SKILL_DIR / "SKILL.md"
 
 _SYSTEM = (
     "You are answering a developer's question about the `runic.ogm` Python "

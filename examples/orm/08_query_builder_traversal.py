@@ -4,7 +4,7 @@ Demonstrates:
   - traverse() — single-hop OPTIONAL MATCH (left-join)
   - traverse(optional=False) — required MATCH (inner-join, drops unmatched sources)
   - Multi-hop traversal: chaining traverse() calls
-  - repeat() — variable-length path with *min..max quantifier
+  - traverse(hops=) — variable-length path with *min..max quantifier
   - return_target() — select which node alias to decode
   - with_() — WITH clause for multi-stage pipelining
   - Filtering traversal targets with .where(on="alias")
@@ -29,7 +29,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-from runic.ogm import Field, Node, Relation, Session, select  # noqa: E402
+from runic.ogm import Field, Node, Relation, Session, alias, select  # noqa: E402
 from runic.ogm.driver import GraphDriver  # noqa: E402
 from runic.ogm.driver.factory import create_driver  # noqa: E402
 from runic.ogm.driver.falkordb import FalkorDBDriver  # noqa: E402
@@ -154,11 +154,9 @@ def run() -> None:
     # --- Single-hop traverse: Alice's friends (OPTIONAL MATCH — left join) ---
     with Session(driver) as session:
         friends: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "alice")
-            .traverse(Person.friends)
-            .alias("f")
+            .traverse(Person.friends, to="f")
             .return_target("f")
         )
         log.info("Alice's friends (optional): %s", [f.name for f in friends])
@@ -166,11 +164,9 @@ def run() -> None:
     # --- Single-hop traverse: filter targets with where(on="alias") ---
     with Session(driver) as session:
         active_friends: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "alice")
-            .traverse(Person.friends)
-            .alias("f")
+            .traverse(Person.friends, to="f")
             .where(Person.active == True, on="f")  # noqa: E712
             .return_target("f")
         )
@@ -180,10 +176,8 @@ def run() -> None:
     with Session(driver) as session:
         # Only persons who have at least one authored post
         authors: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
-            .traverse(Person.authored, optional=False)
-            .alias("post")
+            select(alias(Person, "p"))
+            .traverse(Person.authored, to="post")
             .return_target("p")
             .distinct()
         )
@@ -195,13 +189,10 @@ def run() -> None:
     # --- Multi-hop: friends of friends ---
     with Session(driver) as session:
         fof: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "alice")
-            .traverse(Person.friends)
-            .alias("f")
-            .traverse(Person.friends)
-            .alias("fof")
+            .traverse(Person.friends, to="f")
+            .traverse(Person.friends, to="fof")
             .return_target("fof")
         )
         log.info("Alice's friends-of-friends: %s", [p.name for p in fof])
@@ -209,13 +200,10 @@ def run() -> None:
     # --- Multi-hop with filter on intermediate node ---
     with Session(driver) as session:
         posts_via_friends: list[Post] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "alice")
-            .traverse(Person.friends)
-            .alias("f")
-            .traverse(Person.authored)
-            .alias("post")
+            .traverse(Person.friends, to="f")
+            .traverse(Person.authored, to="post")
             .return_target("post")
         )
         log.info(
@@ -223,14 +211,12 @@ def run() -> None:
             [pt.title for pt in posts_via_friends],
         )
 
-    # --- repeat(): variable-length path — manager chain up to depth 3 ---
+    # --- traverse(hops=): variable-length path — manager chain up to depth 3 ---
     with Session(driver) as session:
         managers: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "dan")
-            .repeat(Person.reports_to, min_hops=1, max_hops=3)
-            .alias("mgr")
+            .traverse(Person.reports_to, to="mgr", hops=(1, 3))
             .return_target("mgr")
         )
         log.info(
@@ -238,14 +224,12 @@ def run() -> None:
             [m.name for m in managers],
         )
 
-    # --- repeat(): unbounded (min_hops only) ---
+    # --- hops=(1, None): unbounded variable-length path ---
     with Session(driver) as session:
         all_above: list[Person] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.id == "dan")
-            .repeat(Person.reports_to, min_hops=1)
-            .alias("above")
+            .traverse(Person.reports_to, to="above", hops=(1, None))
             .return_target("above")
         )
         log.info(
@@ -257,12 +241,10 @@ def run() -> None:
     with Session(driver) as session:
         # Stage 1: find active persons; stage 2: find their posts
         posts: list[Post] = session.scalars(
-            select(Person)
-            .alias("p")
+            select(alias(Person, "p"))
             .where(Person.active == True)  # noqa: E712
             .with_("p")
-            .traverse(Person.authored)
-            .alias("post")
+            .traverse(Person.authored, to="post")
             .return_target("post")
         )
         log.info(
@@ -273,10 +255,8 @@ def run() -> None:
     # --- Traverse then filter the target by a field value ---
     with Session(driver) as session:
         cypher_posts: list[Post] = session.scalars(
-            select(Person)
-            .alias("p")
-            .traverse(Person.authored)
-            .alias("post")
+            select(alias(Person, "p"))
+            .traverse(Person.authored, to="post")
             .where(Post.tags.contains("cypher"), on="post")  # type: ignore[attr-defined]
             .return_target("post")
         )
@@ -286,13 +266,10 @@ def run() -> None:
     cypher: str
     params: dict[str, Any]
     cypher, params = (
-        select(Person)
-        .alias("p")
+        select(alias(Person, "p"))
         .where(Person.id == "alice")
-        .traverse(Person.friends)
-        .alias("f")
-        .traverse(Person.authored)
-        .alias("post")
+        .traverse(Person.friends, to="f")
+        .traverse(Person.authored, to="post")
         .return_target("post")
         .build()
     )

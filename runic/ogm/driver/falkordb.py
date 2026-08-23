@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import CypherFeature, yield_as
+
 if TYPE_CHECKING:
     from runic.ogm.core.descriptors import FieldInfo
 
@@ -73,6 +75,8 @@ class FalkorDBResult:
 class FalkorDBDialect:
     """Strategy implementation for FalkorDB-specific Cypher generation."""
 
+    unsupported_features: frozenset[str] = frozenset({CypherFeature.UNDIRECTED_MERGE})
+
     # FalkorDB only supports directed edges; undirected MERGE/CREATE is rejected.
     supports_undirected_merge: bool = False
 
@@ -91,7 +95,7 @@ class FalkorDBDialect:
     def fulltext_call(self, label: str, alias: str, query_param: str) -> str:
         return (
             f"CALL db.idx.fulltext.queryNodes('{label}', ${query_param}) "
-            f"YIELD node AS {alias}"
+            f"YIELD {yield_as('node', alias)}, score"
         )
 
     def vector_knn_start(
@@ -105,6 +109,24 @@ class FalkorDBDialect:
 
     def vector_knn_score_expr(self, alias: str, field_name: str) -> str:
         return f"vecf32({alias}.{field_name}) <-> vecf32($__knn_vec) AS __score"
+
+    def vector_knn_call(
+        self, alias: str, label: str, field_name: str, k_ref: str, vec_ref: str
+    ) -> str:
+        # The index procedure, not a scan: FalkorDB rejects the `<->` operator
+        # this dialect used to emit, so every vector_search() was unusable.
+        return (
+            f"CALL db.idx.vector.queryNodes("
+            f"'{label}', '{field_name}', {k_ref}, vecf32({vec_ref})) "
+            f"YIELD {yield_as('node', alias)}, score"
+        )
+
+    def vector_score_expr(self) -> str:
+        # FalkorDB yields a cosine distance already: lower is closer.
+        return "score"
+
+    def fulltext_yields_score(self) -> bool:
+        return True
 
     def wrap_node(self, raw: Any) -> FalkorDBNode:
         return FalkorDBNode(raw)

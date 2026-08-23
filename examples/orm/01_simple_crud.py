@@ -185,7 +185,7 @@ def run() -> None:
         rows = session.all_rows(
             select(Language).order_by(Language.code).project(Language.code)
         )
-        codes: list[str] = [r["n.code"] for r in rows]
+        codes: list[str] = [r["code"] for r in rows]
         log.info("QueryBuilder scalar codes: %s", codes)
 
     # --- Query builder: build() — inspect generated Cypher ---

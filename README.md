@@ -139,10 +139,10 @@ with Session(driver) as session:
 Read data back with composable, type-safe statements, multi-hop traversals, paginated
 repositories, or your own Cypher. `select()` builds a statement independently of any session,
 so you can assemble it from conditional filters and reuse it across sessions. `.traverse()`
-walks a single relationship; `.repeat()` walks one to any depth for real-world graph queries.
+walks a relationship — one hop, or to any depth with `hops=` — for real-world graph queries.
 
 ```python
-from runic.ogm import Repository, Session, select
+from runic.ogm import Repository, Session, alias, select
 
 
 # Compose a query dynamically, then run it three ways.
@@ -157,26 +157,23 @@ with Session(driver) as session:
 
     # Single-hop traversal with an edge-property filter — published articles
     # Alice authored after a cutoff date.
+    e, art = alias(AuthoredEdge, "e"), alias(Article, "art")
     recent = (
-        session.query(Author)
-        .alias("a")
+        session.query(Author, "a")
         .where(Author.id == "alice")
-        .traverse(Author.articles, edge_alias="e")
-        .alias("art")
-        .where(AuthoredEdge.created_at >= cutoff, on="e")
-        .where(Article.status == Status.PUBLISHED, on="art")
-        .return_target("art")
+        .traverse(Author.articles, to=art, edge=e)
+        .where(e.created_at >= cutoff)
+        .where(art.status == Status.PUBLISHED)
+        .return_target(art)
         .all()
     )
 
     # Variable-length traversal — every article reachable within 3 AUTHORED hops
-    # (e.g. co-authorship chains). max_hops=None means unbounded.
+    # (e.g. co-authorship chains). hops=(1, None) means unbounded.
     network = (
-        session.query(Author)
-        .alias("a")
+        session.query(Author, "a")
         .where(Author.id == "alice")
-        .repeat(Author.articles, min_hops=1, max_hops=3)
-        .alias("reached")
+        .traverse(Author.articles, to="reached", hops=(1, 3))
         .all()
     )
 

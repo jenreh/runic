@@ -54,9 +54,9 @@ for u in session.scalars(select(User)):
 # GOOD: a single query — but get() is per-entity, so for a *set* use a
 # traversal query instead of eager get() in a loop:
 rows = session.all_with_edges(
-    select(User).alias("u")
-    .traverse(User.articles, edge_alias="e").alias("a")
-    .return_nodes("u", "a").return_edge("e")
+    select(User)
+    .traverse(User.articles, to="a", edge="e")
+    .return_nodes("n", "a").return_edge("e")
 )
 ```
 
@@ -122,9 +122,13 @@ labels.
 
 ## Custom repositories & raw Cypher
 
-Subclass `Repository[T]` for domain queries. Prefer the builder; drop to Cypher
-when the builder can't express it (edge-heavy reads, set operations, bulk
-writes).
+Subclass `Repository[T]` for domain queries.
+
+**Check the builder first.** Bulk writes, batched deletes, `CASE`, column
+aliases, scalar functions, procedure calls and property-to-property comparison
+are all builder features — see `cypher-mapping.md`. Raw Cypher is for a
+backend-specific construct the builder does not model, and DDL (use
+`IndexOperations`).
 
 ```python
 class UserRepository(Repository[User]):
@@ -151,6 +155,10 @@ class UserRepository(Repository[User]):
 - `cypher_one(...)` returns the first mapped row; `cypher_raw(...)` returns the
   unmapped `GraphResult` (`.columns`, `.rows`).
 - Always parameterize (`$name`) — never string-format values into Cypher.
+- Keep raw statements as module-level constants with bound parameters rather
+  than building them per call: caller input then changes which rows come back,
+  never what the statement does. `stmt.parameter_names()` gives builder
+  statements the same property, checkably.
 
 ---
 
@@ -263,18 +271,16 @@ modules.
 - **Constructors are keyword-only.** Positional args raise `TypeError`.
 - **Indexes are declared, not created, by the ORM.** Creation belongs in
   `runic.migrate` migrations — see the `runic-migrate` skill.
-- **`project()`/`aggregate()` don't return entities.** Read them with
-  `all_rows()` (dicts), not `scalars()`.
-- **Don't alias an aggregation column the same as the node alias.** The default
-  node alias is `n` (or whatever you pass to `.alias()`). `count("*").as_("n")`
-  collides with it and the decoder tries to read the integer as a node
-  (`'int' object has no attribute 'labels'`). Name columns distinctly:
-  `count("*").as_("total")`.
-- **Group by a field, not the whole node.** To count/sum per field value, pass
-  `group_by="alias.property"` (default alias `n`):
-  `select(User).aggregate(count("*").as_("n_users"), group_by="n.city")` →
-  `[{"n.city": "Berlin", "n_users": 3}, ...]`. A bare alias (`group_by="u"`)
-  groups by the entire node — one row per node, which is rarely what you want
-  for a per-field count.
+- **A projecting statement doesn't return entities.** Read it with
+  `all_rows()` (dicts) — `scalars()` on one raises, naming the fix.
+- **Don't name an aggregation column after a node variable.** The default
+  variable is `n`. `count("*").as_("n")` collides with it and the decoder
+  tries to read the integer as a node (`'int' object has no attribute
+  'labels'`). Name columns distinctly: `count("*").as_("total")`.
+- **Group by a field, not the whole node.** Project the property alongside
+  the aggregate: `select(User).project(User.city, count("*").as_("n_users"))`
+  → `[{"city": "Berlin", "n_users": 3}, ...]`. Projecting a handle groups by
+  the entire node — one row per node, which is rarely what you want for a
+  per-field count.
 - **Keep datetimes tz-aware.** The converter round-trips ISO-8601; naive
   datetimes lose their offset.
