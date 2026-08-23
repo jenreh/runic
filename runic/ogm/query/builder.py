@@ -12,11 +12,11 @@ See :doc:`/query_builder` for the full API reference and examples.
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
+from runic.cypher import validate_order_term, validate_reference
 from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.core.metadata import metadata as _global_metadata
 from runic.ogm.query._compiler import _CypherCompiler
@@ -33,18 +33,14 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# A raw-string projection is an escape hatch; restrict it to a bare alias or an
-# ``alias.property`` reference so it cannot inject arbitrary Cypher into RETURN.
-_PROJECTION_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
-
 
 def _validate_projection(expr: str) -> None:
-    if not _PROJECTION_RE.fullmatch(expr):
-        msg = (
-            f"invalid projection {expr!r}; raw-string projections must be a bare "
-            "alias or 'alias.property' reference (use field descriptors for more)"
-        )
-        raise ValueError(msg)
+    """Reject a raw-string projection that is not a plain property reference.
+
+    Thin wrapper over :func:`~runic.cypher.validate_reference`, kept as a named
+    function because it is part of this module's tested surface.
+    """
+    validate_reference(expr, "projection")
 
 
 # ---------------------------------------------------------------------------
@@ -442,9 +438,8 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             )
             self._order.append(OrderExpr(alias=alias, prop=field.field_name, desc=desc))
         else:
-            self._order.append(
-                OrderExpr(alias=None, prop=None, raw=str(field), desc=desc)
-            )
+            raw = validate_order_term(str(field), "order_by term")
+            self._order.append(OrderExpr(alias=None, prop=None, raw=raw, desc=desc))
         return self
 
     def limit(self, n: int) -> QueryBuilder[T]:
@@ -561,6 +556,8 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
                 session.query(User).aggregate(avg(User.age).as_("average_age")).scalar()
             )
         """
+        if group_by is not None:
+            validate_reference(group_by, "group_by key")
         self._agg_exprs = list(agg_exprs)
         self._group_by_alias = group_by
         return self

@@ -58,6 +58,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from runic.cypher import validate_reference
+
 if TYPE_CHECKING:
     pass
 
@@ -274,10 +276,12 @@ class AggExpr:
         if isinstance(self.field, FieldDescriptor):
             cls_alias = alias_map.get(self.field.owner, "n")
             field_ref = f"{cls_alias}.{self.field.field_name}"
-        elif self.field == "*":
-            field_ref = "*"
         else:
-            field_ref = str(self.field)
+            # A raw-string operand is an escape hatch and is interpolated
+            # straight into RETURN, so it must be a property reference.
+            field_ref = validate_reference(
+                str(self.field), "aggregate operand", allow_star=True
+            )
 
         distinct_kw = "DISTINCT " if self.distinct and self.field != "*" else ""
         expr = f"{self.func}({distinct_kw}{field_ref})"
