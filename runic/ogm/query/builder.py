@@ -12,7 +12,7 @@ See :doc:`/query_builder` for the full API reference and examples.
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
@@ -28,6 +28,7 @@ from runic.ogm.query.expressions import (
     OrderExpr,
 )
 from runic.ogm.query.traversal import TraversalStep
+from runic.ogm.query.values import ValueExpr
 
 log = logging.getLogger(__name__)
 
@@ -135,11 +136,14 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._agg_exprs: list[AggExpr] = []
         self._group_by_alias: str | None = None
         # Scalar projection (for .project())
-        self._project_fields: list[FieldDescriptor | str] = []
+        self._project_fields: list[FieldDescriptor | ValueExpr | str] = []
 
-        # Parameter counter ----------------------------------------------
+        # Parameters -------------------------------------------------------
+        # Auto-bound values ($p0, $p1, …) allocated during compilation.
         self._param_counter: int = 0
         self._params: dict[str, Any] = {}
+        # Names declared via param(), supplied by the caller at execution.
+        self._declared_params: set[str] = set()
 
     # ------------------------------------------------------------------
     # Unbound-statement guard
@@ -410,7 +414,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
 
     def order_by(
         self,
-        field: FieldDescriptor | str,
+        field: FieldDescriptor | ValueExpr | str,
         *,
         desc: bool = False,
     ) -> QueryBuilder[T]:
@@ -432,7 +436,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             q.order_by(User.created_at, desc=True)  # ORDER BY n.created_at DESC
             q.order_by("score ASC")  # raw string
         """
-        if isinstance(field, FieldDescriptor):
+        if isinstance(field, ValueExpr):
+            self._order.append(OrderExpr(alias=None, prop=None, expr=field, desc=desc))
+        elif isinstance(field, FieldDescriptor):
             alias = (
                 self._alias_for_cls(field.owner) if field.owner else self._root_alias
             )
@@ -442,13 +448,27 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             self._order.append(OrderExpr(alias=None, prop=None, raw=raw, desc=desc))
         return self
 
-    def limit(self, n: int) -> QueryBuilder[T]:
-        """Set ``LIMIT n`` on the query."""
+    def limit(self, n: int | ValueExpr) -> QueryBuilder[T]:
+        """Set ``LIMIT`` on the query.
+
+        Accepts an integer, or a :func:`~runic.ogm.query.values.param` reference
+        so the ceiling is bound by the caller rather than baked into the
+        statement::
+
+            select(Message).limit(param("limit"))  # LIMIT $limit
+        """
         self._limit_val = n
         return self
 
-    def skip(self, n: int) -> QueryBuilder[T]:
-        """Set ``SKIP n`` (offset) on the query."""
+    def skip(self, n: int | ValueExpr) -> QueryBuilder[T]:
+        """Set ``SKIP`` (offset) on the query.
+
+        Accepts an integer or a :func:`~runic.ogm.query.values.param` reference.
+
+        Prefer a cursor (``where(Model.id > param("after"))``) over an offset for
+        paging: ``SKIP`` re-matches and re-sorts every preceding row, so walking
+        a whole label in pages costs ``O(n²/page)``.
+        """
         self._skip_val = n
         return self
 
@@ -494,8 +514,8 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._edge_alias_for_result = alias
         return self
 
-    def project(self, *fields: FieldDescriptor | str) -> QueryBuilder[T]:
-        """Return only specific property values (scalar projection).
+    def project(self, *fields: FieldDescriptor | ValueExpr | str) -> QueryBuilder[T]:
+        """Return only specific values (scalar projection).
 
         Terminal method ``.scalars()`` returns the projected values as a flat
         list; ``.all_rows()`` returns a list of dicts::
@@ -505,6 +525,22 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
 
             # Dict list
             rows = session.query(User).project(User.name, User.age).all_rows()
+
+        Accepts field descriptors, raw ``alias.property`` strings, and
+        :mod:`~runic.ogm.query.values` expressions — which is how a column gets
+        a stable name, or is computed in the store::
+
+            from runic.ogm.query import col, left, param
+
+            session.query(Message).project(
+                col(Message.id).as_("id"),
+                left(col(Message.body_clean), param("max_chars")).as_("body"),
+            )
+            # RETURN n.id AS id, left(n.body_clean, $max_chars) AS body
+
+        Naming columns matters for more than tidiness: ``all_rows()`` keys its
+        dicts by the column names the store reports, so an unaliased projection
+        yields keys like ``"n.body_clean"``.
         """
         for f in fields:
             if isinstance(f, str):
@@ -519,7 +555,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
     def aggregate(
         self,
         *agg_exprs: AggExpr,
-        group_by: str | None = None,
+        group_by: str | ValueExpr | Sequence[str | ValueExpr] | None = None,
     ) -> QueryBuilder[T]:
         """Add aggregation expressions to the ``RETURN`` clause.
 
@@ -556,8 +592,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
                 session.query(User).aggregate(avg(User.age).as_("average_age")).scalar()
             )
         """
-        if group_by is not None:
-            validate_reference(group_by, "group_by key")
+        for key in group_by if isinstance(group_by, (list, tuple)) else [group_by]:
+            if isinstance(key, str):
+                validate_reference(key, "group_by key")
         self._agg_exprs = list(agg_exprs)
         self._group_by_alias = group_by
         return self
@@ -615,6 +652,7 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         # Reset params for each build call so multiple .all() calls are clean.
         self._param_counter = 0
         self._params = {}
+        self._declared_params = set()
 
         parts: list[str] = []
 
@@ -652,23 +690,60 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
 
         # ── ORDER BY ─────────────────────────────────────────────────────
         if self._order:
-            order_str = ", ".join(o.to_cypher() for o in self._order)
+            order_str = ", ".join(o.to_cypher(self) for o in self._order)
             parts.append(f"ORDER BY {order_str}")
 
         # ── SKIP / LIMIT ─────────────────────────────────────────────────
-        if self._skip_val is not None:
-            parts.append(f"SKIP {self._skip_val}")
-        if self._limit_val is not None:
-            parts.append(f"LIMIT {self._limit_val}")
+        parts.extend(self._compile_paging())
 
         cypher = "\n".join(parts)
         return cypher, dict(self._params)
+
+    def parameter_names(self) -> tuple[str, ...]:
+        """The caller-bound parameter names this statement declares, sorted.
+
+        Read off the compiled statement rather than maintained beside it, so it
+        cannot drift: a statement that gains a ``LIMIT $limit`` reports it
+        immediately.  This is what lets a statement catalogue be checked —
+        enumerate the statements, bind each one's parameters, run the lot.
+
+        Example
+        -------
+        .. code-block:: python
+
+            stmt = (
+                select(Message).where(Message.id > param("after")).limit(param("limit"))
+            )
+            stmt.parameter_names()  # ('after', 'limit')
+        """
+        self.build()
+        return tuple(sorted(self._declared_params))
+
+    def bind(self, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Compile, then merge caller-supplied values over the auto-bound ones.
+
+        Raises if the statement declares a parameter the caller did not supply —
+        a missing ``$parameter`` is otherwise a silent null in Cypher, which
+        matches nothing and looks exactly like an empty archive.
+        """
+        supplied = dict(params or {})
+        missing = sorted(self._declared_params - supplied.keys())
+        if missing:
+            msg = (
+                f"statement is missing values for declared parameter(s): "
+                f"{', '.join(missing)}"
+            )
+            raise ValueError(msg)
+        unknown = sorted(supplied.keys() - self._declared_params)
+        if unknown:
+            log.debug("extra parameters supplied and ignored: %s", ", ".join(unknown))
+        return {**self._params, **supplied}
 
     # ------------------------------------------------------------------
     # Terminal methods (sync)
     # ------------------------------------------------------------------
 
-    def all(self) -> list[T]:
+    def all(self, params: Mapping[str, Any] | None = None) -> list[T]:
         """Execute and return all matching Node instances.
 
         The return type is the root class (or the alias set by
@@ -682,21 +757,23 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             ``return_target()`` was called).
         """
         self._check_bound()
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("QueryBuilder.all: %s", cypher)
-        result = self._session.execute(cypher, params)
+        result = self._session.execute(cypher, self.bind(params))
         return self._decode_node_result(result)
 
-    def one(self) -> T | None:
+    def one(self, params: Mapping[str, Any] | None = None) -> T | None:
         """Execute and return the first matching Node instance, or ``None``.
 
         Internally calls ``.limit(1).all()`` and returns the first element.
         """
         self.limit(1)
-        items = self.all()
+        items = self.all(params)
         return items[0] if items else None
 
-    def all_with_edges(self) -> list[tuple[Any, ...]]:
+    def all_with_edges(
+        self, params: Mapping[str, Any] | None = None
+    ) -> list[tuple[Any, ...]]:
         """Execute and return tuples of ``(NodeA, EdgeModel, NodeB)``.
 
         Requires :meth:`return_nodes` to specify node aliases and
@@ -727,12 +804,12 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
                 print(f"{user.name} rated {movie.title} with {rated_edge.score}")
         """
         self._check_bound()
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("QueryBuilder.all_with_edges: %s", cypher)
-        result = self._session.execute(cypher, params)
+        result = self._session.execute(cypher, self.bind(params))
         return self._decode_edge_result(result)
 
-    def all_rows(self) -> list[dict[str, Any]]:
+    def all_rows(self, params: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
         """Execute and return raw column-keyed dicts.
 
         Useful for multi-alias returns, aggregations, or scalar projections
@@ -742,12 +819,12 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             # [{"u": <User>, "n": 5}, ...]
         """
         self._check_bound()
-        cypher, params = self.build()
+        cypher, _ = self.build()
         log.debug("QueryBuilder.all_rows: %s", cypher)
-        result = self._session.execute(cypher, params)
+        result = self._session.execute(cypher, self.bind(params))
         return self._decode_rows_as_dicts(result)
 
-    def count(self) -> int:
+    def count(self, params: Mapping[str, Any] | None = None) -> int:
         """Execute a ``count(*)`` variant and return the integer count.
 
         Overrides any existing RETURN spec to emit ``RETURN count(*)``.
@@ -767,9 +844,9 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
         self._project_fields = []
 
         try:
-            cypher, params = self.build()
+            cypher, _ = self.build()
             log.debug("QueryBuilder.count: %s", cypher)
-            result = self._session.execute(cypher, params)
+            result = self._session.execute(cypher, self.bind(params))
         finally:
             # Always restore builder state, even if build()/execute() raises, so
             # the instance stays reusable.
@@ -782,18 +859,20 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             return int(result.rows[0][0])
         return 0
 
-    def scalar(self) -> Any:
+    def scalar(self, params: Mapping[str, Any] | None = None) -> Any:
         """Execute and return the first column of the first row, or ``None``."""
         self._check_bound()
-        result = self._session.execute(*self.build())
+        cypher, _ = self.build()
+        result = self._session.execute(cypher, self.bind(params))
         if result.rows and result.rows[0]:
             return result.rows[0][0]
         return None
 
-    def scalars(self) -> list[Any]:
+    def scalars(self, params: Mapping[str, Any] | None = None) -> list[Any]:
         """Execute and return the first column of every row as a flat list."""
         self._check_bound()
-        result = self._session.execute(*self.build())
+        cypher, _ = self.build()
+        result = self._session.execute(cypher, self.bind(params))
         return [row[0] for row in result.rows]
 
     # ------------------------------------------------------------------

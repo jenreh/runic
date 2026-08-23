@@ -287,6 +287,55 @@ Operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `.contains()`, `.startswith()`,
 `.not_in_()`. Multiple `.where()` calls are AND-combined. Refinements:
 `.order_by(field, desc=True)`, `.limit(n)`, `.skip(n)`, `.distinct()`.
 
+**Value expressions** — `col()`, `param()`, `when()` and friends work anywhere
+Cypher expects a value (WHERE, RETURN, ORDER BY):
+
+```python
+from runic.ogm import col, count, left, param, select, when
+
+# Name result columns; all_rows() keys dicts by column name, so unaliased
+# projections give you keys like "n.body_clean".
+select(Message).project(
+    col(Message.id).as_("id"),
+    left(col(Message.body_clean), param("max_chars")).as_("body"),
+)
+
+# Compare two properties — no parameter can express this
+select(Address).alias("a").traverse(Address.co_addressed, edge_alias="r",
+                                    optional=False).alias("b")
+    .where(col("a", Address.id) < col("b", Address.id))
+
+# Conditional aggregation: several counts, one scan, same population
+select(Message).aggregate(
+    count("*").as_("total"),
+    count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
+)
+```
+
+Constructors: `col(Model.f)` / `col("alias", Model.f)` / `Model.f.on("alias")`,
+`param(name)`, `literal(v)`, `fn(name, *args)`, `left()`, `coalesce()`,
+`to_lower()`, `to_upper()`, `when(cond, then, else_=…)`, `.as_(name)`.
+
+**Named parameters** make a statement a reusable constant:
+
+```python
+from typing import Final
+
+RECENT: Final = (select(Message).where(Message.id > param("after"))
+                 .order_by(Message.id).limit(param("limit")))
+
+rows = session.scalars(RECENT, {"after": cursor, "limit": 500})
+RECENT.parameter_names()   # ('after', 'limit')
+```
+
+Every execution method takes bindings as a second argument. `limit()`/`skip()`
+accept `param()` too. A **missing** parameter raises — it is not silently null,
+because a null `$param` matches nothing and looks like an empty database.
+
+**List properties**: use `.any_of(value)` (`$value IN n.refs`), NOT `.in_()`.
+On a list property `.in_()` compiles to `n.refs IN $values` and always matches
+nothing.
+
 **Projection & aggregation** return rows (dicts), read via `all_rows()`:
 
 ```python
@@ -425,6 +474,15 @@ multi-backend, performance, and error-handling recipes.
 
 - Prefer `relate()`/`unrelate()` and the query builder over raw Cypher; drop to
   `session.execute()` / `repo.cypher()` only for what the builder can't express.
+  Column aliases, scalar functions, `CASE`, property-to-property comparison and
+  named parameters are all builder features now — don't reach for a string.
+- **Type checkers do not see descriptor methods.** `Model.field` is typed by its
+  annotation, so `.is_null()`, `.in_()`, `.any_of()` and `&`/`|` between
+  comparisons need a suppression comment on the line under `ty`:
+  ```python
+  .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute, unsupported-operator]
+  ```
+  Write the code normally and add the comment; do not restructure to avoid it.
 - Use `fetch=[...]` to avoid N+1 in loops and **always** in async code.
 - `optional=False` whenever you filter on a traversed edge's properties.
 - `Vector`, `GeoLocation`, and `interned` are **FalkorDB-only** native types;

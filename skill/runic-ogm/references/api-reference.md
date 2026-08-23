@@ -235,6 +235,43 @@ executing.
 
 ---
 
+## Value expressions
+
+Usable anywhere Cypher expects a value — WHERE, RETURN, ORDER BY.
+
+| Constructor | Emits |
+|---|---|
+| `col(Model.field)` | `n.field` (alias resolved by the builder) |
+| `col("m", Model.field)` / `Model.field.on("m")` | `m.field` |
+| `param("name")` | `$name` — declared, bound by the caller |
+| `literal(value)` | `$pN` — a Python value, bound not inlined |
+| `fn("name", *args)` | `name(arg, …)` |
+| `left(v, n)`, `coalesce(*v)`, `to_lower(v)`, `to_upper(v)` | the named helpers |
+| `when(cond, then, *pairs, else_=…)` | `CASE WHEN … THEN … [ELSE …] END` |
+| `expr.as_("name")` | `expr AS name` |
+| `encode_rows(Model, rows)` | applies field converters across `$rows` payloads |
+
+All operands are bound as parameters; nothing is interpolated as text.
+
+### Named parameters
+
+| Call | Does |
+|---|---|
+| `param("name")` | declare a caller-bound parameter |
+| `stmt.parameter_names()` | the declared names, sorted, read off the compiled statement |
+| `stmt.bind(values)` | merge caller values over auto-bound ones; raises on a missing one |
+| `session.scalars(stmt, values)` | every execution method takes bindings as a second argument |
+| `.limit(param("limit"))`, `.skip(param("offset"))` | paging bounds as parameters |
+
+### Descriptor predicates added
+
+| Call | Emits |
+|---|---|
+| `Model.list_field.any_of(v)` | `$v IN n.list_field` — element in a stored list |
+| `Model.field.on("alias")` | shorthand for `col("alias", Model.field)` |
+
+---
+
 ## Expressions & aggregation helpers
 
 Field-descriptor operators (class-level access) produce filter expressions:
