@@ -140,9 +140,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
         # Aggregation mode
         if self._agg_exprs:
-            cls_to_alias: dict[type, str] = {
-                cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
-            }
+            cls_to_alias = self._cls_alias_map()
             agg_parts = [self._compile_agg(e, cls_to_alias) for e in self._agg_exprs]
             group_parts = [self._compile_value(g) for g in self._group_by_keys()]
             all_parts = [*group_parts, *agg_parts]
@@ -180,6 +178,12 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if isinstance(group_by, (list, tuple)):
             return list(group_by)
         return [group_by]
+
+    def _cls_alias_map(self) -> dict[type, str]:
+        """First registered Cypher variable per OGM class, for aggregates."""
+        return {
+            cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
+        }
 
     def _compile_agg(self, agg: AggExpr, cls_to_alias: dict[type, str]) -> str:
         """Render one aggregation, whose operand may be a value expression.

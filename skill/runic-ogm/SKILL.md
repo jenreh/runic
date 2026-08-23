@@ -424,6 +424,41 @@ this when debugging a query or explaining what runic generates.
 
 ---
 
+**Multi-stage `WITH`** — repeatable, and stages interleave with traversals in
+call order. Its `ORDER BY`/`LIMIT` bound the rows entering the *next* stage:
+
+```python
+(select(Message).alias("m")
+   .where(Message.id > param("after"))
+   .with_("m", order_by=Message.id, limit=param("limit"))   # page cut HERE
+   .traverse(Message.sent_to, from_="m").alias("r")
+   .aggregate(collect(col("r", Address.id), distinct=True).as_("addressed"),
+              group_by=col("m", Message.id).as_("id")))
+```
+
+A trailing `.limit()` instead would expand the whole graph and then discard all
+but one page. `with_(..., where=...)` is Cypher's `HAVING` — the only way to
+filter an aggregated value. **Always pass `order_by` when you pass `limit`**:
+paging without an order is undefined and two runs can return different pages.
+
+**Fan-out**: `traverse(rel, from_="m")` anchors to a named variable instead of
+continuing the chain, so several traversals can leave the same node. Without
+`from_` each traversal starts where the last one landed.
+
+**Alternation**: `traverse(rel, types=["SENT_TO", "COPIED_TO"])` emits
+`[:SENT_TO|COPIED_TO]`. Use it when the relationship *is* the walk over both —
+two separate patterns double-count anything matching both. Not available on
+Apache AGE.
+
+**Direction override**: `traverse(rel, direction="OUTGOING")` on a `BOTH`
+relation. When both ends share a label, an arrow matches each edge once; without
+one it matches from each end, so a count doubles.
+
+**Backend gaps are refused, not emitted.** runic raises `NotImplementedError`
+naming the construct and backend rather than sending Cypher the backend rejects.
+Absent: alternation (AGE), undirected `MERGE` (FalkorDB), `CALL … YIELD`
+(ArcadeDB, AGE), fulltext (ArcadeDB, AGE), vector (AGE).
+
 ## Sessions & repositories
 
 - **Lifecycle:** use `with Session(driver) as session:`. `add()` / `add_all()`

@@ -41,8 +41,68 @@ class GraphResult(Protocol):
     def columns(self) -> list[str]: ...
 
 
+class CypherFeature:
+    """Names of Cypher constructs whose support varies by backend.
+
+    Backends implement different subsets of Cypher, and the differences are not
+    discoverable from the query — a statement using one simply fails at the
+    driver with a syntax error naming a character. Naming the constructs lets
+    the builder refuse to emit Cypher a backend cannot parse, and say which
+    construct and which backend, before the query is sent.
+    """
+
+    RELATIONSHIP_ALTERNATION = "relationship_alternation"
+    """``[:A|B]`` — one pattern matching either type. Absent on Apache AGE."""
+
+    UNDIRECTED_MERGE = "undirected_merge"
+    """``MERGE (a)-[r:T]-(b)`` without an arrow. Absent on FalkorDB."""
+
+    PROCEDURE_CALL = "procedure_call"
+    """``CALL … YIELD`` for arbitrary procedures. Absent on ArcadeDB and AGE."""
+
+    FULLTEXT_SEARCH = "fulltext_search"
+    """A fulltext index queryable from Cypher. Absent on ArcadeDB and AGE."""
+
+    VECTOR_SEARCH = "vector_search"
+    """A vector index queryable from Cypher. Absent on AGE."""
+
+
+def dialect_supports(dialect: Any, feature: str) -> bool:
+    """Return whether *dialect* supports *feature*, assuming yes when unstated.
+
+    Dialects declare only their gaps, so a backend that says nothing is taken
+    to support the construct — which keeps the common case quiet and puts the
+    burden on the backend that is unusual.
+    """
+    if dialect is None:
+        return True
+    unsupported = getattr(dialect, "unsupported_features", frozenset())
+    return feature not in unsupported
+
+
+def require_feature(dialect: Any, feature: str, construct: str) -> None:
+    """Raise if *dialect* cannot parse *construct*, naming both.
+
+    Emitting Cypher a backend rejects produces a driver-level syntax error
+    pointing at a character, which says nothing about which builder call caused
+    it. This turns that into a sentence.
+    """
+    if dialect_supports(dialect, feature):
+        return
+    backend = type(dialect).__name__.removesuffix("Dialect")
+    msg = (
+        f"{backend} does not support {construct}. "
+        f"Express the query without it, or drop to a backend-specific "
+        f"statement via session.execute()."
+    )
+    raise NotImplementedError(msg)
+
+
 class GraphDialect(Protocol):
     """Strategy: all DB-specific Cypher clause and function generation."""
+
+    unsupported_features: frozenset[str]
+    """Cypher constructs this backend cannot parse. Empty for most backends."""
 
     def generated_id_where(self, alias: str, param: str) -> str:
         """Return ``WHERE id({alias}) = ...`` clause for generated-PK lookups."""

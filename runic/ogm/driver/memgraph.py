@@ -47,6 +47,8 @@ class MemgraphDialect:
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
 
+    unsupported_features: frozenset[str] = frozenset()
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 

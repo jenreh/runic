@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.ogm.driver import CypherFeature
+
 if TYPE_CHECKING:
     from runic.ogm.core.descriptors import FieldInfo
 
@@ -72,6 +74,8 @@ class FalkorDBResult:
 
 class FalkorDBDialect:
     """Strategy implementation for FalkorDB-specific Cypher generation."""
+
+    unsupported_features: frozenset[str] = frozenset({CypherFeature.UNDIRECTED_MERGE})
 
     # FalkorDB only supports directed edges; undirected MERGE/CREATE is rejected.
     supports_undirected_merge: bool = False

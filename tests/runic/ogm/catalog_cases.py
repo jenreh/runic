@@ -44,21 +44,27 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from runic.ogm import select
-from runic.ogm.query.expressions import count
+from runic.ogm.query.expressions import collect, count
 from runic.ogm.query.values import col, left, param, when
 from tests.runic.ogm.catalog_models import (
     About,
     Account,
     Address,
+    Attachment,
     CoAddressed,
     Group,
     Message,
     Template,
+    Thread,
     Topic,
 )
 
 __all__ = ["CATALOG_CASES", "CatalogCase", "expressible", "unexpressible"]
 
+
+#: "Addressed" is defined as the walk over both types; matching them in two
+#: separate patterns would double-count a message that used both.
+ADDRESSED_TYPES = ["SENT_TO", "COPIED_TO"]
 
 DEFAULT_PARAM_VALUES: Mapping[str, Any] = {
     # Cursors and paging. The cursor starts at "" so it is the exact complement
@@ -201,7 +207,42 @@ _READS: list[CatalogCase] = [
             "OPTIONAL MATCH (m)-[:SENT_TO|COPIED_TO]->",
             "collect(DISTINCT s.id) AS senders",
         ),
-        gaps=("G1", "G5", "G6", "G7", "G9"),
+        build=lambda: (
+            select(Message)
+            .alias("m")
+            .where(Message.id.is_not_null() & (Message.id > param("after")))  # ty: ignore[unresolved-attribute]
+            # The page is cut before the optional matches, not after: five
+            # expansions that cross-multiply are the expensive half, and a trailing
+            # LIMIT would pay for the whole archive's expansion to keep one page.
+            .with_("m", order_by=Message.id, limit=param("limit"))
+            .traverse(Message.sent_from, from_="m")  # ty: ignore[invalid-argument-type]
+            .alias("s")
+            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES)  # ty: ignore[invalid-argument-type]
+            .alias("r")
+            .traverse(Message.blind_copied_to, from_="m")  # ty: ignore[invalid-argument-type]
+            .alias("b")
+            .traverse(Message.in_thread, from_="m")  # ty: ignore[invalid-argument-type]
+            .alias("t")
+            .traverse(Message.has_attachment, from_="m")  # ty: ignore[invalid-argument-type]
+            .alias("f")
+            .aggregate(
+                collect(col("s", Address.id), distinct=True).as_("senders"),  # ty: ignore[no-matching-overload]
+                collect(col("r", Address.id), distinct=True).as_("addressed"),  # ty: ignore[no-matching-overload]
+                collect(col("b", Address.id), distinct=True).as_("blind_copied"),  # ty: ignore[no-matching-overload]
+                collect(col("t", Thread.id), distinct=True).as_("threads"),  # ty: ignore[no-matching-overload]
+                collect(col("f", Attachment.id), distinct=True).as_("attachments"),  # ty: ignore[no-matching-overload]
+                group_by=col("m", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
+            )
+            .order_by("id")
+        ),
+        unsupported={
+            "age": (
+                "Apache AGE's openCypher subset has no relationship type "
+                "alternation ([:A|B]). Matching the two types as separate "
+                "patterns would double-count anything using both, so there is "
+                "no faithful rewrite."
+            )
+        },
     ),
     CatalogCase(
         name="COUNT_UNIDENTIFIED",
@@ -394,7 +435,37 @@ _ANALYSES: list[CatalogCase] = [
             "ORDER BY together DESC",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2", "G3", "G5", "G6"),
+        # The sender is deliberately absent from the pattern: they are the one
+        # addressing, not one of the addressed, and including them would make
+        # the heaviest pair in every archive "the user, and everyone they mail".
+        build=lambda: (
+            select(Message)
+            .alias("m")
+            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
+            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES, optional=False)  # ty: ignore[invalid-argument-type]
+            .alias("a")
+            .traverse(Message.sent_to, from_="m", types=ADDRESSED_TYPES, optional=False)  # ty: ignore[invalid-argument-type]
+            .alias("b")
+            # Makes an unordered pair appear once instead of twice.
+            .where(col("a", Address.id) < col("b", Address.id))  # ty: ignore[no-matching-overload]
+            .aggregate(
+                count("*").as_("together"),
+                group_by=[
+                    col("a", Address.id).as_("left_id"),  # ty: ignore[no-matching-overload]
+                    col("b", Address.id).as_("right_id"),  # ty: ignore[no-matching-overload]
+                ],
+            )
+            .order_by("together", desc=True)
+            .limit(param("limit"))
+        ),
+        unsupported={
+            "age": (
+                "Apache AGE's openCypher subset has no relationship type "
+                "alternation ([:A|B]). Matching the two types as separate "
+                "patterns would double-count anything using both, so there is "
+                "no faithful rewrite."
+            )
+        },
     ),
     CatalogCase(
         name="TOP_CO_ADDRESSED",
@@ -524,7 +595,21 @@ _ANALYSES: list[CatalogCase] = [
         # Directed on purpose: both ends are addresses, so an arrow costs no
         # matches and saves counting every edge twice.
         expect=("[r:CO_ADDRESSED]->", "count(r) AS total"),
-        gaps=("G15",),
+        # Directed although the edge is undirected in meaning: both ends carry
+        # the same label, so an arrow costs no matches and saves counting each
+        # edge twice.
+        build=lambda: (
+            select(Address)
+            .alias("a")
+            .traverse(
+                Address.co_addressed,  # ty: ignore[invalid-argument-type]
+                edge_alias="r",
+                optional=False,
+                direction="OUTGOING",
+            )
+            .alias("b")
+            .aggregate(count("r").as_("total"))
+        ),
     ),
 ]
 

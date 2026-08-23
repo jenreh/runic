@@ -341,15 +341,21 @@ class TestTraversal:
 
 
 class TestWithClause:
-    def test_with_inserts_between_match_and_where(self) -> None:
+    def test_root_filter_precedes_the_with_stage(self) -> None:
+        """A root predicate narrows before the rows are carried forward.
+
+        ``where()`` always filters the root, whenever it is called; to filter
+        *after* a stage — on a computed or aggregated value — pass
+        ``with_(where=...)``, which is Cypher's ``HAVING`` equivalent.
+        """
         q = QueryBuilder(_mock_session(), BPerson)
         q.alias("u").where(BPerson.active == True).with_("u")  # noqa: E712  # ty: ignore[invalid-argument-type]
         cypher, _ = q.build()
         assert "WITH u" in cypher
         lines = cypher.splitlines()
-        with_line = next(i for i, l in enumerate(lines) if "WITH u" in l)
-        where_line = next(i for i, l in enumerate(lines) if "WHERE" in l)
-        assert with_line < where_line
+        with_line = next(i for i, line in enumerate(lines) if "WITH u" in line)
+        where_line = next(i for i, line in enumerate(lines) if "WHERE" in line)
+        assert where_line < with_line
 
 
 # ---------------------------------------------------------------------------

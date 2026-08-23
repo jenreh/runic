@@ -49,6 +49,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from runic.ogm.query.builder import QueryBuilder
 
 log = logging.getLogger(__name__)
@@ -86,6 +88,12 @@ class TraversalStep:
     max_hops:
         Maximum number of hops.  ``None`` means unbounded (``*min..``).
         A value of ``1`` with ``min_hops=1`` produces a fixed single-hop pattern.
+    types:
+        Relationship types to match instead of the one the Relation declares,
+        emitted as an alternation ``[:A|B]``.  Some relationships are *defined*
+        as the walk over more than one type — "addressed" meaning either a
+        direct recipient or a copied one — and matching them in two separate
+        patterns would double-count the messages that use both.
     """
 
     def __init__(
@@ -98,6 +106,8 @@ class TraversalStep:
         edge_alias: str | None = None,
         min_hops: int = 1,
         max_hops: int | None = 1,
+        types: Sequence[str] | None = None,
+        direction: str | None = None,
     ) -> None:
         self._builder = builder
         self._fd = field_descriptor
@@ -106,6 +116,8 @@ class TraversalStep:
         self._edge_alias = edge_alias
         self._min_hops = min_hops
         self._max_hops = max_hops
+        self._types = tuple(types) if types else None
+        self._direction = direction
 
     # ------------------------------------------------------------------
     # Fluent terminator
@@ -141,4 +153,6 @@ class TraversalStep:
             edge_alias=self._edge_alias,
             min_hops=self._min_hops,
             max_hops=self._max_hops,
+            types=self._types,
+            direction=self._direction,
         )
