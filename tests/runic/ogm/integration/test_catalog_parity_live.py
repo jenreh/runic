@@ -112,6 +112,45 @@ def test_bindings_cover_declared_parameters(case: CatalogCase) -> None:
     assert set(case.bind()) == set(case.params)
 
 
+_UPSERTS = [
+    c for c in CATALOG_CASES if c.name.startswith("MERGE_") and c.is_expressible
+]
+
+
+@pytest.mark.parametrize("case", _UPSERTS, ids=_ids)
+def test_upsert_is_idempotent(case: CatalogCase, seeded: Any) -> None:
+    """Running an upsert twice must change nothing.
+
+    This is the property MERGE exists for, and the one a derived layer's
+    rebuild contract rests on. A CREATE would pass the "does it run" check
+    above and still double every node on the second pass, because a derived
+    label carries no unique constraint to stop it.
+    """
+    backend = _backend_of(seeded)
+    if backend in case.unsupported:
+        pytest.skip(f"{backend}: {case.unsupported[backend]}")
+    stmt = case.build() if case.build else None
+    assert stmt is not None
+
+    counts = []
+    for _ in range(2):
+        with Session(seeded) as session:
+            session.all_rows(stmt, case.bind())
+        with Session(seeded) as session:
+            counts.append(_graph_size(session))
+
+    assert counts[0] == counts[1], (
+        f"{case.name} is not idempotent: {counts[0]} -> {counts[1]}"
+    )
+
+
+def _graph_size(session: Any) -> tuple[int, int]:
+    """(nodes, relationships) in the graph."""
+    nodes = session.execute("MATCH (n) RETURN count(n) AS c", {}).rows[0][0]
+    edges = session.execute("MATCH ()-[r]->() RETURN count(r) AS c", {}).rows[0][0]
+    return int(nodes), int(edges)
+
+
 def test_every_case_has_bindable_parameters() -> None:
     """Including the ones not yet expressible — bindings must not lag behind."""
     unbindable: dict[str, str] = {}

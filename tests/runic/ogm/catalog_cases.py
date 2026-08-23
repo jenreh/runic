@@ -43,9 +43,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from runic.ogm import select
+from runic.ogm import select, unwind
 from runic.ogm.query.expressions import collect, count
-from runic.ogm.query.values import col, left, param, when
+from runic.ogm.query.values import col, left, param, row, when
 from tests.runic.ogm.catalog_models import (
     About,
     Account,
@@ -53,6 +53,7 @@ from tests.runic.ogm.catalog_models import (
     Attachment,
     CoAddressed,
     Group,
+    InstanceOf,
     Message,
     Template,
     Thread,
@@ -286,26 +287,56 @@ _DELETES: list[CatalogCase] = [
         name="DELETE_GROUPS",
         params=("batch",),
         expect=("MATCH (n:Group)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        gaps=("G7", "G10"),
+        build=lambda: (
+            select(Group)
+            .with_("n", limit=param("batch"))
+            .delete(detach=True)
+            .returning(count("n").as_("removed"))
+        ),
     ),
     CatalogCase(
         name="DELETE_TOPICS",
         params=("batch",),
         expect=("MATCH (n:Topic)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        gaps=("G7", "G10"),
+        build=lambda: (
+            select(Topic)
+            .with_("n", limit=param("batch"))
+            .delete(detach=True)
+            .returning(count("n").as_("removed"))
+        ),
     ),
     CatalogCase(
         name="DELETE_TEMPLATES",
         params=("batch",),
         expect=("MATCH (n:Template)", "WITH n", "LIMIT $batch", "DETACH DELETE n"),
-        gaps=("G7", "G10"),
+        build=lambda: (
+            select(Template)
+            .with_("n", limit=param("batch"))
+            .delete(detach=True)
+            .returning(count("n").as_("removed"))
+        ),
     ),
     CatalogCase(
         name="DELETE_CO_ADDRESSED",
         params=("batch",),
         # DELETE r, never DETACH DELETE: detaching would take both addresses.
         expect=("[r:CO_ADDRESSED]", "WITH r", "LIMIT $batch", "DELETE r"),
-        gaps=("G7", "G10", "G15"),
+        # DELETE r, never DETACH DELETE: detaching would take both addresses
+        # down and with them every SENT_TO in the archive.
+        build=lambda: (
+            select(Address)
+            .alias("a")
+            .traverse(
+                Address.co_addressed,  # ty: ignore[invalid-argument-type]
+                edge_alias="r",
+                optional=False,
+                direction="OUTGOING",
+            )
+            .alias("b")
+            .with_("r", limit=param("batch"))
+            .delete("r")
+            .returning(count("r").as_("removed"))
+        ),
     ),
 ]
 
@@ -325,7 +356,19 @@ _MERGES: list[CatalogCase] = [
             ]
         },
         expect=("UNWIND $rows AS row", "MERGE (n:Group {id: row.id})", "SET n.size"),
-        gaps=("G11",),
+        build=lambda: (
+            unwind(param("rows"))
+            .merge(Group, key={Group.id: row("id")}, alias="n")
+            .set(
+                {
+                    Group.size: row("size"),
+                    Group.message_count: row("message_count"),
+                    Group.first_seen: row("first_seen"),
+                    Group.last_seen: row("last_seen"),
+                },
+                on="n",
+            )
+        ),
     ),
     CatalogCase(
         name="MERGE_ADDRESSED_GROUP",
@@ -336,7 +379,15 @@ _MERGES: list[CatalogCase] = [
             "MATCH (m:Message {id: row.message_id})",
             "MERGE (m)-[:ADDRESSED_GROUP]->",
         ),
-        gaps=("G12",),
+        # MATCH and not MERGE on the endpoints: a group that is not there yet
+        # is a bug in the caller's ordering, and merging it would paper over
+        # that with an empty node instead of writing no edge.
+        build=lambda: (
+            unwind(param("rows"))
+            .match(Message, key={Message.id: row("message_id")}, alias="m")
+            .match(Group, key={Group.id: row("group_id")}, alias="g")
+            .merge_edge("m", "ADDRESSED_GROUP", "g")
+        ),
     ),
     CatalogCase(
         name="MERGE_CO_ADDRESSED",
@@ -354,7 +405,40 @@ _MERGES: list[CatalogCase] = [
         },
         # No arrow: the same pair in either order must find the same edge.
         expect=("UNWIND $rows AS row", "MERGE (a)-[r:CO_ADDRESSED]-(b)", "SET r.count"),
-        gaps=("G12", "G13"),
+        # No arrow, so the same pair handed in either order finds the same edge
+        # instead of growing a second one. FalkorDB rejects an undirected MERGE.
+        build=lambda: (
+            unwind(param("rows"))
+            .match(Address, key={Address.id: row("left")}, alias="a")
+            .match(Address, key={Address.id: row("right")}, alias="b")
+            .merge_edge(
+                "a",
+                "CO_ADDRESSED",
+                "b",
+                alias="r",
+                edge_model=CoAddressed,
+                directed=False,
+            )
+            .set(
+                {
+                    CoAddressed.count: row("count"),
+                    CoAddressed.first_seen: row("first_seen"),
+                    CoAddressed.last_seen: row("last_seen"),
+                },
+                on="r",
+            )
+        ),
+        unsupported={
+            "falkordb": (
+                "FalkorDB only supports directed edges; an undirected MERGE is "
+                "rejected. The pair must be canonically ordered by the caller "
+                "and merged with an arrow instead."
+            ),
+            "age": (
+                "Apache AGE cannot parse an unquoted property named 'count'; "
+                "see TOP_CO_ADDRESSED."
+            ),
+        },
     ),
     CatalogCase(
         name="MERGE_TOPICS",
@@ -373,7 +457,21 @@ _MERGES: list[CatalogCase] = [
             ]
         },
         expect=("UNWIND $rows AS row", "MERGE (n:Topic {id: row.id})", "SET n.label"),
-        gaps=("G11",),
+        build=lambda: (
+            unwind(param("rows"))
+            .merge(Topic, key={Topic.id: row("id")}, alias="n")
+            .set(
+                {
+                    Topic.label: row("label"),
+                    Topic.method: row("method"),
+                    Topic.score: row("score"),
+                    Topic.message_count: row("message_count"),
+                    Topic.first_seen: row("first_seen"),
+                    Topic.last_seen: row("last_seen"),
+                },
+                on="n",
+            )
+        ),
     ),
     CatalogCase(
         name="MERGE_ABOUT",
@@ -384,7 +482,16 @@ _MERGES: list[CatalogCase] = [
             ]
         },
         expect=("UNWIND $rows AS row", "MERGE (m)-[r:ABOUT]->", "SET r.score"),
-        gaps=("G12",),
+        # Score and method are per message, not per topic: a message pulled in
+        # by a ticket token and one pulled in by a shared attachment sit in the
+        # same cluster and should not claim the same confidence.
+        build=lambda: (
+            unwind(param("rows"))
+            .match(Message, key={Message.id: row("message_id")}, alias="m")
+            .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
+            .merge_edge("m", "ABOUT", "t", alias="r", edge_model=About)
+            .set({About.score: row("score"), About.method: row("method")}, on="r")
+        ),
     ),
     CatalogCase(
         name="MERGE_TEMPLATES",
@@ -407,7 +514,21 @@ _MERGES: list[CatalogCase] = [
             "MERGE (n:Template {id: row.id})",
             "SET n.sample_text",
         ),
-        gaps=("G11",),
+        build=lambda: (
+            unwind(param("rows"))
+            .merge(Template, key={Template.id: row("id")}, alias="n")
+            .set(
+                {
+                    Template.sample_text: row("sample_text"),
+                    Template.occurrences: row("occurrences"),
+                    Template.automation_score: row("automation_score"),
+                    Template.direction: row("direction"),
+                    Template.first_seen: row("first_seen"),
+                    Template.last_seen: row("last_seen"),
+                },
+                on="n",
+            )
+        ),
     ),
     CatalogCase(
         name="MERGE_INSTANCE_OF",
@@ -416,7 +537,13 @@ _MERGES: list[CatalogCase] = [
             "rows": [{"message_id": "m1", "template_id": "tpl1", "distance": 2}]
         },
         expect=("UNWIND $rows AS row", "MERGE (m)-[r:INSTANCE_OF]->", "SET r.distance"),
-        gaps=("G12",),
+        build=lambda: (
+            unwind(param("rows"))
+            .match(Message, key={Message.id: row("message_id")}, alias="m")
+            .match(Template, key={Template.id: row("template_id")}, alias="t")
+            .merge_edge("m", "INSTANCE_OF", "t", alias="r", edge_model=InstanceOf)
+            .set({InstanceOf.distance: row("distance")}, on="r")
+        ),
     ),
 ]
 
@@ -680,11 +807,25 @@ _SEMANTIC: list[CatalogCase] = [
         sample_params={"rows": [{"id": "m1", "vector": [0.1, 0.2, 0.3, 0.4]}]},
         expect=(
             "UNWIND $rows AS row",
-            "MATCH (n:Message {id: row.id})",
-            "SET n.embedding = vecf32(row.vector)",
-            "count(n) AS written",
+            "MATCH (m:Message {id: row.id})",
+            "SET m.embedding = vecf32(row.vector)",
+            "count(m) AS written",
         ),
-        gaps=("G12", "G14"),
+        # MATCH and never MERGE: a row naming a message that is not there is a
+        # bug in the caller, and merging it would invent an empty Message
+        # carrying nothing but a vector.
+        build=lambda: (
+            unwind(param("rows"))
+            .match(Message, key={Message.id: row("id")}, alias="m")
+            .set(
+                {
+                    Message.embedding: row("vector"),
+                    Message.embedding_model: param("model"),
+                },
+                on="m",
+            )
+            .returning(count("m").as_("written"))
+        ),
     ),
     CatalogCase(
         name="SEMANTIC_NEIGHBOURS",
@@ -760,7 +901,16 @@ _SEMANTIC: list[CatalogCase] = [
             "SET n.embedding = NULL",
             "count(n) AS cleared",
         ),
-        gaps=("G14",),
+        # Ground truth is untouched: these two properties are the semantic
+        # phase's own, declared on the node and left empty by the import.
+        build=lambda: (
+            select(Message)
+            .where(
+                Message.embedding.is_not_null() | Message.embedding_model.is_not_null()  # ty: ignore[unresolved-attribute]
+            )
+            .set({Message.embedding: None, Message.embedding_model: None})
+            .returning(count("n").as_("cleared"))
+        ),
     ),
     CatalogCase(
         name="CREATE_VECTOR_INDEX",

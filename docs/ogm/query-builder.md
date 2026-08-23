@@ -889,6 +889,147 @@ built, because a `select()` statement does not know its backend yet.
 
 ---
 
+## Writes: bulk upserts, batched deletes
+
+The session's identity map is the right tool for writing a handful of entities.
+It is the wrong one for a job that writes tens of thousands: that is one round
+trip per node, and every one of them stays in memory until the session closes.
+
+The write pipeline sends the lot in a single statement instead.
+
+```python
+from runic.ogm import count, encode_rows, param, row, select, unwind
+```
+
+### `UNWIND` + `MERGE` — upserting nodes
+
+```python
+MERGE_GROUPS = (
+    unwind(param("rows"))
+    .merge(Group, key={Group.id: row("id")}, alias="g")
+    .set({Group.size: row("size"), Group.message_count: row("message_count")}, on="g")
+)
+
+session.execute_statement(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
+```
+
+```cypher
+UNWIND $rows AS row
+MERGE (g:Group {id: row.id})
+SET g.size = row.size, g.message_count = row.message_count
+```
+
+::: tip Only the key goes in the `MERGE` pattern
+Everything else belongs in the following `set()`. A property whose value changed
+between runs would make `MERGE` fail to find the existing node and create a
+second one.
+:::
+
+`MERGE` rather than `CREATE` because idempotence is usually the contract. A
+derived label carries no unique constraint, so re-running a job that `CREATE`d
+its output silently produces a second copy of every node — and every edge written
+afterwards is written twice.
+
+### Attaching edges
+
+Match both endpoints, then merge between them:
+
+```python
+MERGE_ABOUT = (
+    unwind(param("rows"))
+    .match(Message, key={Message.id: row("message_id")}, alias="m")
+    .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
+    .merge_edge("m", "ABOUT", "t", alias="r", edge_model=About)
+    .set({About.score: row("score"), About.method: row("method")}, on="r")
+)
+```
+
+`match()` and not `merge()` on the endpoints: a row naming a node that is not
+there is a bug in the caller's ordering, and merging it would paper over that
+with an empty node carrying nothing but a key — one no import can ever
+reconcile.
+
+Pass `directed=False` when the relationship is symmetric in meaning and the
+stored direction is an accident of which end was written first:
+
+```python
+.merge_edge("a", "CO_ADDRESSED", "b", alias="r", directed=False)
+# MERGE (a)-[r:CO_ADDRESSED]-(b)
+```
+
+::: warning FalkorDB rejects an undirected `MERGE`
+It supports directed edges only. runic refuses to emit one there. Order the pair
+canonically in the caller and merge with an arrow instead — and read it back the
+same way.
+:::
+
+### `SET` — bulk property assignment
+
+```python
+CLEAR_EMBEDDINGS = (
+    select(Message)
+    .where(Message.embedding.is_not_null())
+    .set({Message.embedding: None, Message.embedding_model: None})
+    .returning(count("n").as_("cleared"))
+)
+```
+
+`None` emits the literal `NULL`, which removes the property. Field converters
+and the dialect's wrapping functions apply, so a value written here is stored the
+way the mapper would store it — `vecf32()` on FalkorDB, raw elsewhere.
+
+### `DELETE` — in batches
+
+```python
+DELETE_GROUPS = (
+    select(Group)
+    .with_("n", limit=param("batch"))
+    .delete(detach=True)
+    .returning(count("n").as_("removed"))
+)
+```
+
+Loop until `removed` is zero. Batching through a `WITH` stage keeps one delete
+from becoming a single long stall on a store something else is also reading.
+
+::: danger `detach=True` on an edge destroys its endpoints
+`DETACH DELETE` removes the incident edges of whatever it deletes. That is
+required for a node. On an *edge* it takes both endpoints down with it — and for
+a derived edge between two ground-truth nodes, that means destroying real data
+to clean up a computed one.
+
+```python
+# Nodes: detach, because Cypher will not delete a node that has edges
+.with_("n", limit=param("batch")).delete(detach=True)
+
+# Edges: never detach — keep both endpoints
+.with_("r", limit=param("batch")).delete("r")
+```
+:::
+
+### A write returns nothing unless you ask
+
+`returning()` is what makes a write report itself. Without it no `RETURN` is
+emitted at all — the default would name the matched variable, which after a
+`DELETE` names a node that no longer exists, and after a bulk `SET` would ship
+every touched row back to the caller.
+
+### Rows and converters
+
+Values inside `$rows` never pass through the mapper, so a `datetime` there would
+reach the driver as an object it has no encoding for. `encode_rows()` applies the
+same field converters the mapper would:
+
+```python
+rows = encode_rows(Group, [{"id": "g1", "first_seen": some_datetime}])
+# [{"id": "g1", "first_seen": "2026-03-04T00:00:00+00:00"}]
+```
+
+Keys that are not fields of the class pass through untouched, so an edge row can
+carry `message_id` and `topic_id` alongside the edge's own properties.
+
+---
+
 ## Terminal methods
 
 Terminal methods execute the query and return results. Calling any of them
@@ -1156,6 +1297,11 @@ alias generation, and result decoding automatically.
 | Fan-out from one node | ✓ | `.traverse(rel, from_="m")` |
 | Direction override | ✓ | `.traverse(rel, direction="OUTGOING")` |
 | Aggregation (count/avg/sum/…) | ✓ | `.aggregate(...)` + helpers from `runic.ogm.query` |
+| UNWIND (bulk rows) | ✓ | `unwind(param("rows"))` |
+| MERGE (node upsert) | ✓ | `.merge(Model, key={…})` |
+| MERGE (edge upsert) | ✓ | `.merge_edge(src, "TYPE", tgt)` |
+| SET (bulk assignment) | ✓ | `.set({Model.field: value})` |
+| DELETE / DETACH DELETE | ✓ | `.delete(detach=True)` |
 | Edge property filter | ✓ | `traverse(edge_alias=)` + `where(on=)` |
 | Relationship traversal (1-hop) | ✓ | `.traverse(Cls.relation)` |
 | Multi-hop traversal | ✓ | Chained `.traverse()` calls |

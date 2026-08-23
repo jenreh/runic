@@ -73,6 +73,7 @@ from runic.ogm.query import (
     sum_,
     to_lower,
     to_upper,
+    unwind,
     when,
 )
 from runic.ogm.query.expressions import (
@@ -184,5 +185,6 @@ __all__ = [  # noqa: RUF022
     "row",
     "to_lower",
     "to_upper",
+    "unwind",
     "when",
 ]
