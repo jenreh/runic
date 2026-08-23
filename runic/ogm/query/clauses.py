@@ -64,13 +64,12 @@ class MatchClause(Clause):
     """One ``MATCH`` or ``OPTIONAL MATCH`` over a pattern.
 
     ``optional`` is a left join: source rows with no match survive, carrying
-    nulls.  That is the right default for reading a node's relationships, and
-    the wrong one when a predicate on the traversed edge is supposed to *drop*
-    rows — a ``WHERE`` on an optional match nullifies instead of filtering.
+    nulls.  Like Cypher itself, ``OPTIONAL`` is the marked case — note that a
+    ``WHERE`` on an optional match nullifies rows instead of dropping them.
     """
 
     pattern: str
-    optional: bool = True
+    optional: bool = False
     requires: tuple[str, str] | None = None
     """``(feature, description)`` this pattern needs the backend to support.
 

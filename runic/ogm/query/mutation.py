@@ -7,18 +7,12 @@ in the store.
 
 .. code-block:: python
 
-    from runic.ogm import col, count, encode_rows, param, row, unwind
+    from runic.ogm import count, encode_rows, param, row, unwind
 
     MERGE_GROUPS = (
         unwind(param("rows"))
-        .merge(Group, key={Group.id: row("id")})
-        .set(
-            {
-                Group.size: row("size"),
-                Group.message_count: row("message_count"),
-                Group.first_seen: row("first_seen"),
-            }
-        )
+        .merge(Group, key=Group.id)
+        .set(Group.size, Group.message_count, Group.first_seen)
     )
 
     session.execute_statement(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
@@ -36,7 +30,7 @@ Edges are attached by matching both endpoints and merging between them:
         unwind(param("rows"))
         .match(Message, key={Message.id: row("message_id")}, alias="m")
         .match(Topic, key={Topic.id: row("topic_id")}, alias="t")
-        .merge_edge("m", "ABOUT", "t", alias="r")
+        .merge_edge("m", About, "t", alias="r")
         .set({About.score: row("score")}, on="r")
     )
 
@@ -55,15 +49,13 @@ converters the mapper would.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Mapping
+from typing import Any, TypeVar
 
 from runic.cypher import validate_identifier
 from runic.ogm.driver import CypherFeature
 from runic.ogm.query.builder import QueryBuilder
 from runic.ogm.query.clauses import MatchClause, MergeClause, UnwindClause
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 log = logging.getLogger(__name__)
 
@@ -97,10 +89,16 @@ class MutationBuilder(QueryBuilder[Any]):
         self,
         cls: type,
         *,
-        key: Mapping[Any, Any],
+        key: Any,
         alias: str | None = None,
     ) -> MutationBuilder:
         """Bind an existing node by its key properties.
+
+        *key* is a mapping of field → value, or — when the row key carries the
+        field's own name — just the bare descriptor(s)::
+
+            .match(Message, key=Message.id)                       # {id: row.id}
+            .match(Message, key={Message.id: row("message_id")})  # renamed key
 
         Not ``merge``: a row naming a node that is not there is a bug in the
         caller's ordering, and creating one would replace that bug with an empty
@@ -108,7 +106,10 @@ class MutationBuilder(QueryBuilder[Any]):
         """
         name = self._register(cls, alias)
         self._pipeline.append(
-            MatchClause(self._node_pattern(cls, name, key), optional=False)
+            MatchClause(
+                self._node_pattern(cls, name, self._key_mapping(key)),
+                optional=False,
+            )
         )
         return self
 
@@ -116,24 +117,54 @@ class MutationBuilder(QueryBuilder[Any]):
         self,
         cls: type,
         *,
-        key: Mapping[Any, Any],
+        key: Any,
         alias: str | None = None,
     ) -> MutationBuilder:
         """Upsert a node, matched or created on its *key* properties.
+
+        *key* takes the same forms as :meth:`match` — a mapping, or bare
+        descriptor(s) reading the same-named row key::
+
+            .merge(Group, key=Group.id)   # MERGE (n:Group {id: row.id})
 
         Only the key goes in the pattern; everything else belongs in a following
         :meth:`~runic.ogm.query.builder.QueryBuilder.set`, or a changed property
         value would make ``MERGE`` miss the existing node and create a second.
         """
         name = self._register(cls, alias)
-        self._pipeline.append(MergeClause(self._node_pattern(cls, name, key)))
+        self._pipeline.append(
+            MergeClause(self._node_pattern(cls, name, self._key_mapping(key)))
+        )
         return self
+
+    def _key_mapping(self, key: Any) -> Mapping[Any, Any]:
+        """Normalise a ``key=`` argument to a field → value mapping.
+
+        A bare descriptor (or sequence of them) reads the same-named key of
+        the ``UNWIND`` row variable.
+        """
+        from runic.ogm.core.descriptors import FieldDescriptor
+        from runic.ogm.query.values import RowRef
+
+        if isinstance(key, Mapping):
+            return key
+        entries = key if isinstance(key, (list, tuple)) else (key,)
+        mapping: dict[Any, Any] = {}
+        for entry in entries:
+            if not isinstance(entry, FieldDescriptor):
+                msg = (
+                    "key= takes a mapping ({field: value}) or bare field "
+                    f"descriptor(s); got {entry!r}"
+                )
+                raise TypeError(msg)
+            mapping[entry] = RowRef(key=entry.field_name, var=self._row_var)
+        return mapping
 
     def merge_edge(
         self,
-        source: str,
-        relationship: str,
-        target: str,
+        source: Any,
+        relationship: Any,
+        target: Any,
         *,
         alias: str | None = None,
         edge_model: type | None = None,
@@ -144,13 +175,20 @@ class MutationBuilder(QueryBuilder[Any]):
         Parameters
         ----------
         source / target:
-            Cypher variables bound by an earlier :meth:`match` or :meth:`merge`.
+            Cypher variables (names or handles) bound by an earlier
+            :meth:`match` or :meth:`merge`.
         relationship:
-            The relationship type.
+            The relationship type — an Edge class (``About``), a ``Relation``
+            field (``Message.about``), or a raw type string. A class or field
+            carries the type *and* the edge model, so neither is repeated::
+
+                .merge_edge("m", About, "t", alias="r")
+                # MERGE (m)-[r:ABOUT]->(t)
         alias:
             Variable for the edge, needed to ``set()`` properties on it.
         edge_model:
-            Edge class, so ``set()`` can resolve its field converters.
+            Edge class, so ``set()`` can resolve its field converters. Derived
+            automatically when *relationship* is a class or a Relation field.
         directed:
             ``False`` emits ``(a)-[r:T]-(b)`` with no arrow, so the same pair
             handed in either order finds the same edge instead of growing a
@@ -159,9 +197,14 @@ class MutationBuilder(QueryBuilder[Any]):
             first.  **FalkorDB rejects an undirected MERGE**; runic refuses to
             emit one there rather than sending Cypher it cannot parse.
         """
-        validate_identifier(source, "source variable")
-        validate_identifier(target, "target variable")
-        rel_type = validate_identifier(relationship, "relationship type")
+        from runic.ogm.query.builder import _alias_name
+
+        source = _alias_name(source, "source variable")
+        target = _alias_name(target, "target variable")
+        rel_name, derived_model = self._edge_type(relationship)
+        rel_type = validate_identifier(rel_name, "relationship type")
+        if edge_model is None:
+            edge_model = derived_model
         edge_ref = (
             f"{validate_identifier(alias, 'edge alias')}:{rel_type}"
             if alias
@@ -199,7 +242,7 @@ class MutationBuilder(QueryBuilder[Any]):
 
         # A write returns something only when asked; a bare MERGE returns
         # nothing, and inventing a RETURN would change what the statement does.
-        if self._returning or self._agg_exprs or self._project_fields:
+        if self._returning or self._project_fields:
             parts.append(self._compile_return())
 
         if self._order:
@@ -213,6 +256,37 @@ class MutationBuilder(QueryBuilder[Any]):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _edge_type(self, relationship: Any) -> tuple[str, type | None]:
+        """Resolve a relationship argument to ``(type_name, edge_model)``.
+
+        An Edge class knows its own type; a ``Relation`` field knows both the
+        type and the edge model it declared; a string is taken verbatim.
+        """
+        from runic.ogm.core.descriptors import FieldDescriptor
+
+        if isinstance(relationship, str):
+            return relationship, None
+        if isinstance(relationship, FieldDescriptor):
+            rel = relationship.relationship
+            if not rel:
+                msg = f"{relationship.field_name!r} declares no relationship type"
+                raise TypeError(msg)
+            edge_cls = relationship.edge_model
+            if isinstance(edge_cls, str):
+                edge_cls = self._meta.resolve_target(edge_cls)
+            return rel, edge_cls
+        if isinstance(relationship, type):
+            edge_meta = self._meta.get_edge_meta(relationship)
+            if edge_meta is None:
+                msg = f"{relationship.__name__!r} is not a registered Edge subclass"
+                raise TypeError(msg)
+            return edge_meta.edge_type, relationship
+        msg = (
+            "relationship must be an Edge class, a Relation field, or a type "
+            f"string; got {relationship!r}"
+        )
+        raise TypeError(msg)
 
     def _register(self, cls: type, alias: str | None) -> str:
         """Name a variable for *cls*, generating one when not given."""
@@ -278,8 +352,8 @@ def unwind(source: Any, *, as_: str = "row") -> MutationBuilder:
 
         stmt = (
             unwind(param("rows"))
-            .merge(Topic, key={Topic.id: row("id")})
-            .set({Topic.label: row("label"), Topic.score: row("score")})
+            .merge(Topic, key=Topic.id)
+            .set(Topic.label, Topic.score)
         )
     """
     return MutationBuilder(None, source, as_)

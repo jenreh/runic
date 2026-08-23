@@ -153,7 +153,7 @@ These snippets barely scratch it. runic is built for the hard parts of
 real graph work — the things you hit on day two, not day one:
 
 - **Multi-hop and variable-length traversals** — chain `.traverse()` calls
-  or use `.repeat(min_hops, max_hops)` to walk org charts, dependency
+  or use `.traverse(..., hops=(min, max))` to walk org charts, dependency
   trees, and recommendation paths without hand-writing `*1..5` Cypher.
 - **Edge properties as first-class data** — model the relationship itself
   with `Edge`, read it back with `all_with_edges()`, and filter on the edge.

@@ -17,14 +17,14 @@ A statement is a module-level constant, or it does not exist.
 # queries.py
 from typing import Final
 
-from runic.ogm import col, count, param, select
+from runic.ogm import count, param, select
 
 from myapp.models import Message
 
 RECENT_MESSAGES: Final = (
     select(Message)
     .where(Message.id > param("after"))
-    .project(col(Message.id).as_("id"), col(Message.subject).as_("subject"))
+    .project(Message.id, Message.subject)
     .order_by(Message.id)
     .limit(param("limit"))
 )
@@ -32,7 +32,7 @@ RECENT_MESSAGES: Final = (
 MESSAGE_COUNT: Final = (
     select(Message)
     .where(Message.id.is_not_null())
-    .aggregate(count("*").as_("total"))
+    .project(count("*").as_("total"))
 )
 
 CATALOG: Final[Mapping[str, QueryBuilder[Any]]] = MappingProxyType({
@@ -55,7 +55,7 @@ Every value reaches the graph as a bound parameter. There is no formatting step
 where an address or a subject line could become part of the query.
 
 The builder enforces this rather than trusting it. The few places that accept a
-raw string — `project()`, `order_by()`, `aggregate(group_by=)` — validate it as a
+raw string — `project()`, `order_by()` — validate it as a
 plain property reference, so a payload carrying a second clause is rejected
 rather than executed:
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runic.ogm import select, unwind
+from runic.ogm import alias, select, unwind
 from runic.ogm.core.metadata import metadata as _real_meta
 from runic.ogm.driver.falkordb import FalkorDBDialect
 from runic.ogm.driver.neo4j import Neo4jDialect
@@ -206,16 +206,10 @@ class TestDelete:
 
     def test_plain_delete_for_an_edge_keeps_its_endpoints(self) -> None:
         """Detaching here would take both addresses and everything on them."""
+        a = alias(Address, "a")
         stmt = (
-            select(Address)
-            .alias("a")
-            .traverse(
-                Address.co_addressed,  # ty: ignore[invalid-argument-type]
-                edge_alias="r",
-                optional=False,
-                direction="OUTGOING",
-            )
-            .alias("b")
+            select(a)
+            .traverse(a.co_addressed, to="b", edge="r", direction="OUTGOING")
             .with_("r", limit=param("batch"))
             .delete("r")
         )

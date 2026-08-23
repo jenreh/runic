@@ -334,8 +334,8 @@ def count(field: Any = "*", *, distinct: bool = False) -> AggExpr:
     --------
     .. code-block:: python
 
-        q.aggregate(count())  # count(*)
-        q.aggregate(count(User.name, distinct=True))  # count(DISTINCT n.name)
+        q.project(count())  # count(*)
+        q.project(count(User.name, distinct=True))  # count(DISTINCT n.name)
     """
     return AggExpr(func="count", field=field, distinct=distinct)
 
@@ -345,7 +345,7 @@ def avg(field: Any) -> AggExpr:
 
     Example::
 
-        q.aggregate(avg(User.age).as_("average_age"))
+        q.project(avg(User.age).as_("average_age"))
     """
     return AggExpr(func="avg", field=field)
 
@@ -355,7 +355,7 @@ def sum_(field: Any) -> AggExpr:
 
     Example::
 
-        q.aggregate(sum_(Order.amount).as_("total"))
+        q.project(sum_(Order.amount).as_("total"))
     """
     return AggExpr(func="sum", field=field)
 
@@ -377,6 +377,6 @@ def collect(field: Any, *, distinct: bool = False) -> AggExpr:
 
     Example::
 
-        q.aggregate(collect(Post.title).as_("post_titles"))
+        q.project(collect(Post.title).as_("post_titles"))
     """
     return AggExpr(func="collect", field=field, distinct=distinct)

@@ -51,11 +51,13 @@ from runic.ogm.mapper.relationship_loader import RelationshipLoader
 from runic.ogm.repository.async_repository import AsyncRepository
 from runic.ogm.repository.repository import Repository
 from runic.ogm.query import (
+    Alias,
     AsyncQueryBuilder,
     FulltextQueryBuilder,
     QueryBuilder,
     VectorQueryBuilder,
     ValueExpr,
+    alias,
     avg,
     coalesce,
     col,
@@ -69,6 +71,7 @@ from runic.ogm.query import (
     min_,
     param,
     row,
+    fulltext_search,
     score,
     select,
     sum_,
@@ -76,6 +79,7 @@ from runic.ogm.query import (
     to_upper,
     unwind,
     var,
+    vector_search,
     when,
 )
 from runic.ogm.query.expressions import (
@@ -157,6 +161,10 @@ __all__ = [  # noqa: RUF022
     "OrmError",
     # Query builder
     "select",
+    "vector_search",
+    "fulltext_search",
+    "Alias",
+    "alias",
     "AsyncQueryBuilder",
     "FulltextQueryBuilder",
     "QueryBuilder",

@@ -371,9 +371,7 @@ class UserRepository(Repository[User]):
         rows: list[tuple[User, InvitationEdge, Trip]] = (
             self.query()
             .where(User.id == user_id)
-            .alias("u")
-            .traverse(User.invited_trips, edge_alias="e", optional=False)
-            .alias("t")
+            .traverse(User.invited_trips, to="t", edge="e")
             .where(Trip.id == trip_id, on="t")
             .return_nodes("u", "t")
             .return_edge("e")
@@ -394,9 +392,7 @@ from runic.ogm import select
 stmt = (
     select(User)
     .where(User.id == user_id)
-    .alias("u")
-    .traverse(User.invited_trips, edge_alias="e", optional=False)
-    .alias("t")
+    .traverse(User.invited_trips, to="t", edge="e")
     .where(Trip.id == trip_id, on="t")
     .return_nodes("u", "t")
     .return_edge("e")

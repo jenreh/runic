@@ -16,7 +16,7 @@ identifier or option value and are a strong signal of an injection attempt.
 
 A second group validates *references* — the ``alias`` and ``alias.property``
 strings the query builder accepts as an escape hatch in ``project()``,
-``order_by()`` and ``aggregate()``.  These are interpolated into RETURN and
+``order_by()`` and ``project()``.  These are interpolated into RETURN and
 ORDER BY, so they are validated rather than escaped: anything richer than a
 property reference must be built from expression objects, not smuggled through
 as text.

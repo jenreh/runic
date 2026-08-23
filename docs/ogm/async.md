@@ -97,8 +97,8 @@ async with AsyncSession(driver) as session:
     # GOOD — traversal query for a collection
     from runic.ogm import select
     stmt = (
-        select(User).where(User.id == "alice").alias("u")
-        .traverse(User.articles).alias("a")
+        select(User).where(User.id == "alice")
+        .traverse(User.articles, to="a")
         .return_target()
     )
     articles = await session.scalars(stmt)
@@ -157,7 +157,7 @@ from runic.ogm.query import count
 
 stmt = (
     select(User)
-    .aggregate(count("*").as_("total"), group_by="n.city")
+    .project(User.city, count("*").as_("total"))
 )
 rows = await session.all_rows(stmt)
 # [{"n.city": "Berlin", "total": 3}, ...]

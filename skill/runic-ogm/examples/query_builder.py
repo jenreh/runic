@@ -1,7 +1,7 @@
 """Query builder: filtering, projection, aggregation, and traversal.
 
 Covers select() execution via the session, the descriptor filter operators,
-boolean composition, ordering/paging, project()/all_rows(), aggregate(), and
+boolean composition, ordering/paging, project()/all_rows(), aggregation, and
 multi-hop traversal with edge filters.
 
 Run against embedded FalkorDB (no server needed):
@@ -103,11 +103,11 @@ def main() -> None:
         )
         log.info("projected: %s", [(r["n.title"], r["n.year"]) for r in rows])
 
-    # --- aggregation: aggregate() → all_rows() ---
+    # --- aggregation: project() → all_rows() ---
     with Session(driver) as session:
         # Name aggregation columns distinctly — avoid the default node alias "n".
         summary = session.all_rows(
-            select(Movie).where(Movie.genre == "sci-fi").aggregate(
+            select(Movie).where(Movie.genre == "sci-fi").project(
                 count("*").as_("total"),
                 avg(Movie.rating).as_("avg_rating"),
                 sum_(Movie.year).as_("year_sum"),
@@ -115,11 +115,11 @@ def main() -> None:
         )
         log.info("sci-fi summary: %s", summary[0])
 
-    # --- grouped aggregation: count per FIELD via group_by="n.<field>" ---
+    # --- grouped aggregation: a plain projection item is the group key ---
     # (the default node alias is "n"; result rows are keyed by "n.genre")
     with Session(driver) as session:
         per_genre = session.all_rows(
-            select(Movie).aggregate(count("*").as_("n_movies"), group_by="n.genre")
+            select(Movie).project(Movie.genre, count("*").as_("n_movies"))
         )
         log.info("movies per genre: %s", per_genre)
 
@@ -135,8 +135,8 @@ def main() -> None:
     with Session(driver) as session:
         # Filtering on an edge property → use optional=False (required join).
         rows = session.all_with_edges(
-            select(User).alias("u").where(User.id == "alice")
-            .traverse(User.rated, edge_alias="r", optional=False).alias("m")
+            select(User).where(User.id == "alice")
+            .traverse(User.rated, to="m", edge="r")
             .where(Rated.score >= 8.0, on="r")
             .return_nodes("u", "m").return_edge("r")
         )

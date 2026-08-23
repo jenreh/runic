@@ -35,10 +35,10 @@ from runic.ogm.query.expressions import (
     CompoundExpr,
     Expr,
     FilterExpr,
+    NegatedExpr,
     OrderExpr,
 )
-from runic.ogm.query.traversal import TraversalStep
-from runic.ogm.query.values import ValueExpr
+from runic.ogm.query.values import Alias, AliasedExpr, ValueExpr
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +52,13 @@ def _validate_projection(expr: str) -> None:
     function because it is part of this module's tested surface.
     """
     validate_reference(expr, "projection")
+
+
+def _alias_name(value: Alias | str, purpose: str) -> str:
+    """Resolve an alias argument — a handle or a raw name — to its name."""
+    if isinstance(value, Alias):
+        return value._name  # noqa: SLF001
+    return validate_identifier(str(value), purpose)
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +87,35 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         The root Node subclass to query.
     """
 
-    def __init__(self, session: Any | None, root_cls: type[T]) -> None:
+    def __init__(
+        self,
+        session: Any | None,
+        root_cls: type[T] | Alias,
+        name: str | None = None,
+    ) -> None:
         from runic.ogm.core.metadata import MetaData
 
+        # The root variable is named where it is introduced: a handle
+        # (select(alias(Message, "m"))) or a plain name (select(Message, "m")).
+        # Unnamed, it defaults to "n".
+        if isinstance(root_cls, Alias):
+            if name is not None:
+                msg = (
+                    "the handle already names the root variable "
+                    f"({root_cls._name!r}); drop the extra name argument"  # noqa: SLF001
+                )
+                raise TypeError(msg)
+            root_name = root_cls._name  # noqa: SLF001
+            # The handle's class is untyped (plain ``type``); trust it as T.
+            root_type: type[T] = root_cls._cls  # noqa: SLF001  # ty: ignore[invalid-assignment]
+        else:
+            root_name = (
+                validate_identifier(name, "root alias") if name is not None else "n"
+            )
+            root_type = root_cls
+
         self._session: Any = session  # None when unbound (created via select())
-        self._root_cls: type[T] = root_cls
+        self._root_cls: type[T] = root_type
         _mapper = getattr(session, "mapper", None)
         self._meta: MetaData = getattr(_mapper, "meta", _global_metadata)
 
@@ -94,12 +125,14 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         # OGM class → list of aliases (inverse lookup)
         self._cls_aliases: dict[type, list[str]] = {}
         # The most recently registered target alias (default RETURN target)
-        self._last_alias: str = "n"
+        self._last_alias: str = root_name
         # The root node alias
-        self._root_alias: str = "n"
+        self._root_alias: str = root_name
+        # Counter for auto-generated traversal-target names
+        self._auto_alias_counter: int = 0
 
         # Register root
-        self._set_alias("n", root_cls)
+        self._set_alias(root_name, root_type)
 
         # Query parts ----------------------------------------------------
         # Clauses between the opening MATCH and the RETURN, in call order —
@@ -108,8 +141,8 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         self._where_exprs: list[Expr] = []
         self._order: list[OrderExpr] = []
         self._distinct: bool = False
-        self._limit_val: int | None = None
-        self._skip_val: int | None = None
+        self._limit_val: int | ValueExpr | None = None
+        self._skip_val: int | ValueExpr | None = None
 
         # Return specification -------------------------------------------
         # None → auto (last alias or root alias)
@@ -117,11 +150,8 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         self._return_aliases: list[str] | None = None
         # Edge alias to include in .all_with_edges() output
         self._edge_alias_for_result: str | None = None
-        # Aggregation specs
-        self._agg_exprs: list[AggExpr] = []
-        self._group_by_alias: str | None = None
-        # Scalar projection (for .project())
-        self._project_fields: list[FieldDescriptor | ValueExpr | str] = []
+        # Projection (for .project()) — values, aggregates, or both
+        self._project_fields: list[FieldDescriptor | ValueExpr | AggExpr | str] = []
         # Explicit RETURN expressions, set by returning()
         self._returning: list[Any] = []
 
@@ -162,38 +192,6 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
             self._session = old
 
     # ------------------------------------------------------------------
-    # Alias management
-    # ------------------------------------------------------------------
-
-    def alias(self, name: str) -> QueryBuilder[T]:
-        """Set the Cypher variable for the root (most recent) node.
-
-        Call immediately after :meth:`Session.query` to name the root
-        variable, or after :meth:`TraversalStep.alias` has already been
-        called to rename the last registered target.
-
-        Example::
-
-            session.query(User).alias("u").where(User.active == True, on="u")
-        """
-        old_alias = self._last_alias
-        old_cls = self._alias_map.get(old_alias)
-        if old_cls is not None:
-            # Remove old mapping
-            self._alias_map.pop(old_alias, None)
-            if old_cls in self._cls_aliases and old_alias in self._cls_aliases[old_cls]:
-                self._cls_aliases[old_cls].remove(old_alias)
-
-        self._set_alias(name, old_cls or self._root_cls)
-        self._last_alias = name
-
-        # Update root alias if renaming the root
-        if old_alias == self._root_alias:
-            self._root_alias = name
-
-        return self
-
-    # ------------------------------------------------------------------
     # Filtering
     # ------------------------------------------------------------------
 
@@ -201,7 +199,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         self,
         expr: Expr,
         *,
-        on: str | None = None,
+        on: str | Alias | None = None,
     ) -> QueryBuilder[T]:
         """Add a WHERE predicate.
 
@@ -223,6 +221,10 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
 
                 .where(Rated.score > 4.0, on="r")
 
+            With an :func:`~runic.ogm.query.values.alias` handle, prefer
+            referencing its properties directly — ``.where(r.score > 4.0)`` —
+            over ``on=``.
+
         Notes
         -----
         Multiple ``.where()`` calls are combined with ``AND``.  To express
@@ -230,10 +232,28 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
 
             .where((User.role == "admin") | (User.role == "mod"))
         """
-        if on is not None and isinstance(expr, FilterExpr):
-            expr = expr.with_alias(on)
+        if on is not None:
+            expr = self._apply_on(expr, _alias_name(on, "where on"))
         self._where_exprs.append(expr)
         return self
+
+    @classmethod
+    def _apply_on(cls, expr: Expr, name: str) -> Expr:
+        """Pin every filter in *expr* to the Cypher variable *name*.
+
+        Recurses through compound and negated expressions so ``on=`` means the
+        same thing for ``(A.x == 1) & (A.y == 2)`` as for a single filter.
+        """
+        if isinstance(expr, FilterExpr):
+            return expr.with_alias(name)
+        if isinstance(expr, CompoundExpr):
+            return CompoundExpr(
+                op=expr.op,
+                operands=[cls._apply_on(op, name) for op in expr.operands],
+            )
+        if isinstance(expr, NegatedExpr):
+            return NegatedExpr(operand=cls._apply_on(expr.operand, name))
+        return expr
 
     # ------------------------------------------------------------------
     # Traversal
@@ -241,18 +261,21 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
 
     def traverse(
         self,
-        relation_field: FieldDescriptor,
+        relation_field: Any,
         *,
-        edge_alias: str | None = None,
-        optional: bool = True,
-        from_: str | None = None,
+        to: str | Alias | None = None,
+        edge: str | Alias | None = None,
+        optional: bool = False,
+        from_: str | Alias | None = None,
         types: Sequence[str] | None = None,
         direction: str | None = None,
-    ) -> TraversalStep:
+        hops: int | tuple[int, int | None] | None = None,
+    ) -> QueryBuilder[T]:
         """Traverse a declared :func:`~runic.ogm.core.descriptors.Relation` field.
 
-        Returns a :class:`~runic.ogm.query.traversal.TraversalStep`; call
-        ``.alias("f")`` on it to name the target node and return to the builder.
+        One call is one Cypher pattern — ``MATCH (u)-[r:RATED]->(m)`` is
+        ``.traverse(User.rated, to=m, edge=r)``, and a variable-length walk is
+        the same pattern with a quantifier: ``hops=(1, 5)`` → ``[:RATED*1..5]``.
 
         Parameters
         ----------
@@ -262,30 +285,48 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
                 User.friends  # list[User] = Relation(...)
                 User.rated  # list[Movie] = Relation(edge_model=Rated)
 
-        edge_alias:
-            When given, a named relationship variable is emitted in the pattern::
+            An :func:`~runic.ogm.query.values.alias` handle's attribute works
+            too: ``a.co_addressed``.
 
-                (u)-[r:RATED]->(m)
+        to:
+            Name for the target node — an :func:`~runic.ogm.query.values.alias`
+            handle or a string.  Omitted, a name is generated; name it whenever
+            anything later references the target.
 
-            This enables filtering on edge properties via
-            ``.where(Rated.score > 4, on="r")`` and retrieving edge instances
-            via ``.all_with_edges()``.
+        edge:
+            When given, a named relationship variable is emitted in the
+            pattern (``(u)-[r:RATED]->(m)``), enabling edge-property filters
+            (``.where(r.score > 4)``) and :meth:`all_with_edges`.
 
         optional:
-            ``True`` (default) → ``OPTIONAL MATCH`` (left-join; keeps source
-            nodes that have no such relationship).
-            ``False`` → ``MATCH`` (inner join; drops source nodes without a
-            matching relationship).
+            ``False`` (default) → ``MATCH``, like Cypher's own unmarked case:
+            source nodes without the relationship are dropped.
+            ``True`` → ``OPTIONAL MATCH`` (left join; sources without the
+            relationship survive, carrying nulls).  Note that a ``WHERE`` on
+            an optional traversal nullifies rows rather than dropping them.
 
         from_:
-            Traverse out of this Cypher variable instead of the most recently
-            registered one.  Without it each traversal continues from where the
-            previous one landed, which walks a chain; with it several traversals
-            can fan out from the same node::
+            Traverse out of this variable instead of the cursor.
 
-                q = session.query(Message).alias("m")
-                q = q.traverse(Message.sent_from, from_="m").alias("s")
-                q = q.traverse(Message.sent_to, from_="m").alias("r")
+            The builder keeps a **cursor** — the variable the most recent step
+            bound.  Each traversal leaves from it and then advances it to its
+            own target, so consecutive calls walk a chain the way a Cypher
+            pattern reads: ``(n)-->(f)-->(p)``.  A traversal's source is
+            resolved in this order:
+
+            1. ``from_``, when given;
+            2. the relation's own handle — ``f.authored_posts`` leaves from
+               ``f``, whatever the cursor says;
+            3. the cursor — where the previous step landed (the root to begin
+               with).
+
+            ``from_`` is the fan-out lever: several traversals leaving the
+            same node instead of chaining::
+
+                m = alias(Message, "m")
+                q = select(m)
+                q = q.traverse(Message.sent_from, from_=m, to="s")
+                q = q.traverse(Message.sent_to, from_=m, to="r")  # from m, not s
 
             Reading a node's relationships in one query means fanning out, and
             the alternative — one query per relationship — reads the same node
@@ -304,100 +345,137 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
             every edge — exactly once, where the undirected form matches it
             from each end and doubles a count.
 
-        Returns
-        -------
-        TraversalStep
-            Call ``.alias("name")`` on the return value to complete the step.
+        hops:
+            Variable-length quantifier, spelled the way Cypher spells it:
+
+            * ``hops=(1, 5)`` → ``*1..5``
+            * ``hops=(2, None)`` → ``*2..`` (unbounded — expensive on dense
+              graphs; set an upper bound unless depth is known to be bounded)
+            * ``hops=3`` → ``*3..3`` (exactly three)
+
+            Omitted, the pattern is a single fixed hop.  An ``edge`` variable
+            cannot be combined with ``hops``: on a variable-length pattern it
+            would bind a *list* of relationships, which the mapper does not
+            decode — match the path without it, or drop to a raw fragment.
 
         Examples
         --------
         .. code-block:: python
 
-            # Basic traversal
-            q = session.query(User).alias("u")
-            q = q.traverse(User.friends).alias("f")
+            u, f = alias(User, "u"), alias(User, "f")
+            q = select(u).traverse(User.friends, to=f).where(f.age > 25)
 
-            # Traversal with edge properties
-            q = session.query(User).alias("u")
-            q = q.traverse(User.rated, edge_alias="r").alias("m")
-            q = q.where(Rated.score >= 4.0, on="r")
+            r = alias(Rated, "r")
+            q = select(u).traverse(User.rated, to="m", edge=r).where(r.score >= 4)
+
+            # All ancestors up to depth 5: (e)-[:REPORTS_TO*1..5]->(anc)
+            e = alias(Employee, "e")
+            q = select(e).traverse(Employee.reports_to, to="anc", hops=(1, 5))
         """
-        return TraversalStep(
-            builder=self,
-            field_descriptor=relation_field,
-            source_alias=from_ or self._last_alias,
+        min_hops, max_hops = self._hop_range(hops)
+        if edge is not None and (min_hops, max_hops) != (1, 1):
+            msg = (
+                "an edge variable on a variable-length pattern binds a list "
+                "of relationships, which cannot be decoded — drop edge= or "
+                "the hops= quantifier"
+            )
+            raise TypeError(msg)
+        self._flush_pending_paging()
+        fd, source = self._traversal_parts(relation_field, from_)
+        return self._register_traversal(
+            fd=fd,
+            source_alias=source,
+            target_alias=self._target_name(to),
             optional=optional,
-            edge_alias=edge_alias,
-            min_hops=1,
-            max_hops=1,
+            edge_alias=_alias_name(edge, "edge alias") if edge is not None else None,
+            min_hops=min_hops,
+            max_hops=max_hops,
             types=types,
             direction=direction,
         )
 
-    def repeat(
-        self,
-        relation_field: FieldDescriptor,
-        *,
-        min_hops: int = 1,
-        max_hops: int | None = None,
-        optional: bool = False,
-        from_: str | None = None,
-    ) -> TraversalStep:
-        """Traverse a relation with variable-length path quantifier ``*min..max``.
+    @staticmethod
+    def _hop_range(hops: int | tuple[int, int | None] | None) -> tuple[int, int | None]:
+        """Normalise a ``hops`` argument to ``(min, max)``.
 
-        Generates a Cypher pattern like::
-
-            (p)-[:PARENT*1..5]->(ancestor:Person)
-
-        Parameters
-        ----------
-        relation_field:
-            The ``Relation`` field to traverse repeatedly.
-        min_hops:
-            Minimum number of hops (default ``1``).
-        max_hops:
-            Maximum number of hops.  ``None`` means unbounded (``*min..``).
-        optional:
-            ``False`` (default for repeat) — required traversal.
-            ``True`` → ``OPTIONAL MATCH``.
-
-        Returns
-        -------
-        TraversalStep
-            Call ``.alias("name")`` to complete the step.
-
-        Examples
-        --------
-        .. code-block:: python
-
-            # All ancestors up to depth 5
-            ancestors = (
-                session.query(Person)
-                .alias("p")
-                .where(Person.id == start_id)
-                .repeat(Person.parent, min_hops=1, max_hops=5)
-                .alias("anc")
-                .all()
-            )
-
-            # All reachable nodes (unbounded)
-            reachable = (
-                session.query(Node)
-                .alias("s")
-                .repeat(Node.connected_to)
-                .alias("t")
-                .all()
-            )
+        ``None`` is a single fixed hop; an int is an exact depth; a tuple is
+        Cypher's ``*min..max`` with ``None`` for an open upper bound.
         """
-        return TraversalStep(
-            builder=self,
-            field_descriptor=relation_field,
-            source_alias=from_ or self._last_alias,
-            optional=optional,
-            edge_alias=None,
-            min_hops=min_hops,
-            max_hops=max_hops,
+        if hops is None:
+            return 1, 1
+        if isinstance(hops, int):
+            min_hops, max_hops = hops, hops
+        else:
+            min_hops, max_hops = hops
+        if min_hops < 0:
+            msg = f"hops: minimum must be >= 0, got {min_hops}"
+            raise ValueError(msg)
+        if max_hops is not None and max_hops < min_hops:
+            msg = f"hops: maximum {max_hops} is below minimum {min_hops}"
+            raise ValueError(msg)
+        return min_hops, max_hops
+
+    def _traversal_parts(
+        self, relation_field: Any, from_: str | Alias | None
+    ) -> tuple[FieldDescriptor, str]:
+        """Resolve the relation descriptor and the source variable name.
+
+        A relation reached through a handle (``a.co_addressed``) names its own
+        source; an explicit ``from_`` overrides, and a bare descriptor falls
+        back to the most recently registered variable.
+        """
+        from runic.ogm.query.values import _DEFERRED_ALIAS, PropertyRef
+
+        inferred: str | None = None
+        fd = relation_field
+        if isinstance(fd, PropertyRef):
+            if fd.owner is None:
+                msg = f"{fd.prop!r} is not bound to a model class"
+                raise TypeError(msg)
+            if fd.alias != _DEFERRED_ALIAS:
+                inferred = fd.alias
+            fd = getattr(fd.owner, fd.prop)
+        if not isinstance(fd, FieldDescriptor):
+            msg = (
+                "traverse() takes a Relation field (User.friends or a handle's "
+                f"attribute); got {relation_field!r}"
+            )
+            raise TypeError(msg)
+        if from_ is not None:
+            source = _alias_name(from_, "traversal source")
+        else:
+            source = inferred or self._last_alias
+        return fd, source
+
+    def _target_name(self, to: str | Alias | None) -> str:
+        """Resolve the traversal-target name, generating one when unnamed."""
+        if to is not None:
+            return _alias_name(to, "traversal target")
+        self._auto_alias_counter += 1
+        return f"_t{self._auto_alias_counter}"
+
+    def _flush_pending_paging(self) -> None:
+        """Compile pending ORDER BY / SKIP / LIMIT into a ``WITH`` stage.
+
+        The builder compiles in the order it is called: paging written before
+        a traversal (or a write) pages *before* it, which in Cypher means a
+        ``WITH`` stage carrying the variables bound so far.
+        """
+        if not (
+            self._order or self._limit_val is not None or self._skip_val is not None
+        ):
+            return
+        self._pipeline.append(
+            WithClause(
+                variables=tuple(self._alias_map.keys()),
+                order_by=tuple(self._order),
+                limit=self._limit_val,
+                skip=self._skip_val,
+            )
         )
+        self._order = []
+        self._limit_val = None
+        self._skip_val = None
 
     # ------------------------------------------------------------------
     # WITH (multi-stage pipelining)
@@ -436,24 +514,23 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         distinct:
             Emit ``WITH DISTINCT``.
 
-        Cutting a page here rather than at the end is the difference between
-        paying for one page's expansions and paying for the whole graph's::
+        For the common "page, then expand" shape no explicit ``WITH`` is
+        needed: paging calls written before a traversal compile into one
+        automatically (the builder compiles in call order)::
 
+            m, r = alias(Message, "m"), alias(Address, "r")
             (
-                session.query(Message)
-                .alias("m")
-                .where(Message.id > param("after"))
-                .with_("m", order_by=Message.id, limit=param("limit"))
-                .traverse(Message.sent_to, from_="m")
-                .alias("r")
-                .aggregate(
-                    collect(col("r", Address.id), distinct=True).as_("addressed"),
-                    group_by=col("m", Message.id).as_("id"),
-                )
+                select(m)
+                .where(m.id > param("after"))
+                .order_by(m.id)
+                .limit(param("limit"))  # pages before the traverse
+                .traverse(Message.sent_to, from_=m, to=r, optional=True)
+                .project(m.id, collect(r.id, distinct=True).as_("addressed"))
             )
 
-        A trailing ``LIMIT`` would instead expand every message in the archive
-        and then discard all but the page.
+        Reach for ``with_()`` explicitly when a stage computes something —
+        ``with_(m, count("*").as_("cnt"))`` — or filters on an aggregate via
+        ``where=`` (Cypher's ``HAVING``).
         """
         order_terms: list[OrderExpr] = []
         if order_by is not None:
@@ -483,19 +560,14 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
     # Ordering / pagination
     # ------------------------------------------------------------------
 
-    def order_by(
-        self,
-        field: FieldDescriptor | ValueExpr | str,
-        *,
-        desc: bool = False,
-    ) -> QueryBuilder[T]:
+    def order_by(self, field: Any, *, desc: bool = False) -> QueryBuilder[T]:
         """Add an ``ORDER BY`` term.
 
         Parameters
         ----------
         field:
-            A field descriptor (``User.name``) or a raw Cypher expression
-            string (``"n.created_at DESC"``).
+            A field descriptor (``User.name``), a named result column — the
+            same ``.as_()`` expression the projection uses — or a raw string.
         desc:
             ``True`` for descending order (default ``False``).
 
@@ -505,15 +577,34 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
 
             q.order_by(User.age)  # ORDER BY n.age ASC
             q.order_by(User.created_at, desc=True)  # ORDER BY n.created_at DESC
-            q.order_by("score ASC")  # raw string
+
+            # Bind a result column once, reference it twice
+            total = count("*").as_("total")
+            q.project(User.city, total).order_by(total, desc=True)
         """
         self._order.append(self._order_term(field, desc=desc))
         return self
 
     def _order_term(
-        self, field: FieldDescriptor | ValueExpr | str, *, desc: bool
+        self, field: FieldDescriptor | ValueExpr | AggExpr | str, *, desc: bool
     ) -> OrderExpr:
-        """Build one ORDER BY term from a descriptor, expression, or raw string."""
+        """Build one ORDER BY term from a descriptor, expression, or raw string.
+
+        A named expression — ``.as_()`` on a value or an aggregate — orders by
+        its *result column*: the projection introduced the name, the ORDER BY
+        reuses it.
+        """
+        if isinstance(field, AliasedExpr):
+            return OrderExpr(alias=None, prop=None, raw=field.result_name, desc=desc)
+        if isinstance(field, AggExpr):
+            if not field.result_alias:
+                msg = (
+                    "order_by() on an aggregate needs a result name; "
+                    "give it one with .as_()"
+                )
+                raise ValueError(msg)
+            column = validate_identifier(field.result_alias, "order_by column")
+            return OrderExpr(alias=None, prop=None, raw=column, desc=desc)
         if isinstance(field, ValueExpr):
             return OrderExpr(alias=None, prop=None, expr=field, desc=desc)
         if isinstance(field, FieldDescriptor):
@@ -557,122 +648,67 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
     # Return specification
     # ------------------------------------------------------------------
 
-    def return_target(self, alias: str) -> QueryBuilder[T]:
+    def return_target(self, alias: str | Alias) -> QueryBuilder[T]:
         """Set the single alias to return decoded Node instances from.
 
         When a traversal is involved, this selects which alias's nodes
         constitute the result of ``.all()``::
 
-            q.return_target("f")  # returns f-nodes as list[FriendType]
+            q.return_target(f)  # returns f-nodes as list[FriendType]
         """
-        self._return_aliases = [alias]
+        self._return_aliases = [_alias_name(alias, "return target")]
         return self
 
-    def return_nodes(self, *aliases: str) -> QueryBuilder[T]:
+    def return_nodes(self, *aliases: str | Alias) -> QueryBuilder[T]:
         """Declare multiple node aliases to include in the ``RETURN`` clause.
 
         Used with :meth:`return_edge` and :meth:`all_with_edges` to return
         structured tuples::
 
-            q.return_nodes("u", "m").return_edge("r").all_with_edges()
+            q.return_nodes(u, m).return_edge(r).all_with_edges()
         """
-        self._return_aliases = list(aliases)
+        self._return_aliases = [_alias_name(a, "return node") for a in aliases]
         return self
 
-    def return_edge(self, alias: str) -> QueryBuilder[T]:
+    def return_edge(self, alias: str | Alias) -> QueryBuilder[T]:
         """Declare an edge alias to include in the ``RETURN`` clause.
 
-        Requires that the traversal was created with ``edge_alias=alias``.
+        Requires that the traversal was created with ``edge=alias``.
         The edge is decoded via :meth:`~runic.ogm.mapper.mapper.Mapper.decode_edge`
         and included as the middle element of tuples returned by
         :meth:`all_with_edges`.
         """
-        self._edge_alias_for_result = alias
+        self._edge_alias_for_result = _alias_name(alias, "return edge")
         return self
 
-    def project(self, *fields: FieldDescriptor | ValueExpr | str) -> QueryBuilder[T]:
-        """Return only specific values (scalar projection).
+    def project(self, *fields: Any) -> QueryBuilder[T]:
+        """Shape the ``RETURN`` line: values, aggregates, or both.
 
-        Terminal method ``.scalars()`` returns the projected values as a flat
-        list; ``.all_rows()`` returns a list of dicts::
+        Bare fields are auto-named after themselves, so result rows are keyed
+        by field name; ``.as_()`` renames, and computed expressions need it::
 
-            # Scalar list
-            names = session.query(User).project(User.name).scalars()
-
-            # Dict list
-            rows = session.query(User).project(User.name, User.age).all_rows()
-
-        Accepts field descriptors, raw ``alias.property`` strings, and
-        :mod:`~runic.ogm.query.values` expressions — which is how a column gets
-        a stable name, or is computed in the store::
-
-            from runic.ogm.query import col, left, param
-
-            session.query(Message).project(
-                col(Message.id).as_("id"),
-                left(col(Message.body_clean), param("max_chars")).as_("body"),
+            select(Message).project(
+                Message.id,
+                left(Message.body_clean, param("max_chars")).as_("body"),
             )
             # RETURN n.id AS id, left(n.body_clean, $max_chars) AS body
 
-        Naming columns matters for more than tidiness: ``all_rows()`` keys its
-        dicts by the column names the store reports, so an unaliased projection
-        yields keys like ``"n.body_clean"``.
+        Cypher has no ``GROUP BY`` — every non-aggregated item *is* a grouping
+        key — so a projection mixing values and aggregates is the grouped
+        query::
+
+            u, t = alias(User, "u"), alias(Tag, "t")
+            select(u).traverse(User.tags, to=t).project(u, collect(t).as_("tags"))
+            # RETURN u, collect(t) AS tags
+
+        Terminal method ``.scalars()`` returns a single projected column as a
+        flat list; ``.all_rows()`` returns a list of dicts keyed by column
+        name.
         """
         for f in fields:
             if isinstance(f, str):
                 _validate_projection(f)
         self._project_fields = list(fields)
-        return self
-
-    # ------------------------------------------------------------------
-    # Aggregation
-    # ------------------------------------------------------------------
-
-    def aggregate(
-        self,
-        *agg_exprs: AggExpr,
-        group_by: str | ValueExpr | Sequence[str | ValueExpr] | None = None,
-    ) -> QueryBuilder[T]:
-        """Add aggregation expressions to the ``RETURN`` clause.
-
-        Parameters
-        ----------
-        *agg_exprs:
-            One or more :class:`~runic.ogm.query.expressions.AggExpr` instances
-            created by the helper functions
-            :func:`~runic.ogm.query.expressions.count`,
-            :func:`~runic.ogm.query.expressions.avg`, etc.
-        group_by:
-            Alias to keep in the ``RETURN`` clause alongside the aggregations
-            (Cypher grouping is implicit — any non-aggregated return term acts
-            as a GROUP BY key)::
-
-                .aggregate(count("*").as_("friend_count"), group_by="u")
-                # RETURN u, count(*) AS friend_count
-
-        Examples
-        --------
-        .. code-block:: python
-
-            from runic.ogm.query import count, avg
-
-            result = (
-                session.query(User)
-                .alias("u")
-                .traverse(User.friends)
-                .aggregate(count("*").as_("friend_count"), group_by="u")
-                .all_rows()  # list[dict] with {"u": ..., "friend_count": int}
-            )
-
-            avg_age = (
-                session.query(User).aggregate(avg(User.age).as_("average_age")).scalar()
-            )
-        """
-        for key in group_by if isinstance(group_by, (list, tuple)) else [group_by]:
-            if isinstance(key, str):
-                validate_reference(key, "group_by key")
-        self._agg_exprs = list(agg_exprs)
-        self._group_by_alias = group_by
         return self
 
     # ------------------------------------------------------------------
@@ -701,12 +737,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
 
     def _wants_return(self) -> bool:
         """Whether this statement should emit a RETURN clause at all."""
-        asked = bool(
-            self._returning
-            or self._agg_exprs
-            or self._project_fields
-            or self._return_aliases
-        )
+        asked = bool(self._returning or self._project_fields or self._return_aliases)
         if asked:
             return True
         return not any(
@@ -836,7 +867,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
     # Internal: traversal registration (called by TraversalStep.alias)
     # ------------------------------------------------------------------
 
-    def register_traversal(
+    def _register_traversal(
         self,
         fd: FieldDescriptor,
         source_alias: str,
@@ -849,10 +880,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         types: Sequence[str] | None = None,
         direction: str | None = None,
     ) -> QueryBuilder[T]:
-        """Append a MATCH clause for one traversal step and register aliases.
-
-        Called by :meth:`TraversalStep.alias` to complete a traversal step.
-        """
+        """Append a MATCH clause for one traversal step and register aliases."""
         # Resolve target class and label
         raw_target = fd.target
         target_cls = (
