@@ -1,5 +1,5 @@
 {
-  "skill_name": "runic-orm",
+  "skill_name": "runic-ogm",
   "evals": [
     {
       "id": 0,
@@ -114,6 +114,102 @@
         {
           "name": "no-hallucinated-api",
           "description": "Does not invent non-existent traversal/loading API"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Using runic.ogm, write a query that returns each Message id together with the ids of everyone it was sent to, for one page of messages ordered by id. There may be many recipients per message and the archive is large, so it must not expand the whole graph.",
+      "expected_output": "select(Message).alias('m').where(Message.id > param('after')).with_('m', order_by=Message.id, limit=param('limit')) BEFORE the traversal, then .traverse(Message.sent_to, from_='m').alias('r') and .aggregate(collect(col('r', Address.id), distinct=True).as_('recipients'), group_by=col('m', Message.id).as_('id')). The WITH stage takes the page off the index first; a trailing .limit() would expand every message in the graph and then discard all but the page. from_='m' anchors the traversal to the message rather than continuing from wherever the previous one landed. Read via session.all_rows().",
+      "files": [],
+      "assertions": [
+        {
+          "name": "with-before-traversal",
+          "description": "The WITH stage with limit comes BEFORE the traversal, not after"
+        },
+        {
+          "name": "from-anchors-traversal",
+          "description": "Uses from_= to anchor the traversal to the message variable"
+        },
+        {
+          "name": "collect-distinct",
+          "description": "Uses collect(..., distinct=True) with a group_by key"
+        },
+        {
+          "name": "explains-page-before-expansion",
+          "description": "Explains that a trailing limit would expand the whole graph"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "With runic.ogm I need to write about 50,000 derived Topic nodes and attach them to messages. The job re-runs nightly and must be idempotent. Show the writes.",
+      "expected_output": "Bulk writes with unwind(param('rows')): unwind(param('rows')).merge(Topic, key={Topic.id: row('id')}, alias='t').set({Topic.label: row('label')}, on='t'). MERGE rather than session.add() (which compiles to CREATE) because a derived label carries no unique constraint, so a re-run would silently duplicate every node. Only the KEY goes in merge(); other properties go in set(), or a changed value makes MERGE miss the existing node. Edges: .match(Message, key={Message.id: row('message_id')}, alias='m').match(Topic, ...).merge_edge('m', 'ABOUT', 't', alias='r', edge_model=About) — match and not merge on the endpoints. Run the $rows payload through encode_rows(Topic, rows) first, because values inside $rows never pass through the mapper and a datetime would reach the driver unencodable.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "uses-unwind-merge",
+          "description": "Uses unwind(param('rows')) with merge(), not session.add() per entity"
+        },
+        {
+          "name": "key-only-in-merge",
+          "description": "Only the key goes in merge(); other properties in set()"
+        },
+        {
+          "name": "match-not-merge-endpoints",
+          "description": "Edge endpoints are matched, not merged"
+        },
+        {
+          "name": "encode-rows",
+          "description": "Runs the payload through encode_rows() before binding $rows"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "In runic.ogm, how do I delete all the derived Group nodes before a rebuild, and separately all the derived CO_ADDRESSED edges between Address nodes, on a large graph that other things are reading?",
+      "expected_output": "Batched deletes through a WITH stage, looping until the returned count is zero. Nodes: select(Group).with_('n', limit=param('batch')).delete(detach=True).returning(count('n').as_('removed')) — detach=True because Cypher refuses to delete a node that still has relationships. Edges: traverse to bind the edge with edge_alias='r', then .with_('r', limit=param('batch')).delete('r') — plain DELETE and NEVER detach=True, because detaching an edge takes both endpoint Address nodes down with it and every relationship on them. returning() is required for the write to report anything; without it no RETURN is emitted.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "batched-through-with",
+          "description": "Deletes in batches via a WITH stage, looping until the count is zero"
+        },
+        {
+          "name": "detach-for-nodes",
+          "description": "Uses detach=True for nodes"
+        },
+        {
+          "name": "no-detach-for-edges",
+          "description": "Does NOT use detach=True for the edge delete, and says why"
+        },
+        {
+          "name": "returning-required",
+          "description": "Uses returning() to report the count"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Using runic.ogm, run a vector similarity search over Message.embedding, keep only messages embedded by the current model, and return the 20 closest with their distance. Roughly 30% of messages have no embedding yet.",
+      "expected_output": "session.vector_search(Message, field=Message.embedding, vector=param('vector'), k=param('k')).where(Message.embedding_model == param('model')).project(col(Message.id).as_('id'), score().as_('distance')).limit(param('limit')). k and limit are DIFFERENT numbers: k is how wide the index search goes and limit is what the caller sees, because a procedure cannot be narrowed before the fact — every row the where() drops was already paid for by k, so k must exceed limit (e.g. k=200 for limit=20) or the page comes back short and looks like a small archive. score() is a distance: lower is closer, normalised across backends. A message with no vector is absent from the index entirely and nothing in the result says so, so report coverage alongside, e.g. count(when(Message.embedding_model == param('model'), 1)).as_('embedded').",
+      "files": [],
+      "assertions": [
+        {
+          "name": "k-differs-from-limit",
+          "description": "k and limit are different numbers, with k larger"
+        },
+        {
+          "name": "explains-no-pre-filtering",
+          "description": "Explains that a procedure cannot be narrowed before the fact"
+        },
+        {
+          "name": "score-is-distance",
+          "description": "States that score() is a distance, lower being closer"
+        },
+        {
+          "name": "reports-coverage",
+          "description": "Mentions reporting embedding coverage alongside the result"
         }
       ]
     }
