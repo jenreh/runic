@@ -466,26 +466,50 @@ class TestFulltextQueryBuilder:
 
 
 class TestVectorQueryBuilder:
-    def test_emits_knn_order_by(self) -> None:
-        sess = _mock_session()
-        vec = [0.1, 0.2, 0.3]
+    def test_uses_the_index_procedure_not_a_scan(self) -> None:
+        """FalkorDB rejects the `<->` operator this builder used to emit."""
         q = VectorQueryBuilder(
-            sess,
+            _mock_session(),
             BDocument,
             field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
-            vector=vec,
+            vector=[0.1, 0.2, 0.3],
             k=5,
         )
         cypher, params = q.build()
-        assert "vecf32(n.embedding) <-> vecf32($__knn_vec)" in cypher
+        assert "CALL db.idx.vector.queryNodes('BDocument', 'embedding'" in cypher
+        assert "YIELD node AS n, score" in cypher
+        assert params["__knn_vec"] == [0.1, 0.2, 0.3]
+        assert params["__knn_k"] == 5
+
+    def test_score_is_normalised_to_a_distance(self) -> None:
+        q = VectorQueryBuilder(
+            _mock_session(),
+            BDocument,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
+            vector=[0.1],
+            k=3,
+        )
+        cypher, _ = q.build()
+        assert "WITH n, score AS __score" in cypher
         assert "ORDER BY __score ASC" in cypher
-        assert "LIMIT 5" in cypher
-        assert params["__knn_vec"] == vec
+
+    def test_search_width_is_not_the_row_limit(self) -> None:
+        """k bounds the index search; limit bounds what the caller sees."""
+        q = VectorQueryBuilder(
+            _mock_session(),
+            BDocument,
+            field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
+            vector=[0.1],
+            k=200,
+        )
+        q.limit(10)
+        cypher, params = q.build()
+        assert params["__knn_k"] == 200
+        assert cypher.endswith("LIMIT 10")
 
     def test_where_respected(self) -> None:
-        sess = _mock_session()
         q = VectorQueryBuilder(
-            sess,
+            _mock_session(),
             BDocument,
             field=BDocument.embedding,  # ty: ignore[invalid-argument-type]
             vector=[0.1],

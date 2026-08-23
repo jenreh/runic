@@ -83,8 +83,10 @@ __all__ = [
     "literal",
     "param",
     "row",
+    "score",
     "to_lower",
     "to_upper",
+    "var",
     "when",
 ]
 
@@ -162,7 +164,8 @@ class PropertyRef(ValueExpr):
     owner: type | None = None
 
     def to_cypher(self, compiler: Any) -> str:
-        return f"{self._resolve_alias(compiler)}.{self.prop}"
+        alias = self._resolve_alias(compiler)
+        return f"{alias}.{self.prop}" if self.prop else alias
 
     def referenced_aliases(self, compiler: Any) -> set[str]:
         return {self._resolve_alias(compiler)}
@@ -440,6 +443,37 @@ def to_lower(value: Any) -> FnCall:
 def to_upper(value: Any) -> FnCall:
     """``toUpper(value)``."""
     return FnCall(name="toUpper", args=(value,))
+
+
+def var(name: str) -> PropertyRef:
+    """Reference a bare Cypher variable by name.
+
+    For values a query introduces that no model declares — what a procedure
+    yields, or a name bound by an earlier ``WITH`` stage::
+
+        .call("db.idx.vector.queryNodes", …, yields=["node", "score"])
+        .where(var("score") <= param("max_distance"))
+    """
+    return PropertyRef(alias=validate_identifier(name, "variable"), prop="")
+
+
+def score() -> PropertyRef:
+    """The score a search procedure yielded, for projecting or filtering.
+
+    Its meaning depends on which search produced it, and the two conventions
+    are opposite:
+
+    * a **vector** search yields a distance — lower is closer;
+    * a **fulltext** search yields a relevance — higher is better.
+
+    They are not comparable. Merging both into one ranking without a stated
+    normalisation invents an ordering neither index produced.
+
+    Example::
+
+        session.vector_search(...).project(score().as_("distance"))
+    """
+    return PropertyRef(alias="__score", prop="", owner=None)
 
 
 def when(

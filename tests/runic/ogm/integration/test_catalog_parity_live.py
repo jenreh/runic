@@ -13,12 +13,17 @@ Run against all backends with::
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 
 from runic.ogm.session.session import Session
-from tests.runic.ogm.catalog_cases import CATALOG_CASES, CatalogCase, expressible
+from tests.runic.ogm.catalog_cases import (
+    CATALOG_CASES,
+    CatalogCase,
+    statements,
+)
 from tests.runic.ogm.catalog_models import (
     Address,
     Group,
@@ -27,7 +32,60 @@ from tests.runic.ogm.catalog_models import (
     Topic,
 )
 
+log = logging.getLogger(__name__)
+
 pytestmark = pytest.mark.integration
+
+
+#: Index DDL per backend, for the indexes the search statements search.
+#: Written as raw Cypher because index syntax is exactly the part that is not
+#: portable — which is why runic keeps it behind an adapter rather than a
+#: builder.
+_SEARCH_INDEX_DDL: dict[str, tuple[str, ...]] = {
+    "neo4j": (
+        "CREATE VECTOR INDEX Message_embedding IF NOT EXISTS "
+        "FOR (m:Message) ON (m.embedding) "
+        "OPTIONS {indexConfig: {`vector.dimensions`: 4, "
+        "`vector.similarity_function`: 'cosine'}}",
+        "CREATE FULLTEXT INDEX Message IF NOT EXISTS "
+        "FOR (m:Message) ON EACH [m.subject, m.body_clean]",
+    ),
+    "memgraph": (
+        "CREATE VECTOR INDEX Message_embedding ON :Message(embedding) "
+        "WITH CONFIG {'dimension': 4, 'capacity': 100, 'metric': 'cos'}",
+        "CREATE TEXT INDEX Message ON :Message",
+    ),
+    "falkordb": (
+        "CALL db.idx.fulltext.createNodeIndex('Message', 'subject', 'body_clean')",
+    ),
+}
+
+
+def _ensure_search_indexes(driver: Any, backend: str) -> None:
+    """Create the indexes the search statements need, where the backend has them.
+
+    A search procedure with no index behind it fails at the driver — on FalkorDB
+    with a message naming the yielded variable rather than the missing index.
+    Backends with no Cypher-reachable index carry a recorded reason on the cases
+    that need one.
+    """
+    if backend == "falkordb":
+        from runic.ogm.schema.runtime_index import IndexOperations
+
+        try:
+            IndexOperations.from_driver(driver).create_vector_index(
+                Message,
+                Message.embedding,  # ty: ignore[invalid-argument-type]
+                dimension=4,
+            )
+        except Exception:  # noqa: BLE001 - already present
+            log.debug("vector index already present for the parity fixture")
+
+    for statement in _SEARCH_INDEX_DDL.get(backend, ()):
+        try:
+            driver.execute(statement, {})
+        except Exception:  # noqa: BLE001 - already present, or unsupported
+            log.debug("parity fixture could not run index DDL: %s", statement)
 
 
 @pytest.fixture
@@ -48,6 +106,7 @@ def seeded(graph_driver: Any) -> Any:
         session.add(Topic(id="t1", label="billing", method="token"))
         session.add(Template(id="tpl1", direction="sent", occurrences=2))
         session.commit()
+    _ensure_search_indexes(graph_driver, _backend_of(graph_driver))
     return graph_driver
 
 
@@ -67,7 +126,7 @@ def _backend_of(driver: Any) -> str:
     }.get(dialect, dialect)
 
 
-@pytest.mark.parametrize("case", expressible(), ids=_ids)
+@pytest.mark.parametrize("case", statements(), ids=_ids)
 def test_statement_runs_against_backend(case: CatalogCase, seeded: Any) -> None:
     """Bind every parameter and execute — the statement must be accepted."""
     backend = _backend_of(seeded)
@@ -82,7 +141,7 @@ def test_statement_runs_against_backend(case: CatalogCase, seeded: Any) -> None:
     assert isinstance(rows, list)
 
 
-@pytest.mark.parametrize("case", expressible(), ids=_ids)
+@pytest.mark.parametrize("case", statements(), ids=_ids)
 def test_unbound_parameter_is_refused(case: CatalogCase, seeded: Any) -> None:
     """A statement must not run with a declared parameter left unbound.
 
@@ -102,7 +161,7 @@ def test_unbound_parameter_is_refused(case: CatalogCase, seeded: Any) -> None:
         session.all_rows(stmt, {})
 
 
-@pytest.mark.parametrize("case", expressible(), ids=_ids)
+@pytest.mark.parametrize("case", statements(), ids=_ids)
 def test_bindings_cover_declared_parameters(case: CatalogCase) -> None:
     """Every declared parameter has a representative value.
 
@@ -132,23 +191,76 @@ def test_upsert_is_idempotent(case: CatalogCase, seeded: Any) -> None:
     stmt = case.build() if case.build else None
     assert stmt is not None
 
-    counts = []
-    for _ in range(2):
+    def run_once() -> None:
         with Session(seeded) as session:
             session.all_rows(stmt, case.bind())
-        with Session(seeded) as session:
-            counts.append(_graph_size(session))
+            # A Bolt backend does not make a write visible to a later session
+            # until its transaction commits.
+            session.commit()
 
-    assert counts[0] == counts[1], (
-        f"{case.name} is not idempotent: {counts[0]} -> {counts[1]}"
+    run_once()
+    before = _written_shape(seeded, case)
+    run_once()
+    after = _written_shape(seeded, case)
+
+    assert before == after, f"{case.name} is not idempotent: {before} -> {after}"
+
+
+#: What each upsert writes, as the label or relationship type to count.
+_WRITES: dict[str, tuple[str, str]] = {
+    "MERGE_GROUPS": ("node", "Group"),
+    "MERGE_TOPICS": ("node", "Topic"),
+    "MERGE_TEMPLATES": ("node", "Template"),
+    "MERGE_ADDRESSED_GROUP": ("edge", "ADDRESSED_GROUP"),
+    "MERGE_ABOUT": ("edge", "ABOUT"),
+    "MERGE_INSTANCE_OF": ("edge", "INSTANCE_OF"),
+    "MERGE_CO_ADDRESSED": ("edge", "CO_ADDRESSED"),
+}
+
+
+def _written_shape(driver: Any, case: CatalogCase) -> int:
+    """Count only what *case* writes.
+
+    Counting the whole graph would measure every other test sharing the
+    database, which on the Bolt backends is all of them.
+    """
+    kind, name = _WRITES[case.name]
+    cypher = (
+        f"MATCH (n:{name}) RETURN count(n) AS c"
+        if kind == "node"
+        else f"MATCH ()-[r:{name}]-() RETURN count(r) AS c"
     )
+    with Session(driver) as session:
+        return int(session.execute(cypher, {}).rows[0][0])
 
 
-def _graph_size(session: Any) -> tuple[int, int]:
-    """(nodes, relationships) in the graph."""
-    nodes = session.execute("MATCH (n) RETURN count(n) AS c", {}).rows[0][0]
-    edges = session.execute("MATCH ()-[r]->() RETURN count(r) AS c", {}).rows[0][0]
-    return int(nodes), int(edges)
+def test_vector_index_lifecycle(graph_driver: Any) -> None:
+    """Create, observe, drop — the cycle a changed embedder forces.
+
+    The dimension follows whichever model is configured, so re-indexing at a new
+    length is a runtime operation rather than a migration.
+    """
+    from runic.ogm.schema.runtime_index import IndexOperations
+
+    try:
+        ops = IndexOperations.from_driver(graph_driver)
+    except NotImplementedError as exc:
+        pytest.skip(str(exc))
+
+    def has_index() -> bool:
+        return any(
+            spec.label == "Message" and spec.property == "embedding"
+            for spec in ops.describe()
+        )
+
+    ops.create_vector_index(Message, Message.embedding, dimension=4)  # ty: ignore[invalid-argument-type]
+    assert has_index(), "index should be visible after creation"
+
+    ops.resize_vector_index(Message, Message.embedding, dimension=8)  # ty: ignore[invalid-argument-type]
+    assert has_index(), "index should survive a resize"
+
+    ops.drop_vector_index(Message, Message.embedding)  # ty: ignore[invalid-argument-type]
+    assert not has_index(), "index should be gone after drop"
 
 
 def test_every_case_has_bindable_parameters() -> None:

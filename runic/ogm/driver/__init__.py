@@ -67,6 +67,15 @@ class CypherFeature:
     """A vector index queryable from Cypher. Absent on AGE."""
 
 
+def yield_as(yielded: str, alias: str) -> str:
+    """Render one ``YIELD`` item, omitting a no-op rename.
+
+    ``YIELD node AS node`` is rejected by at least FalkorDB, which reports it as
+    ``'node' not defined`` — a message that points nowhere near the cause.
+    """
+    return yielded if yielded == alias else f"{yielded} AS {alias}"
+
+
 def dialect_supports(dialect: Any, feature: str) -> bool:
     """Return whether *dialect* supports *feature*, assuming yes when unstated.
 

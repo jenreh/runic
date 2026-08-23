@@ -22,6 +22,7 @@ from runic.ogm.core.metadata import metadata as _global_metadata
 from runic.ogm.driver import CypherFeature
 from runic.ogm.query._compiler import _CypherCompiler
 from runic.ogm.query.clauses import (
+    CallClause,
     Clause,
     DeleteClause,
     MatchClause,
@@ -620,6 +621,70 @@ class QueryBuilder(_CypherCompiler[T]):  # noqa: UP046
             if isinstance(f, str):
                 _validate_projection(f)
         self._project_fields = list(fields)
+        return self
+
+    # ------------------------------------------------------------------
+    # Procedures
+    # ------------------------------------------------------------------
+
+    def call(
+        self,
+        procedure: str,
+        *args: Any,
+        yields: Sequence[str] = (),
+    ) -> QueryBuilder[T]:
+        """Invoke a procedure mid-query, optionally correlated with the match.
+
+        The arguments are ordinary expressions, so a procedure can be driven by
+        a value from a node already matched — which is what turns a
+        per-row search into one round trip instead of one query per row.
+
+        Parameters
+        ----------
+        procedure:
+            Dotted procedure name. Each segment is validated as an identifier.
+        *args:
+            Arguments. A plain ``str`` is emitted as a Cypher string literal
+            (an index or label name the *model* supplies); everything else is an
+            expression or a bound value.
+        yields:
+            Names to bind from the procedure's output.
+
+        Example
+        -------
+        Every message's nearest neighbours in one statement, rather than a KNN
+        query per message::
+
+            (
+                select(Message)
+                .alias("m")
+                .where(Message.embedding_model == param("model"))
+                .call(
+                    "db.idx.vector.queryNodes",
+                    "Message",
+                    "embedding",
+                    param("k"),
+                    col("m", Message.embedding),
+                    yields=["node", "score"],
+                )
+                .with_("m", "node", "score")
+                .where(col("node", Message.id) > col("m", Message.id))
+            )
+
+        .. note::
+            A procedure cannot be narrowed before the fact: a ``MATCH`` above it
+            does not restrict what it searches. Filters after the ``YIELD``
+            discard rows the index already paid to find, so the search width has
+            to cover them.
+        """
+        self._pipeline.append(
+            CallClause(
+                procedure=procedure,
+                args=tuple(args),
+                yields=tuple(yields),
+                requires=(CypherFeature.PROCEDURE_CALL, f"CALL {procedure}"),
+            )
+        )
         return self
 
     # ------------------------------------------------------------------

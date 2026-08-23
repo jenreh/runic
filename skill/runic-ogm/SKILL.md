@@ -424,6 +424,45 @@ this when debugging a query or explaining what runic generates.
 
 ---
 
+**Search and procedures**:
+
+```python
+from runic.ogm import col, param, score
+
+# Portable KNN — the dialect picks the backend's procedure
+session.all_rows(
+    session.vector_search(Message, field=Message.embedding,
+                          vector=param("vector"), k=param("k"))
+      .where(Message.embedding_model == param("model"))
+      .project(col(Message.id).as_("id"), score().as_("distance"))
+      .limit(param("limit")),
+    {"vector": v, "k": 200, "model": m, "limit": 20})
+
+# Backend-specific procedure, correlated with the match — one round trip
+select(Message).alias("m").call(
+    "db.idx.vector.queryNodes", "Message", "embedding",
+    param("k"), col("m", Message.embedding), yields=["node", "score"])
+```
+
+- **`k` is NOT `limit`.** `k` is how wide the index search goes; `limit` is what
+  the caller sees. A procedure cannot be narrowed before the fact, so every row a
+  later `where()` drops must be paid for by `k`. `k == limit` plus a filter gives
+  a short page that looks like a small database.
+- **`score()` means opposite things.** Vector = distance (lower is closer,
+  normalised across backends); fulltext = relevance (higher is better). Never
+  sort both into one list.
+- **A row with no vector is absent from the index**, not ranked low, and nothing
+  says so. Report coverage with any semantic answer.
+- **`call()` is not portable** — it names a procedure literally. Use
+  `vector_search()`/`fulltext_search()` unless you need a specific backend's.
+- `var("name")` references a procedure yield or a `WITH` binding.
+
+**Index DDL** is not a query: use `IndexOperations` (`runic.ogm.schema.runtime_index`),
+not the builder. Vector-index dimension follows the configured embedder, which is
+a setting a migration cannot express. A wrong-length vector is stored and
+silently never indexed — read `describe()` first, and clear stored vectors when
+the dimension changes.
+
 **Writes in bulk** — `unwind()` for many rows in one statement; `set()`,
 `delete()` and `returning()` chain onto a `select()` too:
 

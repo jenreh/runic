@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "CallClause",
     "Clause",
     "DeleteClause",
     "MatchClause",
@@ -277,3 +278,57 @@ def _render_assignment(alias: str, prop: str, value: Any, compiler: Any) -> str:
     param = compiler._next_param(compiler._convert_for(alias, prop, value))  # noqa: SLF001
     fn = compiler._cypher_fn_for(alias, prop)  # noqa: SLF001
     return f"{fn}(${param})" if fn else f"${param}"
+
+
+@dataclass
+class CallClause(Clause):
+    """``CALL procedure(args) YIELD …`` — an index search or graph algorithm.
+
+    Procedures are the one part of a query that cannot be expressed as a
+    pattern, and index-backed search is the reason they matter here: a vector or
+    fulltext index is only reachable through one.
+
+    A procedure **cannot be narrowed before the fact**.  A ``MATCH`` above it
+    does not restrict what it searches, so a filter after the ``YIELD`` drops
+    rows the index already paid to find.  That is why an index search takes two
+    numbers: how wide to search, and how many rows the caller wants.
+    """
+
+    procedure: str
+    args: tuple[Any, ...] = ()
+    yields: tuple[str, ...] = ()
+    requires: tuple[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        for part in self.procedure.split("."):
+            validate_identifier(part, "procedure name")
+
+    def to_cypher(self, compiler: Any) -> str:
+        if self.requires is not None:
+            from runic.ogm.driver import require_feature
+
+            feature, description = self.requires
+            require_feature(compiler._dialect, feature, description)  # noqa: SLF001
+
+        rendered = [_render_call_arg(a, compiler) for a in self.args]
+        call = f"CALL {self.procedure}({', '.join(rendered)})"
+        if self.yields:
+            return f"{call} YIELD {', '.join(self.yields)}"
+        return call
+
+
+def _render_call_arg(value: Any, compiler: Any) -> str:
+    """Render one procedure argument.
+
+    A string is a literal name — an index or label the *model* names, not the
+    caller — and is escaped as a Cypher string. Everything else is an
+    expression or a bound value.
+    """
+    from runic.cypher import escape_string
+    from runic.ogm.query.values import ValueExpr
+
+    if isinstance(value, ValueExpr):
+        return value.to_cypher(compiler)
+    if isinstance(value, str):
+        return escape_string(value)
+    return f"${compiler._next_param(value)}"  # noqa: SLF001

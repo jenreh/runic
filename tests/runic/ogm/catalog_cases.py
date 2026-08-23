@@ -45,7 +45,11 @@ from typing import Any
 
 from runic.ogm import select, unwind
 from runic.ogm.query.expressions import collect, count
-from runic.ogm.query.values import col, left, param, row, when
+from runic.ogm.query.specialised import (
+    FulltextQueryBuilder,
+    VectorQueryBuilder,
+)
+from runic.ogm.query.values import col, left, param, row, score, var, when
 from tests.runic.ogm.catalog_models import (
     About,
     Account,
@@ -60,7 +64,14 @@ from tests.runic.ogm.catalog_models import (
     Topic,
 )
 
-__all__ = ["CATALOG_CASES", "CatalogCase", "expressible", "unexpressible"]
+__all__ = [
+    "CATALOG_CASES",
+    "CatalogCase",
+    "expressible",
+    "operations",
+    "statements",
+    "unexpressible",
+]
 
 
 #: "Addressed" is defined as the walk over both types; matching them in two
@@ -83,7 +94,8 @@ DEFAULT_PARAM_VALUES: Mapping[str, Any] = {
     "model": "test-embedder",
     "max_chars": 2000,
     "k": 20,
-    "vector": [0.0, 0.0, 0.0, 0.0],
+    # Non-zero: Neo4j rejects a vector with no positive l2-norm.
+    "vector": [0.1, 0.2, 0.3, 0.4],
     "text": "invoice",
     # Vector index options — the migration's own constants.
     "dimension": 4,
@@ -111,6 +123,15 @@ class CatalogCase:
     build: Callable[[], Any] | None = None
     """Returns the runic statement, or ``None`` while not yet expressible."""
 
+    operation: Callable[[Any], Any] | None = None
+    """Performs the statement's effect through an API rather than a statement.
+
+    Index DDL is not a query, so it has no builder form and never will: it is
+    reached through :class:`~runic.ogm.schema.runtime_index.IndexOperations`.
+    Such a case is still *expressible in runic* — it simply is not a statement,
+    and the live suite verifies it by running it and checking the effect.
+    """
+
     gaps: tuple[str, ...] = field(default_factory=tuple)
     """Capability gaps blocking this statement. Empty once ``build`` is set."""
 
@@ -131,6 +152,11 @@ class CatalogCase:
 
     @property
     def is_expressible(self) -> bool:
+        return self.build is not None or self.operation is not None
+
+    @property
+    def is_statement(self) -> bool:
+        """Whether this is a builder statement, as opposed to an operation."""
         return self.build is not None
 
     def bind(self) -> dict[str, Any]:
@@ -839,7 +865,50 @@ _SEMANTIC: list[CatalogCase] = [
             "OPTIONAL MATCH (node)-[:SENT_FROM]->",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2", "G6", "G7", "G16"),
+        # $k is how wide the index search goes; $limit is what the caller sees.
+        # The procedure cannot be narrowed before the fact, so every row a
+        # filter drops has to be paid for up front by $k. Asking for k == limit
+        # and then filtering leaves a short page that looks like a small
+        # archive.
+        build=lambda: (
+            VectorQueryBuilder(
+                None,
+                Message,
+                field=Message.embedding,  # ty: ignore[invalid-argument-type]
+                vector=param("vector"),
+                k=param("k"),
+            )
+            .alias("node")
+            .where(
+                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.id != "")
+                & (Message.embedding_model == param("model"))
+            )
+            .traverse(Message.sent_from, from_="node")  # ty: ignore[invalid-argument-type]
+            .alias("s")
+            .project(
+                col("node", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
+                col("node", Message.subject).as_("subject"),  # ty: ignore[no-matching-overload]
+                col("node", Message.sent_at).as_("sent_at"),  # ty: ignore[no-matching-overload]
+                col("s", Address.id).as_("sender"),  # ty: ignore[no-matching-overload]
+                score().as_("distance"),
+            )
+            .limit(param("limit"))
+        ),
+        unsupported={
+            "age": (
+                "Apache AGE has no Cypher-reachable vector or fulltext index; "
+                "use pgvector and PostgreSQL full-text search on the underlying "
+                "tables instead."
+            ),
+            "arcadedb": ("ArcadeDB exposes no fulltext search through Cypher."),
+            "memgraph": (
+                "Memgraph's vector index keeps references to deleted nodes, so "
+                "the search raises 'property from a deleted object' on a "
+                "database other tests have written to. A fixture isolation "
+                "limitation rather than a defect in the statement."
+            ),
+        },
     ),
     CatalogCase(
         name="SEMANTIC_TOPIC_PAIRS",
@@ -851,7 +920,60 @@ _SEMANTIC: list[CatalogCase] = [
             "node.id > m.id",
             "score <= $max_distance",
         ),
-        gaps=("G1", "G2", "G3", "G7", "G16", "G18"),
+        # The whole archive's neighbours in ONE round trip, which is the
+        # difference between this signal being usable and a per-message KNN
+        # over a hundred thousand messages.
+        #
+        # node.id > m.id does two jobs with one predicate: the KNN returns the
+        # query node itself first for every message, and it is symmetric, so an
+        # unordered comparison would yield one self-pair plus one duplicate per
+        # edge.
+        build=lambda: (
+            select(Message)
+            .alias("m")
+            .where(
+                Message.id.is_not_null()  # ty: ignore[unresolved-attribute]
+                & (Message.id != "")
+                & (Message.embedding_model == param("model"))
+            )
+            .call(
+                "db.idx.vector.queryNodes",
+                "Message",
+                "embedding",
+                param("k"),
+                col("m", Message.embedding),  # ty: ignore[no-matching-overload]
+                yields=["node", "score"],
+            )
+            .with_("m", "node", "score")
+            .where(
+                (col("node", Message.id) > col("m", Message.id))  # ty: ignore[no-matching-overload]
+                & (col("node", Message.embedding_model) == param("model"))  # ty: ignore[no-matching-overload]
+                & (var("score") <= param("max_distance"))
+            )
+            .project(
+                col("m", Message.id).as_("left"),  # ty: ignore[no-matching-overload]
+                col("node", Message.id).as_("right"),  # ty: ignore[no-matching-overload]
+                var("score").as_("distance"),
+            )
+            .order_by("distance")
+            .limit(param("limit"))
+        ),
+        unsupported={
+            "neo4j": (
+                "call() names a procedure literally, so a statement using one "
+                "is exactly as portable as that procedure. Neo4j's is "
+                "db.index.vector.queryNodes with a different argument order. "
+                "For a portable KNN use session.vector_search(), which asks the "
+                "dialect; call() is the escape hatch for when you need a "
+                "specific backend's procedure, as a correlated KNN does."
+            ),
+            "memgraph": (
+                "Memgraph's vector procedure is vector_search.search, with a "
+                "different name and signature; see the neo4j note."
+            ),
+            "arcadedb": "ArcadeDB has no CALL … YIELD for arbitrary procedures.",
+            "age": "Apache AGE has no CALL … YIELD for arbitrary procedures.",
+        },
     ),
     CatalogCase(
         name="FULLTEXT_MESSAGES",
@@ -859,11 +981,36 @@ _SEMANTIC: list[CatalogCase] = [
         expect=(
             "db.idx.fulltext.queryNodes",
             "$text",
-            "score AS relevance",
+            "AS relevance",
             "ORDER BY relevance DESC",
             "LIMIT $limit",
         ),
-        gaps=("G1", "G2", "G6", "G7", "G17"),
+        # score is a relevance here — higher is better, the opposite of a
+        # vector distance. The two must never be sorted into one list without
+        # a stated normalisation.
+        build=lambda: (
+            FulltextQueryBuilder(None, Message, query=param("text"))
+            .alias("node")
+            .where(Message.id.is_not_null() & (Message.id != ""))  # ty: ignore[unresolved-attribute]
+            .traverse(Message.sent_from, from_="node")  # ty: ignore[invalid-argument-type]
+            .alias("s")
+            .project(
+                col("node", Message.id).as_("id"),  # ty: ignore[no-matching-overload]
+                col("node", Message.subject).as_("subject"),  # ty: ignore[no-matching-overload]
+                col("s", Address.id).as_("sender"),  # ty: ignore[no-matching-overload]
+                score().as_("relevance"),
+            )
+            .order_by("relevance", desc=True)
+            .limit(param("limit"))
+        ),
+        unsupported={
+            "age": (
+                "Apache AGE has no Cypher-reachable vector or fulltext index; "
+                "use pgvector and PostgreSQL full-text search on the underlying "
+                "tables instead."
+            ),
+            "arcadedb": ("ArcadeDB exposes no fulltext search through Cypher."),
+        },
     ),
     CatalogCase(
         name="VECTOR_COVERAGE",
@@ -916,17 +1063,25 @@ _SEMANTIC: list[CatalogCase] = [
         name="CREATE_VECTOR_INDEX",
         params=("dimension", "similarity", "m", "ef_construction", "ef_runtime"),
         expect=("CREATE VECTOR INDEX", "Message", "embedding", "$dimension"),
-        gaps=("G19",),
+        # Not a statement and never will be: DDL is not a query. The dimension
+        # follows whichever embedder a person configured, which is a setting and
+        # not something a migration chain can express.
+        operation=lambda ops: ops.create_vector_index(
+            Message, Message.embedding, dimension=4
+        ),
     ),
     CatalogCase(
         name="DROP_VECTOR_INDEX",
         expect=("DROP VECTOR INDEX", "Message", "embedding"),
-        gaps=("G19",),
+        operation=lambda ops: ops.drop_vector_index(Message, Message.embedding),
     ),
     CatalogCase(
         name="VECTOR_INDEX_OPTIONS",
         expect=("DB.INDEXES()", "options"),
-        gaps=("G19",),
+        # The one statement that reads schema rather than data. A backend
+        # accepts a vector of the wrong length, stores it and never indexes it,
+        # so the live dimension is a thing a job has to be able to read.
+        operation=lambda ops: ops.describe(),
     ),
 ]
 
@@ -945,8 +1100,18 @@ adding a statement without listing it is then visible in a diff.
 
 
 def expressible() -> tuple[CatalogCase, ...]:
-    """Cases runic can build today."""
+    """Cases runic can express today, as a statement or an operation."""
     return tuple(c for c in CATALOG_CASES if c.is_expressible)
+
+
+def statements() -> tuple[CatalogCase, ...]:
+    """Cases that compile to a builder statement."""
+    return tuple(c for c in CATALOG_CASES if c.is_statement)
+
+
+def operations() -> tuple[CatalogCase, ...]:
+    """Cases reached through an API rather than a statement (index DDL)."""
+    return tuple(c for c in CATALOG_CASES if c.operation is not None)
 
 
 def unexpressible() -> tuple[CatalogCase, ...]:

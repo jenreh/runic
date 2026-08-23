@@ -24,6 +24,8 @@ from tests.runic.ogm.catalog_cases import (
     CATALOG_CASES,
     CatalogCase,
     expressible,
+    operations,
+    statements,
     unexpressible,
 )
 
@@ -99,7 +101,7 @@ class TestCaseTable:
 
 
 @pytest.mark.parametrize(
-    "case", expressible(), ids=lambda c: c.name if isinstance(c, CatalogCase) else ""
+    "case", statements(), ids=lambda c: c.name if isinstance(c, CatalogCase) else ""
 )
 class TestExpressible:
     def test_emits_expected_fragments(self, case: CatalogCase) -> None:
@@ -142,6 +144,23 @@ def test_not_yet_expressible(case: CatalogCase) -> None:
     of this parametrisation and into :class:`TestExpressible`.
     """
     pytest.xfail(case.reason())
+
+
+def test_index_ddl_is_reachable() -> None:
+    """DDL is not a query, so it is an operation rather than a statement.
+
+    Still expressible in runic — through
+    :class:`~runic.ogm.schema.runtime_index.IndexOperations` — which the live
+    suite runs against a real backend.
+    """
+    from runic.ogm.schema.runtime_index import IndexOperations
+
+    assert operations(), "index DDL cases should be reachable"
+    for case in operations():
+        assert case.operation is not None
+        assert not case.gaps, f"{case.name} still names a gap"
+    for name in ("create_vector_index", "drop_vector_index", "describe"):
+        assert hasattr(IndexOperations, name)
 
 
 def test_burndown() -> None:

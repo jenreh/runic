@@ -69,11 +69,13 @@ from runic.ogm.query import (
     min_,
     param,
     row,
+    score,
     select,
     sum_,
     to_lower,
     to_upper,
     unwind,
+    var,
     when,
 )
 from runic.ogm.query.expressions import (
@@ -183,8 +185,10 @@ __all__ = [  # noqa: RUF022
     "literal",
     "param",
     "row",
+    "score",
     "to_lower",
     "to_upper",
     "unwind",
+    "var",
     "when",
 ]

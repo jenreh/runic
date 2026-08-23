@@ -61,8 +61,10 @@ from runic.ogm.query.values import (
     literal,
     param,
     row,
+    score,
     to_lower,
     to_upper,
+    var,
     when,
 )
 
@@ -139,8 +141,10 @@ __all__ = [  # noqa: RUF022
     "literal",
     "param",
     "row",
+    "score",
     "to_lower",
     "to_upper",
+    "var",
     "when",
     # Bulk writes
     "MutationBuilder",
