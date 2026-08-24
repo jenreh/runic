@@ -13,8 +13,8 @@ def create_driver(backend: str, **kwargs: Any) -> GraphDriver:
     Parameters
     ----------
     backend:
-        ``"falkordb"``, ``"arcadedb"``, ``"neo4j"``, ``"memgraph"``, or
-        ``"age"``.
+        ``"falkordb"``, ``"arcadedb"``, ``"neo4j"``, ``"memgraph"``,
+        ``"age"``, ``"neptune"``, or ``"neptune_analytics"``.
     **kwargs:
         Backend-specific keyword arguments forwarded to the driver constructor.
 
@@ -76,6 +76,24 @@ def create_driver(backend: str, **kwargs: Any) -> GraphDriver:
             username="postgres",
             password="secret",
         )
+
+    Amazon Neptune Database::
+
+        driver = create_driver(
+            "neptune",
+            endpoint="my-cluster.cluster-xxxx.eu-central-1.neptune.amazonaws.com",
+            port=8182,
+            use_iam_auth=True,
+            region="eu-central-1",
+        )
+
+    Amazon Neptune Analytics::
+
+        driver = create_driver(
+            "neptune_analytics",
+            graph_id="g-abc123xyz",
+            region="eu-central-1",
+        )
     """
     if backend == "falkordb":
         from runic.ogm.driver.falkordb import create_falkordb_driver
@@ -102,7 +120,18 @@ def create_driver(backend: str, **kwargs: Any) -> GraphDriver:
 
         return create_age_driver(**kwargs)
 
+    if backend == "neptune":
+        from runic.ogm.driver.neptune import create_neptune_driver
+
+        return create_neptune_driver(**kwargs)
+
+    if backend == "neptune_analytics":
+        from runic.ogm.driver.neptune_analytics import create_neptune_analytics_driver
+
+        return create_neptune_analytics_driver(**kwargs)
+
     raise ValueError(
         f"Unknown driver backend {backend!r}. "
-        "Supported: 'falkordb', 'arcadedb', 'neo4j', 'memgraph', 'age'."
+        "Supported: 'falkordb', 'arcadedb', 'neo4j', 'memgraph', 'age', "
+        "'neptune', 'neptune_analytics'."
     )
