@@ -348,12 +348,15 @@ create_driver("arcadedb", host="localhost", port=7687, database="db",
               username="root", password="…")           # plaintext bolt
 create_driver("age",      host="localhost", port=5432, database="postgres",
               graph="app", username="postgres", password="…")  # psycopg3
+create_driver("neptune",  endpoint="….neptune.amazonaws.com",
+              region="eu-central-1")                # Bolt + SigV4 IAM auth
+create_driver("neptune_analytics", graph_id="g-…")  # HTTPS via boto3
 ```
 
 - All drivers expose `.close()`. Pass the driver to `Session(driver)`.
 - Embedded FalkorDB for tests: `FalkorDBDriver(FalkorDB(protocol=2).select_graph("app"))`.
 - Async FalkorDB: `AsyncFalkorDBDriver(async_graph_handle)`.
-- `intern`/`vecf32`/`point` (Vector/GeoLocation/interned) are **FalkorDB-only** native wrappers; other backends store the raw value. Fulltext and vector search work on FalkorDB, Neo4j¹, and Memgraph¹ but not on ArcadeDB or AGE.
+- `intern`/`vecf32`/`point` (Vector/GeoLocation/interned) are **FalkorDB-only** native wrappers; other backends store the raw value. Fulltext and vector search work on FalkorDB, Neo4j¹, and Memgraph¹ but not on ArcadeDB, AGE, or Neptune Database; Neptune Analytics has native vector KNN.
   ¹ Requires pre-created named indexes and (Memgraph) MAGE modules.
 - Full backend capability matrix in [cookbook.md](cookbook.md#multi-backend).
 

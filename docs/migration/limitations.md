@@ -76,8 +76,8 @@ against your model declarations.  This is implemented for:
   (RANGE indexes and UNIQUE / MANDATORY constraints only — FULLTEXT and VECTOR
   indexes are not exposed by these commands)
 
-ArcadeDB and Apache AGE return an empty set from `get_existing_specs()`;
-every declared spec is treated as missing.
+ArcadeDB, Apache AGE, and Amazon Neptune return an empty set from
+`get_existing_specs()`; every declared spec is treated as missing.
 
 **Migrate autogenerate** (`runic revision --autogenerate` and
 `runic check`) uses `read_live_schema()` to generate a diff against your

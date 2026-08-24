@@ -156,7 +156,7 @@ with Session(driver) as session:
 ::: info
 `direction="BOTH"` uses `MERGE (a)-[r:TYPE]-(b)` when writing on
 backends that support undirected `MERGE` (Neo4j, Memgraph, ArcadeDB,
-Apache AGE).
+Apache AGE, Amazon Neptune).
 
 **FalkorDB exception** — FalkorDB rejects undirected `MERGE`.  The ORM
 automatically falls back to `MERGE (a)-[r:TYPE]->(b)` (`OUTGOING`) on

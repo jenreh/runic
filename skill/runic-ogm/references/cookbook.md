@@ -219,16 +219,19 @@ a live index.
 
 Choose the backend at driver creation; the model and query code are unchanged.
 
-| Capability | FalkorDB | Neo4j | Memgraph | ArcadeDB | Apache AGE |
-|---|---|---|---|---|---|
-| CRUD, traversal, aggregation | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `intern` / `Vector` / `GeoLocation` wrappers | ✓ | raw value | raw value | raw value | raw value |
-| Fulltext search | ✓ | ✓¹ | ✓¹ | ✗ | ✗ |
-| Vector KNN | ✓ | ✓¹ | ✓¹ | ✓¹ | ✗ |
-| Native transactions | per-query | ✓ | ✓ | ✓ | ✓ |
-| Multi-label nodes | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Capability | FalkorDB | Neo4j | Memgraph | ArcadeDB | Apache AGE | Neptune DB | Neptune Analytics |
+|---|---|---|---|---|---|---|---|
+| CRUD, traversal, aggregation | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `intern` / `Vector` / `GeoLocation` wrappers | ✓ | raw value | raw value | raw value | raw value | raw value | raw value |
+| Fulltext search | ✓ | ✓¹ | ✓¹ | ✗ | ✗ | ✗ | ✗ |
+| Vector KNN | ✓ | ✓¹ | ✓¹ | ✓¹ | ✗ | ✗ | ✓² |
+| Native transactions | per-query | ✓ | ✓ | ✓ | ✓ | ✓ | per-query |
+| Multi-label nodes | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
 
 ¹ Requires pre-created named indexes and (Memgraph) MAGE modules.
+² One vector index per graph, fixed at graph creation. Session writes of
+  `Vector` fields sync it automatically (`sync_vectors=False` opts out);
+  raw-Cypher writes need `driver.upsert_vector()`.
 
 Guidance: keep FalkorDB-specific features (native types, search) out of code
 meant to be portable, or gate them on the backend. On AGE/ArcadeDB avoid
