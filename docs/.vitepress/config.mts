@@ -23,6 +23,9 @@ export default defineConfigWithTheme<ThemeConfig>({
   description: "Graph schema migrations and OGM for Cypher-based graph databases.",
   base,
   ignoreDeadLinks: true,
+  sitemap: {
+    hostname: 'https://runic.rehpoehler.de'
+  },
 
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: `${base}runic.svg` }],
