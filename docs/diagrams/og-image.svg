@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2b3b45"/>
+      <stop offset="55%" stop-color="#354853"/>
+      <stop offset="100%" stop-color="#46606e"/>
+    </linearGradient>
+      <filter id="tint" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="0 0 0 0 0.53  0 0 0 0 0.69  0 0 0 0 0.76  0 0 0 1 0"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g opacity="0.10">
+    <circle cx="1010" cy="150" r="7" fill="#87afc2"/>
+    <circle cx="1130" cy="300" r="7" fill="#87afc2"/>
+    <circle cx="960"  cy="420" r="7" fill="#87afc2"/>
+    <circle cx="1090" cy="530" r="7" fill="#87afc2"/>
+    <g stroke="#87afc2" stroke-width="2">
+      <line x1="1010" y1="150" x2="1130" y2="300"/>
+      <line x1="1130" y1="300" x2="960"  y2="420"/>
+      <line x1="960"  y1="420" x2="1090" y2="530"/>
+      <line x1="1010" y1="150" x2="960"  y2="420"/>
+    </g>
+  </g>
+  <image filter="url(#tint)" x="86" y="74" width="168" height="129" xlink:href="data:image/svg+xml;base64,__RUNIC_LOGO_B64__"/>
+  <!-- Wordmark: Stack Sans Notch 700 at 86px, baseline (86, 300) — the docs
+       site's headline face. Stored as outlines because rsvg-convert resolves
+       fonts through CoreText and would silently fall back to a system face.
+       Regenerate with docs/diagrams/wordmark.py after changing size or text. -->
+  <path fill="#ffffff" d="M89.956 251.84H102.253V300.0H89.956ZM102.253 276.436 100.964 267.578Q100.964 265.342 101.394 262.418Q101.824 259.494 103.414 256.785Q105.006 254.076 108.36 252.269Q111.714 250.464 117.476 250.464V262.504Q112.402 262.504 109.005 263.622Q105.608 264.74 103.931 267.707Q102.253 270.674 102.253 276.436ZM163.916 300.0H151.618V251.84H163.916ZM151.618 275.404 152.994 285.294Q152.994 287.53 152.349 290.282Q151.704 293.034 149.941 295.571Q148.178 298.108 144.91 299.741Q141.642 301.376 136.396 301.376Q131.752 301.376 128.14 299.484Q124.527 297.592 122.464 293.206Q120.4 288.82 120.4 281.51V251.84H132.612V280.392Q132.612 283.23 133.042 285.552Q133.472 287.874 135.019 289.293Q136.567 290.712 139.836 290.712Q142.416 290.712 145.168 289.25Q147.92 287.788 149.769 284.433Q151.618 281.08 151.618 275.404ZM169.248 251.84H181.546V259.236Q182.492 256.914 184.341 254.935Q186.19 252.958 189.243 251.711Q192.296 250.464 196.768 250.464Q201.412 250.464 205.024 252.356Q208.636 254.248 210.7 258.591Q212.764 262.934 212.764 270.33V300.0H200.466V271.448Q200.466 268.61 200.036 266.245Q199.606 263.88 198.101 262.504Q196.596 261.128 193.328 261.128Q190.748 261.128 187.995 262.590Q185.244 264.052 183.394 267.363Q181.546 270.674 181.546 276.436V300.0H169.248ZM221.536 251.84H233.834V300.0H221.536ZM218.096 234.64 231.254 231.63 234.263 244.788 221.106 247.798ZM285.176 279.79Q285.176 285.982 282.337 290.884Q279.5 295.786 274.426 298.581Q269.352 301.376 262.558 301.376Q255.161 301.376 249.614 298.150Q244.067 294.926 241.015 289.164Q237.962 283.402 237.962 276.006Q237.962 268.524 241.015 262.762Q244.067 257.0 249.614 253.732Q255.161 250.464 262.558 250.464Q269.094 250.464 274.168 253.345Q279.241 256.226 282.122 260.827Q285.003 265.428 285.003 270.76H272.018Q272.018 268.438 271.072 266.374Q270.126 264.31 268.062 262.977Q265.998 261.644 262.558 261.644Q258.171 261.644 255.505 263.536Q252.839 265.428 251.678 268.696Q250.517 271.964 250.517 276.006Q250.517 279.962 251.678 283.187Q252.839 286.412 255.505 288.304Q258.171 290.196 262.558 290.196Q265.998 290.196 268.148 288.734Q270.298 287.272 271.33 284.907Q272.361 282.542 272.361 279.79Z"/>
+  <text x="86" y="378" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="42" font-weight="600" fill="#c8dbe5">Python graph OGM, migrations &amp; Graph-RAG</text>
+  <text x="86" y="452" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="27" fill="#9dc0d1">One model definition for Cypher graph databases</text>
+  <text x="86" y="492" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="27" fill="#9dc0d1">FalkorDB · Neo4j · Memgraph · ArcadeDB · Apache AGE</text>
+  <rect x="86" y="540" width="380" height="4" fill="#87afc2" opacity="0.55"/>
+  <text x="86" y="586" font-family="Menlo, Monaco, monospace" font-size="26" fill="#87afc2">uv add runic-py</text>
+</svg>
