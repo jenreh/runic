@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import UNIVERSAL_RESERVED_VARIABLES, property_ref
 from runic.ogm.driver import CypherFeature, yield_as
 
 if TYPE_CHECKING:
@@ -75,6 +76,9 @@ class FalkorDBResult:
 class FalkorDBDialect:
     """Strategy implementation for FalkorDB-specific Cypher generation."""
 
+    reserved_variable_names: frozenset[str] = UNIVERSAL_RESERVED_VARIABLES
+    """Only the boolean literals; every other keyword works as a variable here."""
+
     unsupported_features: frozenset[str] = frozenset({CypherFeature.UNDIRECTED_MERGE})
 
     # FalkorDB only supports directed edges; undirected MERGE/CREATE is rejected.
@@ -108,7 +112,8 @@ class FalkorDBDialect:
         return f"MATCH ({alias}:{labels_str})"
 
     def vector_knn_score_expr(self, alias: str, field_name: str) -> str:
-        return f"vecf32({alias}.{field_name}) <-> vecf32($__knn_vec) AS __score"
+        ref = property_ref(alias, field_name)
+        return f"vecf32({ref}) <-> vecf32($__knn_vec) AS __score"
 
     def vector_knn_call(
         self, alias: str, label: str, field_name: str, k_ref: str, vec_ref: str

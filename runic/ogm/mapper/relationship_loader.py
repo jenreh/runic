@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import escape_identifier, property_ref
 from runic.ogm.core.descriptors import FieldInfo
 from runic.ogm.core.metadata import MetaData, NodeMeta
 
@@ -44,8 +45,8 @@ class RelationshipLoader:
             id_where = self._mapper.dialect.generated_id_where("n", "__pk")
             match_src = f"MATCH (n:{node_meta.primary_label}) {id_where}"
         else:
-            pk_name = node_meta.pk_field_name
-            match_src = f"MATCH (n:{node_meta.primary_label} {{{pk_name}: $__pk}})"
+            pk_key = escape_identifier(node_meta.pk_field_name or "")
+            match_src = f"MATCH (n:{node_meta.primary_label} {{{pk_key}: $__pk}})"
 
         cypher = f"{match_src}\nMATCH {rel_pattern}\nRETURN related"
         return cypher, {"__pk": pk_val}
@@ -99,11 +100,13 @@ class RelationshipLoader:
                 id_where = f"WHERE {subtype_filter} AND {id_where[6:]}"
             main_match = f"MATCH (n:{labels_str}) {id_where}"
         else:
-            pk_name = node_meta.pk_field_name
+            pk_key = escape_identifier(node_meta.pk_field_name or "")
             if subtype_filter:
-                main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}}) WHERE {subtype_filter}"
+                main_match = (
+                    f"MATCH (n:{labels_str} {{{pk_key}: $__pk}}) WHERE {subtype_filter}"
+                )
             else:
-                main_match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
+                main_match = f"MATCH (n:{labels_str} {{{pk_key}: $__pk}})"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
@@ -145,9 +148,9 @@ class RelationshipLoader:
             where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
             main_match = f"MATCH (n:{labels_str}) {where}id(n) IN $__pks"
         else:
-            pk_name = node_meta.pk_field_name
+            pk_ref = property_ref("n", node_meta.pk_field_name or "")
             where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
-            main_match = f"MATCH (n:{labels_str}) {where}n.{pk_name} IN $__pks"
+            main_match = f"MATCH (n:{labels_str}) {where}{pk_ref} IN $__pks"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
@@ -224,7 +227,9 @@ class RelationshipLoader:
             rel_pattern = self._rel_pattern("n", fi, alias, target_label)
 
             optional_clauses.append(f"OPTIONAL MATCH {rel_pattern}")
-            return_cols.append(f"collect(distinct {alias}) AS {field_name}")
+            return_cols.append(
+                f"collect(distinct {alias}) AS {escape_identifier(field_name)}"
+            )
             fetch_meta.append((field_name, fi))
 
         return optional_clauses, return_cols, fetch_meta

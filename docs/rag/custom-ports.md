@@ -441,6 +441,13 @@ you do, honour these contracts so the ingestion pipeline keeps working:
   score that retrievers overlay with the real seed score.
 - **`bootstrap_schema()` is idempotent** and must size the vector index to the
   real `embedding_dim`.
+- **Quote the `label` and `prop` you are handed.** Both are interpolated into
+  Cypher, so a graph whose embedding property is called `count` — or whose label
+  is `Match` — must still work. The built-in store backtick-quotes them for
+  identifier positions and passes them through
+  `runic.cypher.escape_string()` where a procedure takes them as a string
+  literal. Apache AGE reads an unquoted `n.count` as the aggregate function and
+  rejects the whole statement.
 
 ---
 

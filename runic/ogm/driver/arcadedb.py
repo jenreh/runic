@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import UNIVERSAL_RESERVED_VARIABLES
 from runic.ogm.driver import CypherFeature, yield_as
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
@@ -39,6 +40,9 @@ class ArcadeDBDialect:
     - Fulltext search not yet supported (raises ``NotImplementedError``)
     - ``SET n.prop = point()`` is not supported via Bolt; GeoLocation is stored as a ``{"latitude": x, "longitude": y}`` map instead.
     """
+
+    reserved_variable_names: frozenset[str] = UNIVERSAL_RESERVED_VARIABLES
+    """Only the boolean literals; every other keyword works as a variable here."""
 
     unsupported_features: frozenset[str] = frozenset(
         {CypherFeature.PROCEDURE_CALL, CypherFeature.FULLTEXT_SEARCH}

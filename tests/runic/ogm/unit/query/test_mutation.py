@@ -56,13 +56,13 @@ class TestBulkUpsert:
         )
         cypher, _ = _build(stmt)
         assert "UNWIND $rows AS row" in cypher
-        assert "MERGE (g:Group {id: row.id})" in cypher
-        assert "SET g.size = row.size" in cypher
+        assert "MERGE (g:Group {`id`: row.`id`})" in cypher
+        assert "SET g.`size` = row.`size`" in cypher
 
     def test_an_alias_is_generated_when_not_given(self) -> None:
         stmt = unwind(param("rows")).merge(Group, key={Group.id: row("id")})
         cypher, _ = _build(stmt)
-        assert "MERGE (n1:Group {id: row.id})" in cypher
+        assert "MERGE (n1:Group {`id`: row.`id`})" in cypher
 
     def test_loop_variable_is_configurable(self) -> None:
         stmt = unwind(param("rows"), as_="entry").merge(
@@ -70,7 +70,7 @@ class TestBulkUpsert:
         )
         cypher, _ = _build(stmt)
         assert "UNWIND $rows AS entry" in cypher
-        assert "{id: entry.id}" in cypher
+        assert "{`id`: entry.`id`}" in cypher
 
     def test_a_bare_merge_returns_nothing(self) -> None:
         """Inventing a RETURN would change what the statement does."""
@@ -87,7 +87,7 @@ class TestBulkUpsert:
             .returning(count("m").as_("written"))
         )
         cypher, _ = _build(stmt)
-        assert cypher.endswith("RETURN count(m) AS written")
+        assert cypher.endswith("RETURN count(m) AS `written`")
 
 
 class TestEdgeUpsert:
@@ -101,10 +101,10 @@ class TestEdgeUpsert:
             .set({About.score: row("score")}, on="r")
         )
         cypher, _ = _build(stmt)
-        assert "MATCH (m:Message {id: row.message_id})" in cypher
-        assert "MATCH (t:Topic {id: row.topic_id})" in cypher
+        assert "MATCH (m:Message {`id`: row.`message_id`})" in cypher
+        assert "MATCH (t:Topic {`id`: row.`topic_id`})" in cypher
         assert "MERGE (m)-[r:ABOUT]->(t)" in cypher
-        assert "SET r.score = row.score" in cypher
+        assert "SET r.`score` = row.`score`" in cypher
 
     def test_an_anonymous_edge_needs_no_alias(self) -> None:
         stmt = (
@@ -157,8 +157,8 @@ class TestSet:
         )
         falkor, _ = _build(stmt, FalkorDBDialect())
         neo4j, _ = _build(stmt, Neo4jDialect())
-        assert "SET m.embedding = vecf32(row.vector)" in falkor
-        assert "SET m.embedding = row.vector" in neo4j
+        assert "SET m.`embedding` = vecf32(row.`vector`)" in falkor
+        assert "SET m.`embedding` = row.`vector`" in neo4j
 
     def test_none_clears_the_property(self) -> None:
         cypher, _ = _build(
@@ -166,17 +166,17 @@ class TestSet:
                 {Message.embedding: None, Message.embedding_model: None}
             )
         )
-        assert "SET n.embedding = NULL, n.embedding_model = NULL" in cypher
+        assert "SET n.`embedding` = NULL, n.`embedding_model` = NULL" in cypher
 
     def test_a_plain_value_is_bound(self) -> None:
         cypher, params = _build(select(Message).set({Message.subject: "hello"}))
-        assert "SET n.subject = $p0" in cypher
+        assert "SET n.`subject` = $p0" in cypher
         assert params == {"p0": "hello"}
 
     def test_a_parameter_is_declared_not_bound(self) -> None:
         stmt = select(Message).set({Message.embedding_model: param("model")})
         cypher, params = _build(stmt)
-        assert "SET n.embedding_model = $model" in cypher
+        assert "SET n.`embedding_model` = $model" in cypher
         assert params == {}
         assert stmt.parameter_names() == ("model",)
 
@@ -200,7 +200,7 @@ class TestDelete:
         )
         cypher, _ = _build(stmt)
         assert (
-            "WITH n\nLIMIT $batch\nDETACH DELETE n\nRETURN count(n) AS removed"
+            "WITH n\nLIMIT $batch\nDETACH DELETE n\nRETURN count(n) AS `removed`"
             in cypher
         )
 
