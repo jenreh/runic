@@ -325,6 +325,10 @@ class InvitationEdge(Edge, type="INVITED_TO"):
     invited_at: str = Field()          # ISO-8601
     accepted_at: str | None = Field(default=None)
 
+class Trip(Node, labels=["Trip"]):
+    id: str = Field(primary_key=True)
+    name: str = Field(default="")
+
 class User(Node, labels=["User"]):
     id: str = Field()
     invited_trips: list["Trip"] = Relation(
@@ -364,16 +368,17 @@ terminal method, which returns `list[tuple[NodeA, EdgeModel, NodeB]]`.
 Using a session-bound repository query (classic pattern):
 
 ```python
-from runic.ogm import Repository
+from runic.ogm import Repository, alias
 
 class UserRepository(Repository[User]):
     def get_invitation(self, user_id: str, trip_id: str) -> InvitationEdge | None:
+        u, t = alias(User, "u"), alias(Trip, "t")
         rows: list[tuple[User, InvitationEdge, Trip]] = (
-            self.query()
-            .where(User.id == user_id)
-            .traverse(User.invited_trips, to="t", edge="e")
-            .where(Trip.id == trip_id, on="t")
-            .return_nodes("u", "t")
+            self.query(u)
+            .where(u.id == user_id)
+            .traverse(User.invited_trips, to=t, edge="e")
+            .where(t.id == trip_id)
+            .return_nodes(u, t)
             .return_edge("e")
             .all_with_edges()
         )
@@ -387,14 +392,15 @@ Alternatively, use `select()` to build the statement
 independently and execute it via `session.all_with_edges(stmt)`:
 
 ```python
-from runic.ogm import select
+from runic.ogm import alias, select
 
+u, t = alias(User, "u"), alias(Trip, "t")
 stmt = (
-    select(User)
-    .where(User.id == user_id)
-    .traverse(User.invited_trips, to="t", edge="e")
-    .where(Trip.id == trip_id, on="t")
-    .return_nodes("u", "t")
+    select(u)
+    .where(u.id == user_id)
+    .traverse(User.invited_trips, to=t, edge="e")
+    .where(t.id == trip_id)
+    .return_nodes(u, t)
     .return_edge("e")
 )
 rows: list[tuple[User, InvitationEdge, Trip]] = session.all_with_edges(stmt)

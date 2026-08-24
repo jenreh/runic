@@ -256,14 +256,16 @@ For a *collection* of parents, use a traversal query instead of a loop of
 
 ```python
 # GOOD for a collection — single round-trip
-from runic.ogm import select
+from runic.ogm import alias, select
 
+u, a = alias(User, "u"), alias(Article, "a")
 stmt = (
-    select(User)
-    .traverse(User.articles, to="a", edge="e")
-    .return_nodes("u", "a")
+    select(u)
+    .traverse(User.articles, to=a, edge="e")
+    .return_nodes(u, a)
+    .return_edge("e")
 )
-rows = session.all_with_edges(stmt)
+rows = session.all_with_edges(stmt)      # list[tuple[User, edge, Article]]
 ```
 
 Async sessions have no lazy loading at all — the rule applies unconditionally.
@@ -272,15 +274,23 @@ See [./async.md](./async.md) for async-specific patterns.
 ## Connection management
 
 `ConnectionManager` and
-`AsyncConnectionManager` wrap a
-FalkorDB graph handle for reuse across sessions:
+`AsyncConnectionManager` hold a FalkorDB client plus a graph name and hand out
+drivers for it, so the client is created once and reused across sessions:
 
 ```python
-from runic.ogm import ConnectionManager
+from falkordb import FalkorDB
 
-manager = ConnectionManager(graph)
-with manager.session() as session:
-    ...
+from runic.ogm import ConnectionManager, Session
+
+db = FalkorDB(host="localhost", port=6379)
+manager = ConnectionManager(db, "myapp")
+
+driver = manager.acquire()          # a FalkorDBDriver for "myapp"
+try:
+    with Session(driver) as session:
+        ...
+finally:
+    manager.release(driver)
 ```
 
 ::: info See also

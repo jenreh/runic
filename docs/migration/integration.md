@@ -31,7 +31,8 @@ dev graph is up to speed instantly, without writing a migration:
 
 ```python
 # scripts/bootstrap_schema.py — run once per dev environment
-from runic.migrate import SchemaManager, create_adapter
+from runic.migrate import SchemaManager
+from runic.migrate.adapters import create_adapter
 from myapp.models import User, Post, Article, KnowsEdge
 
 adapter = create_adapter(
@@ -639,7 +640,7 @@ and `runic check`. Declare every index and constraint your models need:
 
 ```python
 # runic/env.py
-from runic.migrate import create_adapter
+from runic.migrate.adapters import create_adapter
 from runic.migrate.manifest import (
     FulltextIndex,
     RangeIndex,

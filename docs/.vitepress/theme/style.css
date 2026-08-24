@@ -273,3 +273,32 @@
   line-height: 1;
   white-space: nowrap;
 }
+
+/* ── Footer "AI generated" badge — swap black/white artwork per theme ── */
+.footer-ai-badge {
+  display: block;
+  height: 42px;
+  width: auto;
+  margin: 8px auto 0;
+}
+
+.footer-ai-badge-dark {
+  display: none;
+}
+
+.dark .footer-ai-badge-light {
+  display: none;
+}
+
+.dark .footer-ai-badge-dark {
+  display: block;
+  margin: 8px auto 0;
+}
+
+/* ── Architecture diagrams ── */
+.vp-doc .diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 24px auto;
+}

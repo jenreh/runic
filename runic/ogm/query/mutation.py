@@ -15,7 +15,7 @@ in the store.
         .set(Group.size, Group.message_count, Group.first_seen)
     )
 
-    session.execute_statement(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
+    session.all_rows(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
 
 ``MERGE`` rather than ``CREATE`` because idempotence is usually the contract: a
 derived label carries no unique constraint, so a second run of a ``CREATE`` job

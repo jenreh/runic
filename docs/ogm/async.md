@@ -23,7 +23,7 @@ async FalkorDB graph handle:
 
 ```python
 import asyncio
-from falkordb import FalkorDB
+from falkordb.asyncio import FalkorDB
 from runic.ogm import AsyncSession
 from runic.ogm.driver.falkordb import AsyncFalkorDBDriver
 
@@ -37,6 +37,12 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+::: warning It must be `falkordb.asyncio`
+`AsyncFalkorDBDriver` awaits `graph.query(...)`. A handle from the sync
+`falkordb.FalkorDB` client returns a plain `QueryResult`, so every query fails
+with `TypeError: 'QueryResult' object can't be awaited`.
+:::
 
 ::: info
 
@@ -99,7 +105,7 @@ async with AsyncSession(driver) as session:
     stmt = (
         select(User).where(User.id == "alice")
         .traverse(User.articles, to="a")
-        .return_target()
+        .return_target("a")
     )
     articles = await session.scalars(stmt)
 ```
@@ -153,14 +159,15 @@ total    = await session.count(stmt)
 For projections and aggregations, use `all_rows()` instead of `scalars()`:
 
 ```python
-from runic.ogm.query import count
+from runic.ogm import count
 
 stmt = (
     select(User)
     .project(User.city, count("*").as_("total"))
 )
 rows = await session.all_rows(stmt)
-# [{"n.city": "Berlin", "total": 3}, ...]
+# RETURN n.city AS city, count(*) AS total
+# [{"city": "Berlin", "total": 3}, ...]
 ```
 
 ---
@@ -197,15 +204,24 @@ class UserRepository(AsyncRepository[User]):
 
 ## Connection management (async)
 
-`AsyncConnectionManager` wraps a
-FalkorDB graph handle for reuse across sessions:
+`AsyncConnectionManager` holds an async FalkorDB client plus a graph name and
+hands out drivers for it, so the client is created once and reused across
+sessions:
 
 ```python
-from runic.ogm import AsyncConnectionManager
+from falkordb.asyncio import FalkorDB
 
-manager = AsyncConnectionManager(async_graph_handle)
-async with manager.session() as session:
-    ...
+from runic.ogm import AsyncConnectionManager, AsyncSession
+
+db = FalkorDB(host="localhost", port=6379)
+manager = AsyncConnectionManager(db, "myapp")
+
+driver = manager.acquire()          # sync; returns an AsyncFalkorDBDriver
+try:
+    async with AsyncSession(driver) as session:
+        ...
+finally:
+    await manager.release(driver)
 ```
 
 Create the manager once at application startup; share it across request
@@ -215,21 +231,24 @@ handlers rather than creating a new driver per request.
 
 ## Testing async code
 
-Use embedded FalkorDB (`redislite`) with `pytest-asyncio`:
+Async tests need an *awaitable* graph handle, so the embedded `redislite`
+backend used for [sync tests](./testing.md) does not apply here — its handle is
+synchronous. Point `pytest-asyncio` at a real FalkorDB server instead:
 
 ```python
 # conftest.py
 import pytest
 import pytest_asyncio
-from redislite import FalkorDB
+from falkordb.asyncio import FalkorDB
 from runic.ogm.driver.falkordb import AsyncFalkorDBDriver
 
 @pytest_asyncio.fixture
 async def async_driver():
-    db = FalkorDB(protocol=2)
+    db = FalkorDB(host="localhost", port=6379)
     graph = db.select_graph("test_async")
     driver = AsyncFalkorDBDriver(graph)
     yield driver
+    await graph.delete()
 
 # test_myfeature.py
 import pytest

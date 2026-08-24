@@ -344,7 +344,7 @@ knowledge-graph entity.
 | `type` | `Field(index=True)` | Indexed entity-type name (in addition to the subtype label). |
 | `description` | `Field(default="", index_type="FULLTEXT")` | Fulltext-indexed description. |
 | `embedding` | `Field(default=None, index_type="VECTOR")` | `Vector \| None`; backs the vector index. |
-| `related` | `Relation("RELATES_TO", direction="OUTGOING", target="Entity", edge_model=RelationEdge)` | Outgoing relations to other entities. |
+| `related` | `Relation(relationship="RELATES_TO", direction="OUTGOING", target="Entity", edge_model=RelationEdge)` | Outgoing relations to other entities. |
 
 **Subtypes** — `Person`, `Organization`, `Location`, `Concept`, `Product`,
 `Event`. Each is an `Entity` subclass labelled `["Entity", "<Subtype>"]` with
@@ -363,7 +363,7 @@ mentions.
 | `source` | `Field(index=True)` | Indexed origin tag. |
 | `seq` | `Field(default=0)` | Ordinal position. |
 | `embedding` | `Field(default=None, index_type="VECTOR")` | `Vector \| None`; backs the vector index. |
-| `mentions` | `Relation("MENTIONS", direction="OUTGOING", target="Entity")` | Entities this chunk mentions. |
+| `mentions` | `Relation(relationship="MENTIONS", direction="OUTGOING", target="Entity")` | Entities this chunk mentions. |
 
 ```python
 from runic.rag import ChunkNode  # OGM node

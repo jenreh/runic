@@ -1,8 +1,8 @@
 # CLI Reference
 
-The runic CLI is installed as the ``runic`` command.  Every command accepts
-``--config <path>`` (default: ``runic/env.py``) to override the location of
-``env.py``.
+The runic CLI is installed as the ``runic`` command.  Every command except
+``init`` accepts ``--config <path>`` (default: ``runic/env.py``) to override
+the location of ``env.py``.
 
 **Config auto-resolution** — if the default ``runic/env.py`` does not exist,
 runic checks for a ``.runic`` marker file in the current directory and resolves
@@ -104,19 +104,6 @@ Create a new migration revision script.
     fill in ``upgrade``/``downgrade`` bodies automatically.  Requires a
     database connection and ``target_manifest`` to be set.  See
     [autogenerate](./autogenerate.md).
-
-``--preview``
-    Print the revision file content that *would* be created without writing
-    it to disk.  Useful for reviewing the generated script before committing.
-
-    ```bash
-    $ runic revision --preview -m "add order index"
-    # Would create: a1b2c3d4
-    """add order index
-    ...
-    """
-    ...
-    ```
 
 ``--format``
     Run ``ruff format`` on the generated file after creation (requires ruff
@@ -623,6 +610,53 @@ Heads           : 1
 $ runic info --mode REMOTE
 Applied : 7b3d9e2f  add email fulltext index
 ```
+
+---
+
+## baseline
+
+```bash
+runic baseline [-m MESSAGE] [--config PATH] [--graph NAME] [--stamp-only]
+```
+
+Generate an initial migration from a live graph's schema.
+
+Introspects the live graph, writes a root revision (``down_revision=None``)
+that recreates every index and constraint it finds, and stamps the version
+node so runic treats that revision as already applied.  This is how an
+existing graph enters version control; run it on a fresh graph to reproduce
+the schema (e.g. in CI, or when cloning a tenant).
+
+**Options**
+
+``-m``, ``--message TEXT``
+    Revision message (default: ``baseline``).
+
+``--config PATH``
+    Path to ``env.py``.
+
+``--graph TEXT``
+    Override the graph name from the env config.
+
+``--stamp-only``
+    Stamp the version node without writing a revision file.
+
+**Example**
+
+```bash
+$ runic baseline -m "initial schema"
+Created revision: runic/versions/0a1b2c3d_initial_schema.py
+Stamped: 0a1b2c3d
+```
+
+::: warning Vector indexes come back with dimension 0
+Introspection cannot recover the embedding dimension, so a generated vector
+index records a placeholder ``0``.  Edit the root revision and set the real
+dimension before applying it anywhere.
+:::
+
+See [integration](./integration.md) for where ``baseline`` sits in the
+development-to-production workflow.
 
 ---
 

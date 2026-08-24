@@ -40,7 +40,7 @@ features:
     details: Embedded FalkorDB via redislite. No Docker required for unit tests — full CRUD, relationship, and query coverage in-process.
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search-icon lucide-search"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>'
     title: Vector & fulltext search
-    details: Native Vector KNN and fulltext search operations. Declare vector indexes in your model, query with .knn() — no raw Cypher needed.
+    details: Native Vector KNN and fulltext search operations. Declare vector indexes in your model, query with vector_search() — no raw Cypher needed.
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-network-icon lucide-network"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>'
     title: Graph-RAG
     details: Turn documents into a knowledge graph, then answer questions over it with citations. Pluggable chunking, extraction, embedding, and retrieval — OpenAI by default or fully local via Ollama.
@@ -52,7 +52,15 @@ Map classes to nodes, write a relationship, then traverse it with the
 fluent query builder — no raw Cypher:
 
 ```python
-from runic.ogm import Field, Node, Relation, Session, create_driver, select
+from runic.ogm import (
+    Field,
+    Node,
+    Relation,
+    Session,
+    alias,
+    create_driver,
+    select,
+)
 
 class Person(Node, labels=["Person"]):
     id: str = Field(primary_key=True)
@@ -75,16 +83,18 @@ with Session(driver) as session:
     session.commit()
 
     # Traverse the social graph: everyone Alice is friends with
+    p, f = alias(Person, "p"), alias(Person, "f")
     stmt = (
-        select(Person).alias("p")
-        .where(Person.id == "alice")
-        .traverse(Person.friends).alias("f")
-        .return_target("f")
+        select(p)
+        .where(p.id == "alice")
+        .traverse(Person.friends, to=f)
+        .return_target(f)
     )
     friends: list[Person] = session.scalars(stmt)
-    print([p.name for p in friends])   # ['Bob']
-    # MATCH (p:Person) WHERE p.id = $p0
-    # OPTIONAL MATCH (p)-[:FRIENDS]->(f:Person)
+    print([person.name for person in friends])   # ['Bob']
+    # MATCH (p:Person)
+    # WHERE p.id = $p0
+    # MATCH (p)-[:FRIENDS]->(f:Person)
     # RETURN f
 ```
 
@@ -160,7 +170,7 @@ real graph work — the things you hit on day two, not day one:
 - **Lazy vs. eager loading, on your terms** — no hidden N+1 surprises;
   you decide what gets fetched and when.
 - **Vector KNN and fulltext search** — declare the index on your model and
-  query it with `.knn()` — native, not bolted on.
+  query it with `vector_search()` / `fulltext_search()` — native, not bolted on.
 - **Async that mirrors the sync API** — the same calls, `await`-ed.
 - **Migrations that travel** — the same `upgrade`/`downgrade` workflow runs
   unchanged across FalkorDB, ArcadeDB, Neo4j, Memgraph, and Apache AGE.

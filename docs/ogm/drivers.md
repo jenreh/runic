@@ -48,7 +48,7 @@ driver = create_driver(
 | Async driver | ✓ | ✗ | ✗ | ✗ | ✗ |
 | Vector KNN queries | ✓ — `CALL db.idx.vector.queryNodes` | ✓ — `CALL vector.neighbors` | ✓ — `CALL db.index.vector.queryNodes` | ✓ — `CALL vector_search.search` | ✗ — use pgvector |
 | Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ — no alternation in AGE's openCypher |
-| Undirected `MERGE` | ✗ — directed edges only | ✓ | ✓ | ✓ | ✓ |
+| Undirected `MERGE` (`merge_edge(directed=False)`) | ✗ — `NotImplementedError`; directed edges only | ✓ | ✓ | ✓ | ✓ |
 | `CALL … YIELD` (arbitrary procedures) | ✓ | ✗ | ✓ | ✓ | ✗ |
 | Fulltext search | ✓ — `db.idx.fulltext.queryNodes` | ✗ — not supported by ArcadeDB OGM driver | ✓ — `CALL db.index.fulltext.queryNodes` | ✓ — `CALL text_search.search_all` | ✗ — use PostgreSQL FTS |
 | String interning (`intern()`) | ✓ | ✗ | ✗ | ✗ | ✗ |
@@ -58,6 +58,10 @@ driver = create_driver(
 | ACID transactions | ✗ — each query is atomic | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — psycopg3 implicit `BEGIN` |
 | Migrate adapter (`create_adapter`) | ✓ — `FalkorDBAdapter` | ✓ — `ArcadeDBAdapter` | ✓ — `Neo4jAdapter` | ✓ — `MemgraphAdapter` | ✓ — `AGEAdapter` |
 | IndexManager DDL | ✓ — range / fulltext / vector / unique | ✓ — range / fulltext / unique (vector via HTTP API) | ✓ — range / fulltext / vector / unique (`IF NOT EXISTS`) | ✓ — range / text / vector / unique | ✗ — log.warning only (PostgreSQL-level DDL required) |
+| Multi-label nodes | ✓ | ✓ | ✓ | ✓ | ✗ — emulated via `_labels` property |
+| GeoLocation in-place update | ✓ — `SET n.geo = toPoint($v)` | ✗ — stored as `{latitude, longitude}` map | ✓ — `SET n.geo = point($v)` | ✓ — `SET n.geo = point($v)` | ✗ — agtype point not supported via psycopg |
+| `relate()` on a `direction="BOTH"` relation | ✗ — the `MERGE` is written `OUTGOING` instead | ✓ | ✓ | ✓ | ✓ |
+| Required Python package | `falkordb` | `neo4j` | `neo4j` | `neo4j` | `psycopg[binary]` |
 
 ::: tip Unsupported constructs are refused, not emitted
 Where a backend cannot parse a construct, runic raises `NotImplementedError`
@@ -67,11 +71,6 @@ a statement is compiled for a session — a `select()` statement does not know i
 backend until then.
 :::
 
-| Multi-label nodes | ✓ | ✓ | ✓ | ✓ | ✗ — emulated via `_labels` property |
-| GeoLocation in-place update | ✓ — `SET n.geo = toPoint($v)` | ✗ — stored as `{latitude, longitude}` map | ✓ — `SET n.geo = point($v)` | ✓ — `SET n.geo = point($v)` | ✗ — agtype point not supported via psycopg |
-| Undirected `MERGE` (`direction="BOTH"`) | ✗ — falls back to `OUTGOING` automatically | ✓ | ✓ | ✓ | ✓ |
-| Required Python package | `falkordb` | `neo4j` | `neo4j` | `neo4j` | `psycopg[binary]` |
-
 ---
 
 ## FalkorDB
@@ -80,8 +79,9 @@ backend until then.
 
 - Sync (`FalkorDBDriver`) and async (`AsyncFalkorDBDriver`) execution.
 - Full fulltext search via `CALL db.idx.fulltext.queryNodes()`.
-- Vector KNN using `vecf32(alias.field) <-> vecf32($vec)` (FalkorDB
-  native similarity syntax).
+- Vector KNN via `CALL db.idx.vector.queryNodes('Label', 'field', $k,
+  vecf32($vec))` — the index procedure. FalkorDB rejects the `<->` distance
+  operator in a `RETURN`, so runic never emits it.
 - `Field()` options `interned=True`
   (wraps the value in `intern()` on write) and custom
   `TypeConverter` Cypher functions

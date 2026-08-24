@@ -23,7 +23,7 @@ print(answer.text)
 `query()` takes the question and an optional `mode` keyword:
 
 ```python
-rag.query(q, *, mode="auto")  # mode in {"auto", "local", "hybrid"}
+rag.query(q, *, mode="auto")   # mode in {"auto", "local", "hybrid"}
 ```
 
 ::: info
@@ -253,6 +253,7 @@ empirically with [evaluation](./evaluation.md).
 ## Next steps
 
 ::: info See also
+
 - [Ingesting documents](./ingestion.md) — how the graph retrieval reads from is built.
 - [Designing & optimizing ontologies](./ontologies.md) — shape the entity vocabulary so retrieval has the right targets.
 - [Evaluating quality](./evaluation.md) — measure faithfulness, recall, and precision to tune `top_k` / `max_hops`.

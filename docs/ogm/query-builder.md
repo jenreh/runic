@@ -82,7 +82,7 @@ There are four starting points for a query. All four return a
 `QueryBuilder` whose chaining and terminal methods behave identically.
 
 | Call | When to use |
-|------|-------------|
+| ------ | ------------- |
 | `select(NodeCls)` | **Preferred.** Session-independent statement; execute via `session.scalars(stmt)` etc. Enables dynamic query composition. Also accepts a handle: `select(alias(User, "u"))`. |
 | `vector_search(Cls.field, vector=..., k=...)` | Session-independent nearest-neighbour statement. See [Vector KNN search](#vector-knn-search). |
 | `fulltext_search(Cls, query=...)` | Session-independent full-text search statement. See [Full-text search](#full-text-search). |
@@ -308,7 +308,7 @@ from runic.ogm import alias, coalesce, fn, left, literal, param, to_lower, when
 ```
 
 | Constructor | Emits | For |
-|---|---|---|
+| --- | --- | --- |
 | `Model.field` | `n.field` | a bare field **is** a value; the builder resolves the variable |
 | `alias(Model, "m")` | `m` | a **handle**: a named variable bound to a class |
 | `m.field` (on a handle) | `m.field` | a property on that named variable |
@@ -390,7 +390,8 @@ session.all_rows(
     select(Message).project(
         count("*").as_("total"),
         count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
-    )
+    ),
+    {"model": "text-embedding-3-small"},
 )
 # MATCH (n:Message)
 # RETURN count(*) AS total,
@@ -701,7 +702,7 @@ that is exactly "posts authored by friends". To state the source in the call
 itself, use the handle's attribute instead — it compiles identically:
 
 ```python
-f = alias(User, "f")
+f, p = alias(User, "f"), alias(Post, "p")
 select(User).traverse(User.friends, to=f).traverse(f.authored_posts, to=p)
 ```
 
@@ -882,7 +883,7 @@ Reach for an explicit `with_()` when a stage *computes* something — carries an
 aggregate forward, or filters on one:
 
 | `with_()` argument | Effect |
-|---|---|
+| --- | --- |
 | `*variables` | Cypher variables, or expressions, to carry forward |
 | `order_by=` / `desc=` | Sort the rows entering the next stage |
 | `limit=` / `skip=` | Bound them; accepts `param()` |
@@ -930,11 +931,11 @@ a traversal to a named variable instead, so several can leave the same node —
 without it, the second traversal below would leave from `s`, not `m`:
 
 ```python
-m = alias(Message, "m")
+m, s, f = alias(Message, "m"), alias(Address, "s"), alias(Attachment, "f")
 q = select(m)
-q = q.traverse(Message.sent_from, from_=m, to="s", optional=True)
+q = q.traverse(Message.sent_from, from_=m, to=s, optional=True)
 q = q.traverse(Message.sent_to, from_=m, to="r", optional=True)
-q = q.traverse(Message.has_attachment, from_=m, to="f", optional=True)
+q = q.traverse(Message.has_attachment, from_=m, to=f, optional=True)
 ```
 
 ```cypher
@@ -950,12 +951,18 @@ type. Fanning out reads it once, at the cost of intermediate rows that
 `collect(distinct=True)` folds back:
 
 ```python
-s, f = alias(Address, "s"), alias(Attachment, "f")
-.project(
+q = q.project(
     m.id,
     collect(s.id, distinct=True).as_("senders"),
     collect(f.id, distinct=True).as_("attachments"),
 )
+# MATCH (m:Message)
+# OPTIONAL MATCH (m)-[:SENT_FROM]->(s:Address)
+# OPTIONAL MATCH (m)-[:SENT_TO]->(r:Address)
+# OPTIONAL MATCH (m)-[:HAS_ATTACHMENT]->(f:Attachment)
+# RETURN m.id AS id,
+#        collect(DISTINCT s.id) AS senders,
+#        collect(DISTINCT f.id) AS attachments
 ```
 
 ---
@@ -1016,7 +1023,7 @@ unsupported construct otherwise fails at the driver with a syntax error naming a
 character — which says nothing about which builder call caused it. runic checks
 before sending:
 
-```python
+```text
 NotImplementedError: AGE does not support relationship type alternation
 ([:A|B]). Express the query without it, or drop to a backend-specific
 statement via session.execute().
@@ -1026,7 +1033,7 @@ The check happens when the statement is compiled for a session, not when it is
 built, because a `select()` statement does not know its backend yet.
 
 | Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -1056,7 +1063,7 @@ MERGE_GROUPS = (
     .set(Group.size, Group.message_count)
 )
 
-session.execute_statement(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
+session.all_rows(MERGE_GROUPS, {"rows": encode_rows(Group, payload)})
 ```
 
 A bare descriptor reads the same-named `$rows` key — `key=Group.id` means
@@ -1170,6 +1177,7 @@ to clean up a computed one.
 # Edges: never detach — keep both endpoints
 .with_("r", limit=param("batch")).delete("r")
 ```
+
 :::
 
 ### A write returns nothing unless you ask
@@ -1201,7 +1209,7 @@ Terminal methods execute the query and return results. Calling any of them
 closes the builder chain.
 
 | Method | Returns |
-|--------|---------|
+| -------- | --------- |
 | `.all()` | `list[T]` — fully decoded, session-tracked node instances |
 | `.one()` | `T \| None` — first result (adds `LIMIT 1`); `None` if empty |
 | `.all_with_edges()` | `list[tuple]` — `(NodeA, Edge, NodeB)` tuples (requires `return_nodes` + `return_edge`) |
@@ -1231,21 +1239,29 @@ session-independent statement with the same chaining and terminal methods
 The backend procedure invoked depends on which driver you are using:
 
 | Backend | Procedure |
-|---------|-----------|
-| FalkorDB | `CALL db.idx.fulltext.queryNodes('Label', $query) YIELD node AS n` |
-| Neo4j | `CALL db.index.fulltext.queryNodes('Label', $query) YIELD node AS n` |
-| Memgraph | `CALL text_search.search_all('label', $query) YIELD node` |
+| --------- | ----------- |
+| FalkorDB | `CALL db.idx.fulltext.queryNodes('Label', $query) YIELD node AS n, score` |
+| Neo4j | `CALL db.index.fulltext.queryNodes('Label', $query) YIELD node AS n, score` |
+| Memgraph | `CALL text_search.search_all('Label', $query) YIELD node AS n, score` |
 | ArcadeDB | Not supported |
 | Apache AGE | Not supported; use PostgreSQL `tsvector`/`tsquery` via raw SQL |
+
+Every backend that supports it yields `score` alongside the node, and the
+builder binds it to `__score` in a `WITH` stage — that is what makes
+`score()` projectable.
 
 A fulltext index on the target label must exist before querying. Create it
 declaratively via `SchemaManager` or a
 migration `op`:
 
 ```python
+from datetime import datetime
+
 class Post(Node, labels=["Post"]):
     title: str = Field(index_type="FULLTEXT")
     body: str = Field(index_type="FULLTEXT")
+    published: bool = Field(default=False)
+    created_at: datetime | None = Field(default=None)
 
 SEARCH = (
     fulltext_search(Post, query=param("text"))
@@ -1259,7 +1275,8 @@ posts: list[Post] = session.scalars(SEARCH, {"text": "graph databases"})
 The generated Cypher for FalkorDB:
 
 ```text
-CALL db.idx.fulltext.queryNodes('Post', $text) YIELD node AS n
+CALL db.idx.fulltext.queryNodes('Post', $text) YIELD node AS n, score
+WITH n, score AS __score
 WHERE n.published = $p0
 RETURN n
 ORDER BY n.created_at DESC
@@ -1285,12 +1302,18 @@ approximate nearest-neighbour index procedures. Like full-text search, the
 underlying procedure is backend-specific:
 
 | Backend | Procedure |
-|---------|-----------|
-| FalkorDB | `vecf32(n.field) <-> vecf32($vec)` inline distance expression |
-| Neo4j | `CALL db.index.vector.queryNodes('label_field', $k, $vec) YIELD node, score` |
-| Memgraph | `CALL vector_search.search('label_field', $k, $vec) YIELD node, distance` |
-| ArcadeDB | `CALL vector.neighbors('Type[field]', $vec, $k) YIELD node, distance` |
+| --------- | ----------- |
+| FalkorDB | `CALL db.idx.vector.queryNodes('Label', 'field', $k, vecf32($vec)) YIELD node AS n, score` |
+| Neo4j | `CALL db.index.vector.queryNodes('Label_field', $k, $vec) YIELD node AS n, score` |
+| Memgraph | `CALL vector_search.search('Label_field', $k, $vec) YIELD node AS n, distance` |
+| ArcadeDB | `CALL vector.neighbors('Label[field]', $vec, $k) YIELD node AS n, distance` |
 | Apache AGE | Not supported; use `pgvector` via raw SQL |
+
+All four are **index-backed procedure calls**, not scans. FalkorDB rejects the
+`<->` distance operator in a `RETURN`, so a search never compiles to an inline
+expression on any backend. Whatever the procedure yields — a similarity on
+Neo4j, a distance elsewhere — the builder normalises it to `__score`, where
+lower is always closer.
 
 A vector index on the target field must exist. Runic's
 `IndexManager` can create it, or you can
@@ -1299,7 +1322,8 @@ use a migration op.
 ```python
 class Document(Node, labels=["Document"]):
     id: str = Field(primary_key=True)
-    embedding: Vector = Field(index_type="VECTOR")
+    active: bool = Field(default=True)
+    embedding: Vector | None = Field(default=None, index_type="VECTOR")
 
 KNN = (
     vector_search(Document.embedding, vector=param("vector"), k=10)
@@ -1315,11 +1339,12 @@ the yielded variable, pass a handle's attribute instead:
 The generated Cypher for FalkorDB:
 
 ```text
-MATCH (n:Document)
+CALL db.idx.vector.queryNodes('Document', 'embedding', $__knn_k, vecf32($vector))
+     YIELD node AS n, score
+WITH n, score AS __score
 WHERE n.active = $p0
-RETURN n, vecf32(n.embedding) <-> vecf32($__knn_vec) AS __score
+RETURN n
 ORDER BY __score ASC
-LIMIT 10
 ```
 
 Results are ordered by ascending distance (closest first). You can override
@@ -1424,6 +1449,7 @@ select(Message).project(
     count(when(Message.embedding_model == param("model"), 1)).as_("embedded"),
 )
 ```
+
 :::
 
 ---
@@ -1571,9 +1597,9 @@ alias generation, and result decoding automatically.
 ## Cypher feature coverage
 
 | Feature | Support | How to use |
-|---------|---------|------------|
+| --------- | --------- | ------------ |
 | MATCH | ✓ | Root of every `session.query()` call |
-| OPTIONAL MATCH | ✓ | Default for `.traverse()` |
+| OPTIONAL MATCH | ✓ | `.traverse(rel, optional=True)` — plain `MATCH` is the default |
 | WHERE (comparison) | ✓ | `==`, `!=`, `>`, `>=`, `<`, `<=` |
 | WHERE (string) | ✓ | `.contains()`, `.startswith()`, `.endswith()`, `.matches()` |
 | WHERE (null) | ✓ | `.is_null()`, `.is_not_null()`, `== None` |
@@ -1595,7 +1621,7 @@ alias generation, and result decoding automatically.
 | Aggregation (count/avg/sum/…) | ✓ | `.project(...)` + helpers from `runic.ogm` |
 | UNWIND (bulk rows) | ✓ | `unwind(param("rows"))` |
 | MERGE (node upsert) | ✓ | `.merge(Model, key={…})` |
-| MERGE (edge upsert) | ✓ | `.merge_edge(src, "TYPE", tgt)` |
+| MERGE (edge upsert) | ✓ | `.merge_edge(src, EdgeCls, tgt)` — an `Edge` class, a `Relation` field, or a type string |
 | SET (bulk assignment) | ✓ | `.set({Model.field: value})` |
 | DELETE / DETACH DELETE | ✓ | `.delete(detach=True)` |
 | Edge property filter | ✓ | `traverse(edge=r)` + `where(r.prop > x)` |
@@ -1676,6 +1702,7 @@ field to group by its value:
 
 ```python
 # Groups per node — one row per user
+u = alias(User, "u")
 stmt = select(u).project(u, count("*").as_("total"))
 
 # Groups per city
@@ -1706,7 +1733,7 @@ The 0.5 ergonomics overhaul removed the redundant spellings. One table covers
 the whole migration:
 
 | Before | After |
-|---|---|
+| --- | --- |
 | `select(User).alias("u")` | `select(alias(User, "u"))` |
 | `.traverse(X).alias("b")` | `.traverse(X, to=b)` |
 | `.traverse(X, edge_alias="r")` | `.traverse(X, edge=r)` |
