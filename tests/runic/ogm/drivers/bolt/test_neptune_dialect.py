@@ -11,6 +11,7 @@ from runic.ogm.driver import CypherFeature, dialect_supports, require_feature
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge
 from runic.ogm.driver.neptune import (
     _NEPTUNE_DIALECT,
+    _TOKEN_TTL_SECONDS,
     NeptuneDialect,
     NeptuneNode,
     _make_auth_manager,
@@ -153,7 +154,10 @@ class TestAuthManager:
     def test_expired_token_is_resigned(self) -> None:
         manager = _make_auth_manager(_ENDPOINT_URL, _REGION, _frozen_credentials())
         first = manager.get_auth()
-        manager._issued = 0.0  # noqa: SLF001 - force expiry
+        # Age the token relative to its issue time — an absolute 0.0 is NOT
+        # reliably expired: time.monotonic() counts from boot, and a fresh CI
+        # VM can be younger than the TTL.
+        manager._issued -= _TOKEN_TTL_SECONDS + 1  # noqa: SLF001 - force expiry
         assert manager.get_auth() is not first
 
 
