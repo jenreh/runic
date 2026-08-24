@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
 
+from runic.cypher import unquote_reference
 from runic.ogm.core.metadata import MetaData
 
 T = TypeVar("T")
@@ -93,7 +94,9 @@ class _ResultDecoder(Generic[T]):  # noqa: UP046
         """Decode a multi-column result into column-keyed dicts."""
         mapper = self._session.mapper
         decode_register = self._session.decode_and_register_node
-        header = result.columns
+        # An unaliased projection is reported under the text it was written as,
+        # so the quoting runic adds would otherwise show up in the caller's keys.
+        header = [unquote_reference(str(c)) for c in result.columns]
 
         rows: list[dict[str, Any]] = []
         for row in result.rows:

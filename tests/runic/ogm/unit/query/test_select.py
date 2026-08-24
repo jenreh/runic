@@ -131,7 +131,7 @@ class TestSelectFactory:
         """select(Cls, "u") avoids the hidden default ``n``."""
         cypher, _ = select(SPerson, "u").where(SPerson.name == "Alice").build()  # ty: ignore[invalid-argument-type]
         assert "MATCH (u:SPerson)" in cypher
-        assert "u.name = $p0" in cypher
+        assert "u.`name` = $p0" in cypher
         assert cypher.endswith("RETURN u")
 
     def test_a_name_on_a_handle_is_rejected(self) -> None:
@@ -241,7 +241,7 @@ class TestSessionScalars:
         sess.scalars(stmt)
         call_args = sess._run_query.call_args  # ty: ignore[unresolved-attribute]
         cypher = call_args[0][0]
-        assert "WHERE n.name = $p0" in cypher
+        assert "WHERE n.`name` = $p0" in cypher
 
 
 class TestSessionScalar:

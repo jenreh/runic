@@ -54,7 +54,7 @@ class TestCall:
         )
         cypher, _ = _build(stmt)
         assert (
-            "CALL db.idx.vector.queryNodes('Message', 'embedding', $k, m.embedding) "
+            "CALL db.idx.vector.queryNodes('Message', 'embedding', $k, m.`embedding`) "
             "YIELD node, score" in cypher
         )
 
@@ -187,7 +187,7 @@ class TestVectorSearch:
             k=param("k"),
         ).project(Message.id, score().as_("distance"))
         cypher, _ = _build(stmt)
-        assert "__score AS distance" in cypher
+        assert "__score AS `distance`" in cypher
 
     def test_a_plain_value_is_bound_under_a_reserved_name(self) -> None:
         stmt = VectorQueryBuilder(
@@ -214,7 +214,7 @@ class TestFulltextSearch:
         )
         cypher, _ = _build(stmt)
         assert "score AS __score" in cypher
-        assert "__score AS relevance" in cypher
+        assert "__score AS `relevance`" in cypher
 
     def test_a_self_alias_is_not_emitted(self) -> None:
         """FalkorDB rejects ``YIELD node AS node`` with a misleading message."""

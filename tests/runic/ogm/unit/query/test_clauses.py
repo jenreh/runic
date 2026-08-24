@@ -82,7 +82,7 @@ class TestWithStage:
     def test_order_limit_and_skip_render_inside_the_stage(self) -> None:
         stmt = select(_M).with_("m", order_by=Message.id, limit=param("limit"), skip=5)
         cypher, _ = _build(stmt)
-        assert "WITH m\nORDER BY m.id ASC\nSKIP 5\nLIMIT $limit" in cypher
+        assert "WITH m\nORDER BY m.`id` ASC\nSKIP 5\nLIMIT $limit" in cypher
 
     def test_page_is_cut_before_the_expansions(self) -> None:
         """The reason a mid-query LIMIT exists at all."""
@@ -112,7 +112,7 @@ class TestWithStage:
             select(_M).with_("m", where=Message.subject == param("wanted"))  # ty: ignore[invalid-argument-type]
         )
         cypher, _ = _build(stmt)
-        assert "WITH m\nWHERE m.subject = $wanted" in cypher
+        assert "WITH m\nWHERE m.`subject` = $wanted" in cypher
 
     def test_an_expression_can_be_carried_forward(self) -> None:
         stmt = (
@@ -121,7 +121,7 @@ class TestWithStage:
             .with_("m", count("*").as_("fanout"))
         )
         cypher, _ = _build(stmt)
-        assert "WITH m, count(*) AS fanout" in cypher
+        assert "WITH m, count(*) AS `fanout`" in cypher
 
     def test_a_variable_must_be_an_identifier(self) -> None:
         stmt = select(_M).with_("m) DETACH DELETE m //")
@@ -256,4 +256,6 @@ class TestCollectOverTraversal:
             .project(_M.id, collect(r.id, distinct=True).as_("addressed"))
         )
         cypher, _ = _build(stmt)
-        assert "RETURN m.id AS id, collect(DISTINCT r.id) AS addressed" in cypher
+        assert (
+            "RETURN m.`id` AS `id`, collect(DISTINCT r.`id`) AS `addressed`" in cypher
+        )
