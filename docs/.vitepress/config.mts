@@ -169,7 +169,7 @@ export default defineConfigWithTheme<ThemeConfig>({
     ],
 
     footer: {
-      message: `runic - Graph schema migrations and OGM for Cypher-based graph databases. · <a href="${base}impressum">Impressum</a>`,
+      message: `runic - Graph schema migrations and OGM for Cypher-based graph databases. · <a href="${base}impressum">Impressum</a><img src="${base}badges/ai-generated-black.svg" alt="AI generated" class="footer-ai-badge footer-ai-badge-light"><img src="${base}badges/ai-generated-white.svg" alt="AI generated" class="footer-ai-badge footer-ai-badge-dark">`,
       copyright: "Copyright © 2026",
     },
 

@@ -355,3 +355,8 @@ complete API reference live at the **[Runic Documentation](https://runic.rehpoeh
 ## License
 
 Released under the [MIT License](LICENSE.md).
+
+## Disclaimer
+
+The code and the documentation are generated with AI.
+<img src="docs/public/badges/ai-generated-black.svg" alt="AI generated" height="42" align="middle">

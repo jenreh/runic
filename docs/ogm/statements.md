@@ -15,9 +15,11 @@ A statement is a module-level constant, or it does not exist.
 
 ```python
 # queries.py
-from typing import Final
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any, Final
 
-from runic.ogm import count, param, select
+from runic.ogm import QueryBuilder, count, param, select
 
 from myapp.models import Message
 

@@ -31,7 +31,7 @@ Runic(
 ```
 
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `adapter` | `GraphAdapter` | — | Database adapter that drives all graph operations. |
 | `script_location` | `Path` | — | Directory that contains `env.py` and the `versions/` sub-folder. |
 | `preview` | `bool` | `False` | When `True` all mutating operations are logged but not executed. |
@@ -144,6 +144,51 @@ Verify that each applied revision script still matches its stored checksum.
 Returns a list of error strings — an empty list means all checksums are valid.
 Returns `[]` immediately when `track_checksums=False`.
 
+#### `current_revisions`
+
+```python
+def current_revisions(self) -> list[str]: ...
+```
+
+Return every revision id recorded on the version node. `current()` is the
+single-head convenience form; this one also reports a multi-head state.
+
+#### `pending_revisions`
+
+```python
+def pending_revisions(
+    self, from_revs: list[str] | None = None, target: str = "head"
+) -> list[Revision]: ...
+```
+
+Return the ordered upgrade path from `from_revs` (default: the applied
+revisions) to `target`, without executing anything.
+
+#### `baseline`
+
+```python
+def baseline(self, message: str = "baseline", *, stamp_only: bool = False) -> Path | None: ...
+```
+
+Introspect the live graph and write a root revision (`down_revision=None`) that
+recreates its indexes and constraints, then stamp the version node so the
+revision counts as applied. Returns the path of the written file, or `None` when
+`stamp_only=True`. Backs the [`runic baseline`](./cli-reference.md#baseline) command.
+
+::: warning
+Introspection cannot recover a vector index's dimension, so a generated vector
+index records a placeholder `0`. Edit the revision before applying it elsewhere.
+:::
+
+#### `retarget`
+
+```python
+def retarget(self, adapter: GraphAdapter) -> None: ...
+```
+
+Point this instance at a different adapter — e.g. a forked graph — keeping the
+same script location and settings.
+
 #### `enable_preview`
 
 ```python
@@ -245,7 +290,7 @@ class IrreversibleMigrationError(Exception): ...
 ```python
 import logging
 from pathlib import Path
-from runic import Runic
+from runic.migrate import Runic
 from runic.migrate.adapters import create_adapter
 
 log = logging.getLogger(__name__)
