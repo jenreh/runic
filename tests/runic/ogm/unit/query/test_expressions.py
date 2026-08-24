@@ -229,17 +229,17 @@ class TestAggExpr:
     def test_to_cypher_count_star(self) -> None:
         agg = count().as_("total")
         cypher = agg.to_cypher({ExprPerson: "n"})
-        assert cypher == "count(*) AS total"
+        assert cypher == "count(*) AS `total`"
 
     def test_to_cypher_avg_field(self) -> None:
         agg = avg(ExprPerson.age).as_("avg_age")
         cypher = agg.to_cypher({ExprPerson: "n"})
-        assert cypher == "avg(n.age) AS avg_age"
+        assert cypher == "avg(n.`age`) AS `avg_age`"
 
     def test_to_cypher_count_distinct(self) -> None:
         agg = count(ExprPerson.name, distinct=True).as_("unique")
         cypher = agg.to_cypher({ExprPerson: "n"})
-        assert cypher == "count(DISTINCT n.name) AS unique"
+        assert cypher == "count(DISTINCT n.`name`) AS `unique`"
 
     def test_to_cypher_no_alias(self) -> None:
         agg = count()

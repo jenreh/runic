@@ -52,7 +52,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any, TypeVar
 
-from runic.cypher import validate_identifier
+from runic.cypher import escape_identifier, validate_identifier
 from runic.ogm.driver import CypherFeature
 from runic.ogm.query.builder import QueryBuilder
 from runic.ogm.query.clauses import MatchClause, MergeClause, UnwindClause
@@ -233,6 +233,7 @@ class MutationBuilder(QueryBuilder[Any]):
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile to Cypher, opening with the ``UNWIND`` instead of a MATCH."""
+        self._validate_variables()
         self._param_counter = 0
         self._params = {}
         self._declared_params = set()
@@ -313,7 +314,10 @@ class MutationBuilder(QueryBuilder[Any]):
         entries = []
         for target, value in key.items():
             _, prop = self._resolve_write_target(target, alias)
-            entries.append(f"{prop}: {self._render_key_value(alias, prop, value)}")
+            entries.append(
+                f"{escape_identifier(prop)}: "
+                f"{self._render_key_value(alias, prop, value)}"
+            )
         return f"({alias}:{labels} {{{', '.join(entries)}}})"
 
     def _render_key_value(self, alias: str, prop: str, value: Any) -> str:

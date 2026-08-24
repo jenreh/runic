@@ -153,6 +153,7 @@ class _ProcedureRootBuilder(QueryBuilder[T]):  # noqa: UP046
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile to Cypher, opening with the procedure call."""
+        self._validate_variables()
         self._param_counter = 0
         self._params = dict(self._seed_params())
         self._declared_params = set()
@@ -240,6 +241,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile to Cypher, opening with the fulltext procedure."""
+        self._validate_variables()
         self._param_counter = 0
         self._params = {}
         self._declared_params = set()
@@ -332,6 +334,7 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile to Cypher, opening with the vector index procedure."""
+        self._validate_variables()
         self._param_counter = 0
         self._params = {}
         self._declared_params = set()
