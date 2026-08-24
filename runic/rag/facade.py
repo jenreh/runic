@@ -252,6 +252,20 @@ class GraphRAG:
                 username=settings.age_username,
                 password=settings.age_password or "",
             )
+        if backend == "neptune":
+            return create_driver(
+                "neptune",
+                endpoint=settings.neptune_endpoint or "",
+                port=settings.neptune_port,
+                use_iam_auth=settings.neptune_use_iam_auth,
+                region=settings.neptune_region,
+            )
+        if backend == "neptune_analytics":
+            return create_driver(
+                "neptune_analytics",
+                graph_id=settings.neptune_analytics_graph_id or "",
+                region=settings.neptune_analytics_region,
+            )
         return create_driver(
             "falkordb",
             host=settings.falkordb_host,
