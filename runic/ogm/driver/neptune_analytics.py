@@ -26,6 +26,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import UNIVERSAL_RESERVED_VARIABLES
 from runic.ogm.driver import CypherFeature, yield_as
 
 if TYPE_CHECKING:
@@ -133,6 +134,11 @@ class NeptuneAnalyticsDialect:
     - ``Vector`` field writes are auto-synced into the vector index via
       :meth:`vector_sync_clause` (disable with ``sync_vectors=False``).
     """
+
+    reserved_variable_names: frozenset[str] = UNIVERSAL_RESERVED_VARIABLES
+    """The boolean literals only — the empirical set is not yet live-verified;
+    ``tests/runic/ogm/integration/test_reserved_variable_names.py`` re-derives
+    it once a graph is reachable."""
 
     unsupported_features: frozenset[str] = frozenset({CypherFeature.FULLTEXT_SEARCH})
 

@@ -32,6 +32,8 @@ from runic.ogm.driver.arcadedb import ArcadeDBDialect
 from runic.ogm.driver.falkordb import FalkorDBDialect
 from runic.ogm.driver.memgraph import MemgraphDialect
 from runic.ogm.driver.neo4j import Neo4jDialect
+from runic.ogm.driver.neptune import NeptuneDialect
+from runic.ogm.driver.neptune_analytics import NeptuneAnalyticsDialect
 from runic.ogm.mapper.mapper import Mapper
 from runic.ogm.query.builder import QueryBuilder
 from runic.ogm.query.mutation import unwind
@@ -43,6 +45,8 @@ ALL_DIALECTS = [
     MemgraphDialect,
     ArcadeDBDialect,
     AGEDialect,
+    NeptuneDialect,
+    NeptuneAnalyticsDialect,
 ]
 
 
