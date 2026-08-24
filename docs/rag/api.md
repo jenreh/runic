@@ -45,7 +45,7 @@ Build a fully-wired `GraphRAG` with the production adapters. All arguments are
 optional — the driverless form is the documented default:
 
 - `driver` — `None` builds a driver from `settings.backend` (FalkorDB on
-  localhost by default, otherwise Neo4j/Memgraph/ArcadeDB/AGE).
+  localhost by default, otherwise Neo4j/Memgraph/ArcadeDB/AGE/Neptune).
 - `settings` — `None` calls `load_settings()` (reads the environment + `.env`).
 - `ontology` — `None` uses `Ontology.default()`.
 - `document_parser`, `document_chunker` — `None` (the default) keeps the

@@ -33,15 +33,25 @@ all = [
     "falkordb>=1.6.0,<2.0.0",
     "neo4j>=6.2.0,<7.0.0",
     "psycopg[binary]>=3.3.0,<4.0.0",
+    "botocore>=1.34,<2.0",
+    "boto3>=1.34,<2.0",
 ]
 graphrag = [
     "pydantic-ai-slim[openai]>=2.0.0",
     "pydantic-settings>=2.14.0",
     "pymupdf>=1.27.1",
 ]
+neptune = [
+    "botocore>=1.34,<2.0",
+    "neo4j>=6.2.0,<7.0.0",
+]
+neptune-analytics = [
+    "boto3>=1.34,<2.0",
+]
 [dependency-groups]
 dev = [
     "aiohttp>=3.14.3",
+    "boto3>=1.34,<2.0",
     "bump-my-version==1.5.0",
     "deepeval==4.1.5",
     "detect-secrets==1.5.0",

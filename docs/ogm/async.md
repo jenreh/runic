@@ -8,7 +8,7 @@ need `async`/`await` throughout your application stack.
 ::: danger
 
 **Only FalkorDB has an async driver.** All other backends
-(ArcadeDB, Neo4j, Memgraph, Apache AGE) are sync-only. See the
+(ArcadeDB, Neo4j, Memgraph, Apache AGE, Amazon Neptune) are sync-only. See the
 [drivers](./drivers.md) page for the full feature matrix.
 
 :::

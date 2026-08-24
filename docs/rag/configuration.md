@@ -45,7 +45,7 @@ Every field below maps to a `RUNIC_RAG_<FIELD>` variable (the two credential exc
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `RUNIC_RAG_BACKEND` | Graph backend: `falkordb`, `neo4j`, `memgraph`, `arcadedb`, or `age` | `falkordb` |
+| `RUNIC_RAG_BACKEND` | Graph backend: `falkordb`, `neo4j`, `memgraph`, `arcadedb`, `age`, `neptune`, or `neptune_analytics` | `falkordb` |
 | `RUNIC_RAG_FALKORDB_HOST` | FalkorDB host | `localhost` |
 | `RUNIC_RAG_FALKORDB_PORT` | FalkorDB port | `6379` |
 | `RUNIC_RAG_FALKORDB_GRAPH` | FalkorDB graph name | `runic_rag` |
@@ -55,7 +55,7 @@ Every field below maps to a `RUNIC_RAG_<FIELD>` variable (the two credential exc
 | `RUNIC_RAG_NEO4J_DATABASE` | Neo4j database | `neo4j` |
 
 ::: info
-`memgraph`, `arcadedb`, and `age` carry their own `RUNIC_RAG_<BACKEND>_*` connection variables (host/port/database/username/password, plus `_GRAPH` for AGE). See `runic/rag/config.py` for the full list; FalkorDB and Neo4j are the primary, natively-accelerated backends.
+`memgraph`, `arcadedb`, `age`, `neptune`, and `neptune_analytics` carry their own `RUNIC_RAG_<BACKEND>_*` connection variables (host/port/database/username/password; `_GRAPH` for AGE; `_ENDPOINT`/`_REGION`/`_USE_IAM_AUTH` for Neptune; `_GRAPH_ID`/`_REGION` for Neptune Analytics). See `runic/rag/config.py` for the full list; FalkorDB and Neo4j are the primary, natively-accelerated backends.
 :::
 
 ### Chunking
@@ -130,7 +130,7 @@ OLLAMA_BASE_URL=http://localhost:11434/v1
 
 ## Switching backends
 
-`RUNIC_RAG_BACKEND` selects the graph store. FalkorDB (the default) and Neo4j are the primary backends and use native vector + fulltext procedures; `memgraph`, `arcadedb`, and `age` are also valid and fall back to a portable brute-force vector/fulltext path that works everywhere. The driverless path builds the driver for you from `settings.backend`:
+`RUNIC_RAG_BACKEND` selects the graph store. FalkorDB (the default) and Neo4j are the primary backends and use native vector + fulltext procedures; `memgraph`, `arcadedb`, `age`, `neptune`, and `neptune_analytics` are also valid and fall back to a portable brute-force vector/fulltext path that works everywhere. The driverless path builds the driver for you from `settings.backend`:
 
 ```python
 from runic.rag import GraphRAG, RagSettings
@@ -157,7 +157,8 @@ from runic.rag import GraphRAG, RagSettings
 
 settings = RagSettings(falkordb_graph="my_app")
 driver = create_driver(
-    "falkordb",                 # or "neo4j", "memgraph", "arcadedb", "age"
+    "falkordb",                 # or "neo4j", "memgraph", "arcadedb", "age",
+                                # "neptune", "neptune_analytics"
     host=settings.falkordb_host,
     port=settings.falkordb_port,
     graph=settings.falkordb_graph,

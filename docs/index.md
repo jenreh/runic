@@ -3,7 +3,7 @@ layout: home
 
 title: runic — Python Graph OGM, Graph-RAG & Schema Migrations
 titleTemplate: false
-description: runic is a Python graph OGM, Graph-RAG toolkit and schema-migration engine for Cypher graph databases — FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE.
+description: runic is a Python graph OGM, Graph-RAG toolkit and schema-migration engine for Cypher graph databases — FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE and Amazon Neptune.
 
 head:
   - - meta
@@ -22,7 +22,7 @@ head:
             "alternateName": ["runic-py", "runic.ogm", "runic.rag"],
             "applicationCategory": "DeveloperApplication",
             "applicationSubCategory": "Object-Graph Mapper (OGM) and Graph-RAG library",
-            "description": "runic is a Python graph OGM, Graph-RAG toolkit and Alembic-style schema-migration engine for Cypher graph databases. One typed model definition runs on FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE.",
+            "description": "runic is a Python graph OGM, Graph-RAG toolkit and Alembic-style schema-migration engine for Cypher graph databases. One typed model definition runs on FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE and Amazon Neptune.",
             "url": "https://runic.rehpoehler.de/",
             "downloadUrl": "https://pypi.org/project/runic-py/",
             "codeRepository": "https://github.com/jenreh/runic",
@@ -51,7 +51,7 @@ head:
                 "name": "Which graph databases does runic support?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "runic supports FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE (the PostgreSQL graph extension). The same model and query code runs on all five — switching backend means changing the arguments to create_driver(), not rewriting your models."
+                  "text": "runic supports FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE (the PostgreSQL graph extension) and Amazon Neptune (Database and Analytics). The same model and query code runs on all seven — switching backend means changing the arguments to create_driver(), not rewriting your models."
                 }
               },
               {
@@ -102,7 +102,7 @@ head:
 hero:
   name: "runic"
   text: "Python graph OGM & Graph-RAG"
-  tagline: Map Python classes to graph nodes and edges, version your schema like Alembic, and ground LLM answers in a knowledge graph — on FalkorDB, ArcadeDB, Neo4j, Memgraph or Apache AGE.
+  tagline: Map Python classes to graph nodes and edges, version your schema like Alembic, and ground LLM answers in a knowledge graph — on FalkorDB, ArcadeDB, Neo4j, Memgraph, Apache AGE or Amazon Neptune.
   image:
     src: /runic.svg
     alt: runic — Python graph OGM for Cypher graph databases
@@ -129,7 +129,7 @@ features:
     details: Alembic-style versioned migration engine for graph databases. Track index and constraint changes as replayable scripts with upgrade and downgrade paths.
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plug-icon lucide-plug"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>'
     title: Five graph databases, one model
-    details: A pluggable driver layer supports FalkorDB, ArcadeDB, Neo4j, Memgraph, and Apache AGE (PostgreSQL). Switch graph database without rewriting your models.
+    details: A pluggable driver layer supports FalkorDB, ArcadeDB, Neo4j, Memgraph, Apache AGE (PostgreSQL), and Amazon Neptune. Switch graph database without rewriting your models.
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap-icon lucide-zap"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>'
     title: Async-first Python API
     details: AsyncSession mirrors the sync API call for call. No hidden lazy loads — deterministic query patterns for high-throughput Python applications.
@@ -150,7 +150,7 @@ features:
 databases.** You declare typed `Node` and `Edge` classes, and runic maps them
 to labels, relationship types, indexes and constraints, tracks your changes,
 and compiles a fluent query API down to Cypher. The same model code runs
-unchanged on **FalkorDB, ArcadeDB, Neo4j, Memgraph and Apache AGE**
+unchanged on **FalkorDB, ArcadeDB, Neo4j, Memgraph, Apache AGE and Amazon Neptune**
 (the PostgreSQL graph extension).
 
 Two more layers ship in the same Python package:
@@ -281,7 +281,7 @@ run). `mode="auto"` picks a focused or broad retrieval strategy per question.
 
 ## Supported graph databases
 
-One model definition, five backends. Switching graph database means changing
+One model definition, seven backends. Switching graph database means changing
 the arguments to `create_driver()` — your models, queries, and application
 code stay the same.
 
@@ -292,6 +292,8 @@ code stay the same.
 | [Memgraph](/ogm/drivers) | `runic-py[memgraph]` | In-memory, over Bolt |
 | [ArcadeDB](/ogm/drivers) | `runic-py[arcadedb]` | Multi-model, over Bolt |
 | [Apache AGE](/ogm/drivers) | `runic-py[age]` | Graphs inside PostgreSQL |
+| [Amazon Neptune Database](/ogm/drivers) | `runic-py[neptune]` | AWS-managed, over Bolt with IAM auth |
+| [Amazon Neptune Analytics](/ogm/drivers) | `runic-py[neptune-analytics]` | AWS-managed, HTTPS, native vector search |
 
 See [Supported Drivers](/ogm/drivers) for connection options and per-backend
 capability differences.
@@ -312,7 +314,7 @@ real graph work — the things you hit on day two, not day one:
   query it with `vector_search()` / `fulltext_search()` — native, not bolted on.
 - **Async that mirrors the sync API** — the same calls, `await`-ed.
 - **Migrations that travel** — the same `upgrade`/`downgrade` workflow runs
-  unchanged across FalkorDB, ArcadeDB, Neo4j, Memgraph, and Apache AGE.
+  unchanged across FalkorDB, ArcadeDB, Neo4j, Memgraph, Apache AGE, and Amazon Neptune.
 
 ## Frequently asked questions
 
@@ -328,8 +330,9 @@ reads, writes and change tracking.
 
 ### Which graph databases does runic support?
 
-FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE (the PostgreSQL graph
-extension). The same model and query code runs on all five — see
+FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE (the PostgreSQL graph
+extension) and Amazon Neptune — Database and Analytics. The same model and
+query code runs on all seven — see
 [Supported Drivers](/ogm/drivers).
 
 ### Does runic support async Python?

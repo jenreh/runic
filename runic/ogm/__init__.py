@@ -19,6 +19,12 @@ from runic.ogm.driver.falkordb import (
 )
 from runic.ogm.driver.memgraph import MemgraphDialect, create_memgraph_driver
 from runic.ogm.driver.neo4j import Neo4jDialect, create_neo4j_driver
+from runic.ogm.driver.neptune import NeptuneDialect, create_neptune_driver
+from runic.ogm.driver.neptune_analytics import (
+    NeptuneAnalyticsDialect,
+    NeptuneAnalyticsDriver,
+    create_neptune_analytics_driver,
+)
 from runic.ogm.core.descriptors import (
     MISSING,
     Field,
@@ -111,12 +117,17 @@ __all__ = [  # noqa: RUF022
     "TransactionalGraphDriver",
     "MemgraphDialect",
     "Neo4jDialect",
+    "NeptuneAnalyticsDialect",
+    "NeptuneAnalyticsDriver",
+    "NeptuneDialect",
     "create_age_driver",
     "create_arcadedb_driver",
     "create_driver",
     "create_falkordb_driver",
     "create_memgraph_driver",
     "create_neo4j_driver",
+    "create_neptune_analytics_driver",
+    "create_neptune_driver",
     # Core
     "MISSING",
     "_NOT_LOADED",

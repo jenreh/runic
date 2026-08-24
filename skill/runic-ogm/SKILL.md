@@ -2,7 +2,8 @@
 name: runic-ogm
 description: |
   Expert guide for runic.ogm — a SQLModel-style, graph-native Python OGM for
-  Cypher databases (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE). Use
+  Cypher databases (FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE, Amazon
+  Neptune). Use
   whenever the user defines graph models (Node/Edge), maps fields, declares
   relationships, writes graph queries/traversals, or does session/repository
   CRUD with runic. Invoke for any code that imports from `runic.ogm`, uses
@@ -17,8 +18,9 @@ description: |
 `runic.ogm` is a lightweight, SQLModel-inspired OGM for property-graph
 databases. You declare nodes and edges as typed Python classes, then create,
 read, relate, and query them through a `Session` — without hand-writing Cypher.
-It targets **FalkorDB** first and also runs on **Neo4j, Memgraph, ArcadeDB, and
-Apache AGE** through a pluggable driver layer.
+It targets **FalkorDB** first and also runs on **Neo4j, Memgraph, ArcadeDB,
+Apache AGE, and Amazon Neptune (Database and Analytics)** through a pluggable
+driver layer.
 
 Three pillars, each with a runnable example and a reference:
 
@@ -555,7 +557,8 @@ one it matches from each end, so a count doubles.
 **Backend gaps are refused, not emitted.** runic raises `NotImplementedError`
 naming the construct and backend rather than sending Cypher the backend rejects.
 Absent: alternation (AGE), undirected `MERGE` (FalkorDB), `CALL … YIELD`
-(ArcadeDB, AGE), fulltext (ArcadeDB, AGE), vector (AGE).
+(ArcadeDB, AGE, Neptune DB), fulltext (ArcadeDB, AGE, Neptune), vector (AGE,
+Neptune DB).
 
 ## Sessions & repositories
 
@@ -621,9 +624,11 @@ multi-backend, performance, and error-handling recipes.
 - `Vector`, `GeoLocation`, and `interned` are **FalkorDB-only** native types;
   on other backends the raw value is stored. **Fulltext and vector search also
   work on Neo4j and Memgraph** but require pre-created named indexes (see
-  cookbook multi-backend table); they are absent on ArcadeDB and Apache AGE.
+  cookbook multi-backend table); they are absent on ArcadeDB, Apache AGE,
+  and Neptune Database (Neptune Analytics has native vector KNN).
 - **Multi-backend driver params differ.** FalkorDB uses `graph=` (the graph
-  name); Neo4j/Memgraph/ArcadeDB use `database=`, `username=`, `password=`.
+  name); Neo4j/Memgraph/ArcadeDB use `database=`, `username=`, `password=`;
+  Neptune uses `endpoint=`/`region=` and Neptune Analytics `graph_id=`.
   Neo4j defaults to `encrypted=True`. Example:
   ```python
   create_driver("neo4j", host="localhost", port=7687,

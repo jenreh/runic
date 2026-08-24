@@ -12,7 +12,8 @@ touch the database; instead each operation is recorded as a string in
 ::: info
 FalkorDB, Neo4j, and Memgraph support most DDL natively via Cypher.
 ArcadeDB supports most DDL except vector indexes (which require the HTTP
-management API). Apache AGE does not support Cypher-level DDL: all
+management API). Apache AGE and Amazon Neptune (Database and Analytics) do
+not support Cypher-level DDL: all
 `op.*` calls on an AGE adapter log a warning and do nothing — manage
 indexes and constraints via PostgreSQL DDL directly. Backend-specific
 differences are noted per section. The `MANDATORY` constraint kind and
@@ -162,10 +163,10 @@ def downgrade(op) -> None:
 property value. `MANDATORY` constraints (FalkorDB only) ensure the property
 is always present.
 
-| Kind | FalkorDB | ArcadeDB | Neo4j | Memgraph | Apache AGE |
-|------|----------|----------|-------|----------|------------|
-| `UNIQUE` | ✓ | ✓ (single-prop, NODE only) | ✓ (single-prop, NODE only) | ✓ (single-prop, NODE only) | ✗ |
-| `MANDATORY` | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Kind | FalkorDB | ArcadeDB | Neo4j | Memgraph | Apache AGE | Neptune |
+|------|----------|----------|-------|----------|------------|---------|
+| `UNIQUE` | ✓ | ✓ (single-prop, NODE only) | ✓ (single-prop, NODE only) | ✓ (single-prop, NODE only) | ✗ | ✗ |
+| `MANDATORY` | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 ### op.create_constraint(kind, entity, label, props)
 
