@@ -28,6 +28,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+from runic.cypher import UNIVERSAL_RESERVED_VARIABLES
 from runic.ogm.driver import CypherFeature
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
@@ -65,6 +66,11 @@ class NeptuneDialect:
     - No Cypher function wrappers (``vecf32``, ``point``) — GeoLocation is
       stored as a ``{"latitude": x, "longitude": y}`` map.
     """
+
+    reserved_variable_names: frozenset[str] = UNIVERSAL_RESERVED_VARIABLES
+    """The boolean literals only — the empirical set is not yet live-verified;
+    ``tests/runic/ogm/integration/test_reserved_variable_names.py`` re-derives
+    it once a cluster is reachable."""
 
     unsupported_features: frozenset[str] = frozenset(
         {
