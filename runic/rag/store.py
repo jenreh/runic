@@ -122,11 +122,16 @@ _DIALECTS: dict[str, _Dialect] = {
         native_vector=True,
         vector_write=lambda param: param,
     ),
-    # Memgraph, ArcadeDB and Apache AGE use the portable brute-force path; their
-    # native vector/fulltext procs differ per engine and are a future optimisation.
+    # Memgraph, ArcadeDB, Apache AGE and both Neptune variants use the portable
+    # brute-force path; their native vector/fulltext procs differ per engine and
+    # are a future optimisation.  (Neptune Analytics keeps embeddings in a
+    # separate per-graph vector index that property writes cannot populate, so
+    # its native KNN cannot back the store's write model yet.)
     "memgraph": _BRUTE_FORCE,
     "arcadedb": _BRUTE_FORCE,
     "age": _BRUTE_FORCE,
+    "neptune": _BRUTE_FORCE,
+    "neptune_analytics": _BRUTE_FORCE,
 }
 
 
@@ -507,6 +512,25 @@ class GraphStore:
                 graph=s.age_graph,
                 username=s.age_username,
                 password=s.age_password or "",
+            )
+        if backend == "neptune":
+            if not s.neptune_endpoint:
+                return None
+            return create_adapter(
+                "neptune",
+                endpoint=s.neptune_endpoint,
+                port=s.neptune_port,
+                use_iam_auth=s.neptune_use_iam_auth,
+                region=s.neptune_region,
+                graph_name=s.neptune_graph,
+            )
+        if backend == "neptune_analytics":
+            if not s.neptune_analytics_graph_id:
+                return None
+            return create_adapter(
+                "neptune_analytics",
+                graph_id=s.neptune_analytics_graph_id,
+                region=s.neptune_analytics_region,
             )
         return None
 
