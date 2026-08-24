@@ -123,6 +123,19 @@ adapter = create_adapter(
     graph=os.getenv("AGE_GRAPH", "my_graph"),
     password=os.getenv("POSTGRES_PASSWORD", ""),
 )
+
+# Amazon Neptune Database (Bolt, SigV4 IAM auth)
+adapter = create_adapter(
+    "neptune",
+    endpoint=os.getenv("NEPTUNE_ENDPOINT", ""),
+    region=os.getenv("AWS_REGION", "eu-central-1"),
+)
+
+# Amazon Neptune Analytics (HTTPS)
+adapter = create_adapter(
+    "neptune_analytics",
+    graph_id=os.getenv("NEPTUNE_ANALYTICS_GRAPH_ID", ""),
+)
 ```
 
 All backends support the same `upgrade`/`downgrade`/`stamp`/`current`

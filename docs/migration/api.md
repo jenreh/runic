@@ -394,7 +394,8 @@ def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter: ...
 ```
 
 Instantiate a named adapter from keyword arguments. Supported `backend`
-values: `"falkordb"`, `"arcadedb"`, `"age"`, `"neo4j"`, `"memgraph"`.
+values: `"falkordb"`, `"arcadedb"`, `"age"`, `"neo4j"`, `"memgraph"`,
+`"neptune"`, `"neptune_analytics"`.
 
 Two connection variants are supported for `"falkordb"`:
 

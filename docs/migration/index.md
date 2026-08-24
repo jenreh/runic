@@ -1,7 +1,8 @@
 # Migration
 
 `runic.migrate` is an Alembic-style schema migration engine for graph
-databases — FalkorDB, ArcadeDB, Neo4j, Memgraph, and Apache AGE.
+databases — FalkorDB, ArcadeDB, Neo4j, Memgraph, Apache AGE, and Amazon
+Neptune.
 It tracks every change to your graph's indexes and constraints as a versioned,
 replayable script and gives you a CLI to apply, roll back, inspect, and test
 those changes safely.
