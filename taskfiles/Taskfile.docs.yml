@@ -20,6 +20,12 @@ tasks:
     generates:
       - "{{.DOCS_DIR}}/.vitepress/dist/index.html"
 
+  check-canonical:
+    desc: Verify every built page declares the version-independent canonical URL
+    dir: "{{.DOCS_DIR}}"
+    cmds:
+      - npm run docs:check-canonical
+
   preview:
     desc: Preview the production build locally
     dir: "{{.DOCS_DIR}}"

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { defineConfigWithTheme } from 'vitepress'
 import type { DefaultTheme } from 'vitepress'
+import { DOCS_ROOT, canonicalFor } from './canonical.mjs'
 
 // Extend the default theme config with a `version` field consumed by the
 // custom navbar slot.
@@ -13,12 +14,11 @@ interface ThemeConfig extends DefaultTheme.Config {
 const rtdCanonical = process.env.READTHEDOCS_CANONICAL_URL;
 const base = rtdCanonical ? new URL(rtdCanonical).pathname : "/";
 
-// Absolute origin + docs root used for canonical links, `og:url`, and social
-// card images. These must stay absolute and production-facing even in local
-// builds (where `base` is "/"), otherwise crawlers get relative or localhost
-// URLs. RTD serves the published docs under /en/<version>/.
-const SITE_URL = "https://runic.rehpoehler.de";
-const DOCS_ROOT = `${SITE_URL}/en/latest/`;
+// `DOCS_ROOT` (imported above) is the absolute, version-independent docs root
+// used for canonical links, `og:url` and social card images. It stays
+// production-facing even in local builds (where `base` is "/") and in versioned
+// RTD builds (where `base` is /en/<version>/), so crawlers never get a
+// relative, localhost or per-version URL.
 const SITE_DESCRIPTION =
   "Python graph OGM, Graph-RAG toolkit and Alembic-style schema migrations " +
   "for Cypher graph databases — FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE and Amazon Neptune.";
@@ -69,9 +69,9 @@ export default defineConfigWithTheme<ThemeConfig>({
   transformPageData(pageData) {
     if (pageData.relativePath === "404.md") return;
 
-    const canonical = `${DOCS_ROOT}${pageData.relativePath}`
-      .replace(/index\.md$/, "")
-      .replace(/\.md$/, ".html");
+    // Always DOCS_ROOT + pagename — never `base`, so /en/latest/, /en/stable/
+    // and /en/<tag>/ builds of the same page all declare the same canonical.
+    const canonical = canonicalFor(pageData.relativePath);
 
     const pageTitle = pageData.frontmatter.title ?? pageData.title ?? "runic";
     // Mirror VitePress' own `<title>` resolution: a page opting out of the
