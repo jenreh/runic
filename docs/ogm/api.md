@@ -4,8 +4,9 @@
 
 `runic.ogm` is a lightweight graph OGM for Cypher-based graph databases.
 It follows a SQLAlchemy-style architecture: driver → session → mapper →
-repository. FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE are supported
-via the `GraphDriver` / `GraphDialect` abstractions.
+repository. FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE and Amazon
+Neptune (Database and Analytics) are supported via the `GraphDriver` /
+`GraphDialect` abstractions.
 
 Everything on this page is importable from the package root:
 
@@ -408,9 +409,9 @@ Protocol for an asynchronous driver. Same surface, with `execute()` and
 `runic.ogm.driver.TransactionalGraphDriver`
 
 Runtime-checkable protocol for drivers that support explicit ACID
-transactions — `BoltDriver` (Neo4j, Memgraph, ArcadeDB) and `AGEDriver`.
-`FalkorDBDriver` deliberately does **not** implement it: each `GRAPH.QUERY` is
-individually atomic.
+transactions — `BoltDriver` (Neo4j, Memgraph, ArcadeDB, Neptune Database)
+and `AGEDriver`. `FalkorDBDriver` and `NeptuneAnalyticsDriver` deliberately
+do **not** implement it: each of their queries is individually atomic.
 
 - `begin()` — open a transaction; raises `RuntimeError` if one is already active
 - `commit()` — commit the active transaction; no-op when none is active
@@ -484,9 +485,9 @@ error pointing at a character.
 |----------|-----------|------------|
 | `RELATIONSHIP_ALTERNATION` | `[:A\|B]` | Apache AGE |
 | `UNDIRECTED_MERGE` | `MERGE (a)-[r:T]-(b)` | FalkorDB |
-| `PROCEDURE_CALL` | `CALL … YIELD` | ArcadeDB, Apache AGE |
-| `FULLTEXT_SEARCH` | fulltext index from Cypher | ArcadeDB, Apache AGE |
-| `VECTOR_SEARCH` | vector index from Cypher | Apache AGE |
+| `PROCEDURE_CALL` | `CALL … YIELD` | ArcadeDB, Apache AGE, Neptune Database |
+| `FULLTEXT_SEARCH` | fulltext index from Cypher | ArcadeDB, Apache AGE, Neptune (both) |
+| `VECTOR_SEARCH` | vector index from Cypher | Apache AGE, Neptune Database |
 
 ### dialect_supports
 
@@ -523,6 +524,8 @@ points nowhere near the cause.
 | Memgraph | `BoltDriver` | `MemgraphDialect` | `create_memgraph_driver` | full ACID |
 | ArcadeDB | `BoltDriver` | `ArcadeDBDialect` | `create_arcadedb_driver` | full ACID |
 | Apache AGE | `AGEDriver` | `AGEDialect` | `create_age_driver` | full PostgreSQL ACID |
+| Neptune Database | `BoltDriver` | `NeptuneDialect` | `create_neptune_driver` | full ACID |
+| Neptune Analytics | `NeptuneAnalyticsDriver` | `NeptuneAnalyticsDialect` | `create_neptune_analytics_driver` | per-query only |
 
 ### FalkorDBDriver
 
@@ -641,12 +644,56 @@ AGE needs because it stores one label per node.
   label and the `_labels` predicate that recovers the rest
 - `fulltext_call()` and `vector_knn_start()` raise `NotImplementedError`
 
+### NeptuneDialect
+
+`runic.ogm.driver.neptune.NeptuneDialect`
+
+Cypher dialect customisations for Amazon Neptune Database (over Bolt).
+
+- `unsupported_features` — `{PROCEDURE_CALL, FULLTEXT_SEARCH, VECTOR_SEARCH}`
+- string node ids via `id()`, no `toInteger()` cast; `NeptuneNode` reads the
+  Bolt string `element_id` instead of the legacy integer id
+- `supports_geo_update` — `False`; `GeoLocation` is stored as a plain map
+- `cypher_fn_for_field()` returns `None` for every field — raw values only
+
+### NeptuneAnalyticsDriver
+
+`runic.ogm.driver.neptune_analytics.NeptuneAnalyticsDriver`
+
+Driver for Amazon Neptune Analytics over the `neptune-graph` HTTPS API
+(boto3). Not transactional — each `ExecuteQuery` request is individually
+atomic.
+
+- `dialect` — property; a `NeptuneAnalyticsDialect`
+- `execute(query, params)` — run an openCypher query and return a `GraphResult`
+- `upsert_vector(node_id, embedding)` — manually register an embedding in
+  the graph's vector index; Session writes of `Vector` fields sync it
+  automatically (opt out with `sync_vectors=False`), so this is the escape
+  hatch for raw-Cypher and bulk writes
+- `close()` — release the boto3 client
+
+### NeptuneAnalyticsDialect
+
+`runic.ogm.driver.neptune_analytics.NeptuneAnalyticsDialect`
+
+Cypher dialect customisations for Amazon Neptune Analytics.
+
+- `unsupported_features` — `{FULLTEXT_SEARCH}`
+- vector KNN via `CALL neptune.algo.vectors.topK.byEmbedding(...)` with the
+  label as a `vertexFilter`; the yielded `score` is a squared Euclidean
+  distance (lower = closer)
+- `vector_sync_clause()` — appends `CALL neptune.algo.vectors.upsert` to
+  CREATE/SET statements that write a `Vector` field, keeping the per-graph
+  vector index in sync automatically
+- string node ids; no Cypher function wrappers
+
 ### create_driver
 
 `runic.ogm.driver.factory.create_driver`
 
 `create_driver(backend, **kwargs)` → `GraphDriver`. Generic factory; *backend*
-is `"falkordb"`, `"arcadedb"`, `"neo4j"`, `"memgraph"` or `"age"`, and the
+is `"falkordb"`, `"arcadedb"`, `"neo4j"`, `"memgraph"`, `"age"`,
+`"neptune"` or `"neptune_analytics"`, and the
 keyword arguments are forwarded to that backend's constructor. Raises
 `ValueError` on an unknown backend.
 
@@ -689,6 +736,22 @@ Creates a `BoltDriver` configured with `ArcadeDBDialect`.
 `runic.ogm.driver.age.create_age_driver`
 
 Creates an `AGEDriver` from PostgreSQL connection parameters.
+
+### create_neptune_driver
+
+`runic.ogm.driver.neptune.create_neptune_driver`
+
+Creates a `BoltDriver` configured with `NeptuneDialect` and TLS
+(`bolt+s://`). With `use_iam_auth=True` (the default) it installs a
+refreshing SigV4 auth manager built from `botocore` credentials; pass
+`use_iam_auth=False` for clusters with IAM database authentication disabled.
+
+### create_neptune_analytics_driver
+
+`runic.ogm.driver.neptune_analytics.create_neptune_analytics_driver`
+
+Creates a `NeptuneAnalyticsDriver` from a graph identifier and optional
+region, or from an injected `neptune-graph` boto3 client.
 
 ---
 
@@ -849,6 +912,8 @@ re-fetches.
 | FalkorDB | No multi-query transactions. Each `GRAPH.QUERY` is atomic. `commit()` flushes; `rollback()` discards *un-flushed* state only — it cannot undo writes already sent. |
 | Bolt (Neo4j, Memgraph, ArcadeDB) | Full ACID. The first query lazily opens a Bolt transaction; `commit()` / `rollback()` apply or discard it as a unit. |
 | Apache AGE | Full PostgreSQL ACID. psycopg3 opens an implicit `BEGIN`; `commit()` / `rollback()` map to the connection's. |
+| Neptune Database | Full ACID over Bolt, like the other Bolt backends. |
+| Neptune Analytics | No multi-query transactions. Each `ExecuteQuery` request is atomic; `rollback()` discards un-flushed state only. |
 
 ### AsyncSession
 

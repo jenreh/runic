@@ -62,8 +62,17 @@ class RagSettings(BaseSettings):
 
     # ── Graph backend ───────────────────────────────────────────────────────
     # Any Cypher backend runic supports. FalkorDB + Neo4j use native vector/
-    # fulltext procs; Memgraph/ArcadeDB/AGE use the portable brute-force path.
-    backend: Literal["falkordb", "neo4j", "memgraph", "arcadedb", "age"] = "falkordb"
+    # fulltext procs; Memgraph/ArcadeDB/AGE/Neptune use the portable
+    # brute-force path.
+    backend: Literal[
+        "falkordb",
+        "neo4j",
+        "memgraph",
+        "arcadedb",
+        "age",
+        "neptune",
+        "neptune_analytics",
+    ] = "falkordb"
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
     falkordb_graph: str = "runic_rag"
@@ -89,6 +98,15 @@ class RagSettings(BaseSettings):
     age_graph: str = "runic_rag"
     age_username: str = "postgres"
     age_password: str | None = None
+    # Amazon Neptune Database (Bolt; SigV4 IAM auth via botocore)
+    neptune_endpoint: str | None = None
+    neptune_port: int = 8182
+    neptune_region: str | None = None
+    neptune_use_iam_auth: bool = True
+    neptune_graph: str = "runic_rag"
+    # Amazon Neptune Analytics (HTTPS via the neptune-graph boto3 client)
+    neptune_analytics_graph_id: str | None = None
+    neptune_analytics_region: str | None = None
 
     # ── Chunking ────────────────────────────────────────────────────────────
     chunk_size: int = 1200

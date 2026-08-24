@@ -1032,13 +1032,13 @@ statement via session.execute().
 The check happens when the statement is compiled for a session, not when it is
 built, because a `select()` statement does not know its backend yet.
 
-| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE |
-| --- | --- | --- | --- | --- | --- |
-| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ |
-| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ |
-| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ |
-| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE | Neptune DB | Neptune Analytics |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ |
+| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
 
 ---
 
@@ -1245,6 +1245,8 @@ The backend procedure invoked depends on which driver you are using:
 | Memgraph | `CALL text_search.search_all('Label', $query) YIELD node AS n, score` |
 | ArcadeDB | Not supported |
 | Apache AGE | Not supported; use PostgreSQL `tsvector`/`tsquery` via raw SQL |
+| Neptune Database | Not supported; use the Amazon OpenSearch integration |
+| Neptune Analytics | Not supported |
 
 Every backend that supports it yields `score` alongside the node, and the
 builder binds it to `__score` in a `WITH` stage — that is what makes
@@ -1308,6 +1310,8 @@ underlying procedure is backend-specific:
 | Memgraph | `CALL vector_search.search('Label_field', $k, $vec) YIELD node AS n, distance` |
 | ArcadeDB | `CALL vector.neighbors('Label[field]', $vec, $k) YIELD node AS n, distance` |
 | Apache AGE | Not supported; use `pgvector` via raw SQL |
+| Neptune Database | Not supported — vector search is a Neptune Analytics feature |
+| Neptune Analytics | `CALL neptune.algo.vectors.topK.byEmbedding({embedding: $vec, topK: $k, vertexFilter: …}) YIELD node AS n, score` |
 
 All four are **index-backed procedure calls**, not scans. FalkorDB rejects the
 `<->` distance operator in a `RETURN`, so a search never compiles to an inline
@@ -1395,7 +1399,8 @@ procedure is `db.idx.vector.queryNodes`, Neo4j's is `db.index.vector.queryNodes`
 with a different argument order, Memgraph's is `vector_search.search`. For a
 portable KNN use `vector_search()`, which asks the dialect. Reach for
 `call()` when you need a specific backend's procedure — as a correlated KNN
-does. ArcadeDB and Apache AGE have no `CALL … YIELD` at all.
+does. ArcadeDB, Apache AGE, and Neptune Database have no `CALL … YIELD` at
+all; Neptune Analytics only accepts its built-in `neptune.algo.*` procedures.
 :::
 
 ---

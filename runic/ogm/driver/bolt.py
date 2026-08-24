@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from runic.ogm.driver import GraphDialect
 
+    # A (username, password) tuple, a prebuilt neo4j Auth token, or a neo4j
+    # AuthManager (needed by backends with expiring tokens, e.g. Neptune IAM).
+    BoltAuth = tuple[str, str] | Any
+
 log = logging.getLogger(__name__)
 
 
@@ -85,8 +89,8 @@ class BoltDriver:
     def __init__(
         self,
         uri: str,
-        auth: tuple[str, str],
-        database: str,
+        auth: BoltAuth,
+        database: str | None,
         dialect: GraphDialect,
         *,
         encrypted: bool = True,
@@ -120,7 +124,7 @@ class BoltDriver:
         return self._uri.startswith(("bolt+s://", "bolt+ssc://"))
 
     @property
-    def auth(self) -> tuple[str, str]:
+    def auth(self) -> BoltAuth:
         return self._auth
 
     @property

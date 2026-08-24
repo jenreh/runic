@@ -176,9 +176,29 @@ def create_adapter(backend: str, **kwargs: Any) -> GraphAdapter:
             encrypted=bool(kwargs.get("encrypted", False)),
         )
 
+    if backend == "neptune":
+        from runic.migrate.adapters.neptune import NeptuneAdapter
+
+        return NeptuneAdapter.from_bolt_params(
+            endpoint=kwargs["endpoint"],
+            port=int(kwargs.get("port", 8182)),
+            use_iam_auth=bool(kwargs.get("use_iam_auth", True)),
+            region=kwargs.get("region"),
+            graph_name=kwargs.get("graph_name", "neptune"),
+        )
+
+    if backend == "neptune_analytics":
+        from runic.migrate.adapters.neptune import NeptuneAdapter
+
+        return NeptuneAdapter.from_analytics_params(
+            graph_id=kwargs["graph_id"],
+            region=kwargs.get("region"),
+        )
+
     raise KeyError(
         f"Unknown adapter backend {backend!r}. "
-        "Supported: 'falkordb', 'arcadedb', 'age', 'neo4j', 'memgraph'"
+        "Supported: 'falkordb', 'arcadedb', 'age', 'neo4j', 'memgraph', "
+        "'neptune', 'neptune_analytics'"
     )
 
 

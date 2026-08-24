@@ -213,10 +213,10 @@ Write the code normally and add the comment; do not restructure to avoid it.
 runic refuses to emit Cypher a backend cannot parse, raising
 `NotImplementedError` that names the construct and the backend.
 
-| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE |
-|---|---|---|---|---|---|
-| `[:A\|B]` alternation | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ |
-| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ |
-| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ |
-| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Construct | FalkorDB | Neo4j | Memgraph | ArcadeDB | AGE | Neptune DB | Neptune Analytics |
+|---|---|---|---|---|---|---|---|
+| `[:A\|B]` alternation | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| Undirected `MERGE` | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `CALL … YIELD` | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ |
+| Fulltext search | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Vector search | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |

@@ -46,6 +46,33 @@ class Mapper:
         fn = getattr(self._dialect, "subtype_where", None)
         return fn(alias, labels) if fn else None
 
+    def _vector_sync_clauses(
+        self, alias: str, node_meta: NodeMeta, props: dict[str, Any]
+    ) -> str:
+        """Return the dialect's index-sync fragments for written vector fields.
+
+        Backends whose vector index is separate from node properties (Neptune
+        Analytics) expose ``vector_sync_clause``; appending it to the write
+        statement keeps the index in sync without a second round trip. Empty
+        for every other backend.
+        """
+        fn = getattr(self._dialect, "vector_sync_clause", None)
+        if fn is None:
+            return ""
+        from runic.ogm.core.types import VectorConverter
+
+        clauses: list[str] = []
+        for key in props:
+            fi = self._find_field(node_meta.fields, key)
+            if fi is None or not isinstance(
+                getattr(fi.field, "converter", None), VectorConverter
+            ):
+                continue
+            clause = fn(alias, fi, f"${key}")
+            if clause:
+                clauses.append(clause)
+        return " " + " ".join(clauses) if clauses else ""
+
     # ------------------------------------------------------------------
     # Query builders
     # ------------------------------------------------------------------
@@ -70,7 +97,8 @@ class Mapper:
                 f"{self._prop_ref(k, self._find_field(node_meta.fields, k))}"
                 for k in props
             )
-            cypher = f"CREATE (n:{labels_str} {{{param_str}}}) RETURN n"
+            sync = self._vector_sync_clauses("n", node_meta, props)
+            cypher = f"CREATE (n:{labels_str} {{{param_str}}}){sync} RETURN n"
         else:
             cypher = f"CREATE (n:{labels_str}) RETURN n"
 
@@ -93,17 +121,19 @@ class Mapper:
             for k in props
         )
         params: dict[str, Any] = {"__pk": pk_val, **props}
+        sync = self._vector_sync_clauses("n", node_meta, props)
 
         if generated:
             id_where = self._dialect.generated_id_where("n", "__pk")
             cypher = (
-                f"MATCH (n:{node_meta.primary_label}) {id_where} SET {set_str} RETURN n"
+                f"MATCH (n:{node_meta.primary_label}) {id_where} "
+                f"SET {set_str}{sync} RETURN n"
             )
         else:
             pk_key = escape_identifier(node_meta.pk_field_name or "")
             cypher = (
                 f"MATCH (n:{node_meta.primary_label} {{{pk_key}: $__pk}}) "
-                f"SET {set_str} RETURN n"
+                f"SET {set_str}{sync} RETURN n"
             )
 
         return cypher, params

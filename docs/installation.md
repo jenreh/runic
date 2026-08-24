@@ -26,6 +26,12 @@ uv add "runic-py[arcadedb]"
 # Apache AGE  (PostgreSQL extension, requires psycopg)
 uv add "runic-py[age]"
 
+# Amazon Neptune Database  (Bolt + SigV4 IAM auth)
+uv add "runic-py[neptune]"
+
+# Amazon Neptune Analytics  (HTTPS via boto3)
+uv add "runic-py[neptune-analytics]"
+
 # All backends at once
 uv add "runic-py[all]"
 ```
@@ -39,6 +45,8 @@ uv add "runic-py[all]"
 | `memgraph` | `neo4j` (Bolt) | Memgraph |
 | `arcadedb` | `neo4j` (Bolt) | ArcadeDB |
 | `age` | `psycopg[binary]` | Apache AGE (PostgreSQL) |
+| `neptune` | `neo4j` (Bolt) + `botocore` | Amazon Neptune Database |
+| `neptune-analytics` | `boto3` | Amazon Neptune Analytics |
 | `all` | all of the above | every supported backend |
 
 Verify the installation:
@@ -100,6 +108,29 @@ Apache AGE is a PostgreSQL extension. The `age` extra installs
 ```bash
 docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres apache/age
 ```
+
+## Amazon Neptune
+
+Neptune has **no Docker image** — both variants are AWS-managed services, and
+Neptune Database is VPC-only (reachable via an in-VPC deployment, VPN, or
+bastion). Connect with your cluster endpoint or graph identifier:
+
+```python
+from runic.ogm import create_driver
+
+# Neptune Database (Bolt, SigV4 IAM auth by default)
+driver = create_driver(
+    "neptune",
+    endpoint="my-cluster.cluster-xxxx.eu-central-1.neptune.amazonaws.com",
+    region="eu-central-1",
+)
+
+# Neptune Analytics (HTTPS, AWS credentials from the environment)
+driver = create_driver("neptune_analytics", graph_id="g-abc123xyz")
+```
+
+See [Supported Drivers](./ogm/drivers.md#amazon-neptune-database) for
+authentication details and per-variant limitations.
 
 ## Development install
 

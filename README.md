@@ -20,12 +20,13 @@ Define your models once, run them on any backend.**
 Runic maps Python classes to graph nodes and edges. You declare typed `Node` and `Edge` models
 and get change tracking, lazy and eager relationships, a composable query API, and schema
 migrations — on top of a pluggable driver layer that runs the same model code on FalkorDB,
-Neo4j, Memgraph, ArcadeDB, and Apache AGE. A built-in [Graph-RAG SDK](#graph-rag) layers
+Neo4j, Memgraph, ArcadeDB, Apache AGE, and Amazon Neptune (Database and Analytics). A
+built-in [Graph-RAG SDK](#graph-rag) layers
 document ingestion and cited, knowledge-graph-grounded question answering on top of the OGM.
 
 ## Why Runic
 
-- **Backend-agnostic.** One model definition runs on five backends. Switching from FalkorDB to
+- **Backend-agnostic.** One model definition runs on seven backends. Switching from FalkorDB to
   Neo4j means changing the arguments to `create_driver()`; your models, queries, and application
   code don't change.
 - **Typed models, no metaclass magic.** `Node` and `Edge` are plain classes with typed `Field`
@@ -329,6 +330,8 @@ dependency** — you only pull in what you use.
 | Memgraph | `memgraph` | `neo4j` (Bolt) |
 | ArcadeDB | `arcadedb` | `neo4j` (Bolt) |
 | Apache AGE | `age` | `psycopg[binary]` |
+| Amazon Neptune Database | `neptune` | `neo4j` (Bolt) + `botocore` |
+| Amazon Neptune Analytics | `neptune-analytics` | `boto3` |
 | All backends | `all` | all of the above |
 | Graph-RAG | `graphrag` | `pydantic-ai`, `pymupdf` (combine with a backend) |
 
@@ -338,6 +341,8 @@ uv add "runic-py[neo4j]"      # Neo4j
 uv add "runic-py[memgraph]"   # Memgraph (Bolt)
 uv add "runic-py[arcadedb]"   # ArcadeDB (Bolt)
 uv add "runic-py[age]"        # Apache AGE (PostgreSQL extension)
+uv add "runic-py[neptune]"    # Amazon Neptune Database (Bolt + IAM auth)
+uv add "runic-py[neptune-analytics]"   # Amazon Neptune Analytics (HTTPS)
 uv add "runic-py[all]"        # everything
 uv add "runic-py[graphrag,falkordb]"   # Graph-RAG SDK + a backend driver
 ```

@@ -2,7 +2,8 @@
 name: runic-migrate
 description: |
   Expert guide for runic — an Alembic-style graph schema migration tool that
-  supports FalkorDB, Memgraph, Neo4j, ArcadeDB, and Apache AGE. Use whenever
+  supports FalkorDB, Memgraph, Neo4j, ArcadeDB, Apache AGE, and Amazon
+  Neptune. Use whenever
   the user works with runic: CLI commands, migration file anatomy, op.* API,
   env.py config, autogenerate, branching/merge, or testing. Invoke for any
   versions/*.py file, `runic` CLI question, or graph schema change task.
@@ -11,7 +12,8 @@ description: |
 # Runic — Graph Schema Migration Tool
 
 Runic is an Alembic-style migration framework for graph databases (FalkorDB,
-Memgraph, Neo4j, ArcadeDB, Apache AGE). It tracks schema versions in a version
+Memgraph, Neo4j, ArcadeDB, Apache AGE, Amazon Neptune). It tracks schema
+versions in a version
 node inside each graph and drives upgrades/downgrades via Python scripts stored
 in `versions/`.
 

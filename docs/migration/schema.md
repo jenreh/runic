@@ -24,7 +24,8 @@ from runic.migrate import SchemaManager
 from runic.migrate.adapters import create_adapter
 
 adapter = create_adapter(
-    "neo4j",          # or "falkordb", "memgraph", "arcadedb", "age"
+    "neo4j",          # or "falkordb", "memgraph", "arcadedb", "age",
+                      # "neptune", "neptune_analytics"
     host="localhost",
     database="mydb",
     password="secret",
@@ -168,6 +169,7 @@ be able to roll back in production.
 | Memgraph | `create_adapter("memgraph", ...)` | Introspection via `SHOW INDEX INFO` / `SHOW CONSTRAINT INFO`. Validates RANGE indexes and UNIQUE / MANDATORY constraints only — FULLTEXT and VECTOR indexes are not exposed by these commands. Create calls are idempotent. |
 | ArcadeDB | `create_adapter("arcadedb", ...)` | No introspection (HTTP management API required — not implemented). Every declared spec is treated as missing; `sync_schema` calls `ensure_entity_types` first to create vertex/edge collections. |
 | Apache AGE | `create_adapter("age", ...)` | No introspection. All DDL calls log a warning and do nothing — AGE does not support Cypher-level DDL. Manage indexes via PostgreSQL DDL. |
+| Amazon Neptune | `create_adapter("neptune", ...)` / `create_adapter("neptune_analytics", ...)` | No introspection. All DDL calls log a warning and do nothing — Neptune manages indexes automatically (Analytics configures its vector index at graph creation). |
 
 ::: info
 `runic.migrate` manages both schema utilities and versioned migrations.

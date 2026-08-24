@@ -35,33 +35,43 @@ driver = create_driver(
     database="postgres", graph="my_graph",
     username="postgres", password="secret",
 )
+# Amazon Neptune Database (Bolt, SigV4 IAM auth)
+driver = create_driver(
+    "neptune",
+    endpoint="my-cluster.cluster-xxxx.eu-central-1.neptune.amazonaws.com",
+    use_iam_auth=True, region="eu-central-1",
+)
+# Amazon Neptune Analytics (HTTPS via boto3)
+driver = create_driver(
+    "neptune_analytics", graph_id="g-abc123xyz", region="eu-central-1",
+)
 ```
 
 ---
 
 ## Feature matrix
 
-| Feature | FalkorDB | ArcadeDB | Neo4j | Memgraph | Apache AGE |
-| --- | --- | --- | --- | --- | --- |
-| Protocol / client | Redis (falkordb) | Bolt (neo4j) | Bolt (neo4j) | Bolt (neo4j) | SQL (psycopg3) |
-| Sync driver | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Async driver | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Vector KNN queries | ✓ — `CALL db.idx.vector.queryNodes` | ✓ — `CALL vector.neighbors` | ✓ — `CALL db.index.vector.queryNodes` | ✓ — `CALL vector_search.search` | ✗ — use pgvector |
-| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ — no alternation in AGE's openCypher |
-| Undirected `MERGE` (`merge_edge(directed=False)`) | ✗ — `NotImplementedError`; directed edges only | ✓ | ✓ | ✓ | ✓ |
-| `CALL … YIELD` (arbitrary procedures) | ✓ | ✗ | ✓ | ✓ | ✗ |
-| Fulltext search | ✓ — `db.idx.fulltext.queryNodes` | ✗ — not supported by ArcadeDB OGM driver | ✓ — `CALL db.index.fulltext.queryNodes` | ✓ — `CALL text_search.search_all` | ✗ — use PostgreSQL FTS |
-| String interning (`intern()`) | ✓ | ✗ | ✗ | ✗ | ✗ |
-| TypeConverter Cypher wrappers | ✓ — `vecf32()`, `toPoint()` | ✗ | ✗ | ✗ | ✗ |
-| TLS / encrypted connections | ✗ — Redis, no TLS | ✗ — `bolt://` only | ✓ — `bolt+s://` | ✓ — `bolt+s://` | ✓ — via PostgreSQL SSL |
-| Multiple graphs per connection | ✓ — `select_graph()` | ✗ | ✗ | ✗ | ✓ — one graph per driver |
-| ACID transactions | ✗ — each query is atomic | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — psycopg3 implicit `BEGIN` |
-| Migrate adapter (`create_adapter`) | ✓ — `FalkorDBAdapter` | ✓ — `ArcadeDBAdapter` | ✓ — `Neo4jAdapter` | ✓ — `MemgraphAdapter` | ✓ — `AGEAdapter` |
-| IndexManager DDL | ✓ — range / fulltext / vector / unique | ✓ — range / fulltext / unique (vector via HTTP API) | ✓ — range / fulltext / vector / unique (`IF NOT EXISTS`) | ✓ — range / text / vector / unique | ✗ — log.warning only (PostgreSQL-level DDL required) |
-| Multi-label nodes | ✓ | ✓ | ✓ | ✓ | ✗ — emulated via `_labels` property |
-| GeoLocation in-place update | ✓ — `SET n.geo = toPoint($v)` | ✗ — stored as `{latitude, longitude}` map | ✓ — `SET n.geo = point($v)` | ✓ — `SET n.geo = point($v)` | ✗ — agtype point not supported via psycopg |
-| `relate()` on a `direction="BOTH"` relation | ✗ — the `MERGE` is written `OUTGOING` instead | ✓ | ✓ | ✓ | ✓ |
-| Required Python package | `falkordb` | `neo4j` | `neo4j` | `neo4j` | `psycopg[binary]` |
+| Feature | FalkorDB | ArcadeDB | Neo4j | Memgraph | Apache AGE | Neptune Database | Neptune Analytics |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Protocol / client | Redis (falkordb) | Bolt (neo4j) | Bolt (neo4j) | Bolt (neo4j) | SQL (psycopg3) | Bolt (neo4j) + SigV4 (botocore) | HTTPS (boto3 `neptune-graph`) |
+| Sync driver | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Async driver | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Vector KNN queries | ✓ — `CALL db.idx.vector.queryNodes` | ✓ — `CALL vector.neighbors` | ✓ — `CALL db.index.vector.queryNodes` | ✓ — `CALL vector_search.search` | ✗ — use pgvector | ✗ — Analytics-only feature | ✓ — `CALL neptune.algo.vectors.topK.byEmbedding` |
+| Relationship alternation `[:A\|B]` | ✓ | ✓ | ✓ | ✓ | ✗ — no alternation in AGE's openCypher | ✓ | ✓ |
+| Undirected `MERGE` (`merge_edge(directed=False)`) | ✗ — `NotImplementedError`; directed edges only | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `CALL … YIELD` (arbitrary procedures) | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ | ✓ — built-in `neptune.algo.*` only |
+| Fulltext search | ✓ — `db.idx.fulltext.queryNodes` | ✗ — not supported by ArcadeDB OGM driver | ✓ — `CALL db.index.fulltext.queryNodes` | ✓ — `CALL text_search.search_all` | ✗ — use PostgreSQL FTS | ✗ — use the OpenSearch integration | ✗ |
+| String interning (`intern()`) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| TypeConverter Cypher wrappers | ✓ — `vecf32()`, `toPoint()` | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| TLS / encrypted connections | ✗ — Redis, no TLS | ✗ — `bolt://` only | ✓ — `bolt+s://` | ✓ — `bolt+s://` | ✓ — via PostgreSQL SSL | ✓ — `bolt+s://` (required) | ✓ — HTTPS always |
+| Multiple graphs per connection | ✓ — `select_graph()` | ✗ | ✗ | ✗ | ✓ — one graph per driver | ✗ — one graph per cluster | ✗ — driver bound to one graph id |
+| ACID transactions | ✗ — each query is atomic | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — `begin` / `commit` / `rollback` | ✓ — psycopg3 implicit `BEGIN` | ✓ — `begin` / `commit` / `rollback` | ✗ — each `ExecuteQuery` is atomic |
+| Migrate adapter (`create_adapter`) | ✓ — `FalkorDBAdapter` | ✓ — `ArcadeDBAdapter` | ✓ — `Neo4jAdapter` | ✓ — `MemgraphAdapter` | ✓ — `AGEAdapter` | ✓ — `NeptuneAdapter` | ✓ — `NeptuneAdapter` |
+| IndexManager DDL | ✓ — range / fulltext / vector / unique | ✓ — range / fulltext / unique (vector via HTTP API) | ✓ — range / fulltext / vector / unique (`IF NOT EXISTS`) | ✓ — range / text / vector / unique | ✗ — log.warning only (PostgreSQL-level DDL required) | ✗ — log.warning only (indexes are automatic) | ✗ — log.warning only (vector index fixed at graph creation) |
+| Multi-label nodes | ✓ | ✓ | ✓ | ✓ | ✗ — emulated via `_labels` property | ✓ | ✓ |
+| GeoLocation in-place update | ✓ — `SET n.geo = toPoint($v)` | ✗ — stored as `{latitude, longitude}` map | ✓ — `SET n.geo = point($v)` | ✓ — `SET n.geo = point($v)` | ✗ — agtype point not supported via psycopg | ✗ — stored as `{latitude, longitude}` map | ✓ — stored as `{latitude, longitude}` map |
+| `relate()` on a `direction="BOTH"` relation | ✗ — the `MERGE` is written `OUTGOING` instead | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Required Python package | `falkordb` | `neo4j` | `neo4j` | `neo4j` | `psycopg[binary]` | `neo4j` + `botocore` | `boto3` |
 
 ::: tip Unsupported constructs are refused, not emitted
 Where a backend cannot parse a construct, runic raises `NotImplementedError`
@@ -382,6 +392,138 @@ CREATE EXTENSION IF NOT EXISTS age;
 The runic driver runs `LOAD 'age'` and sets
 `search_path = ag_catalog, "$user", public` automatically on every new
 connection.
+
+---
+
+## Amazon Neptune Database
+
+[Amazon Neptune Database](https://aws.amazon.com/neptune/) is AWS's managed
+graph database. It speaks openCypher over the **Bolt protocol** (cluster
+endpoint, default port 8182), so runic reuses `BoltDriver` with a
+Neptune-specific dialect.
+
+::: warning Not yet live-verified
+Neptune is **VPC-only** and has no local emulator, so this backend is
+implemented against AWS's documented behaviour but has not yet been validated
+against a live cluster. The endpoint must be reachable from where your code
+runs (in-VPC deployment, VPN, or bastion).
+:::
+
+**Supported**
+
+- Sync execution via `BoltDriver`, including explicit
+  `begin` / `commit` / `rollback` transactions.
+- **IAM (SigV4) authentication** — the default. `create_neptune_driver`
+  installs a refreshing auth manager that re-signs the token before AWS's
+  ~5-minute signature expiry and re-signs again after auth errors (requires
+  `botocore` and resolvable AWS credentials). For clusters with IAM database
+  authentication disabled, pass `use_iam_auth=False` — Neptune then ignores
+  the Bolt auth parameters entirely.
+- TLS is always on (`bolt+s://`) — Neptune requires it.
+- **String node IDs** — Neptune's `id()` returns strings (UUIDs when
+  auto-assigned); the dialect never casts to integer.
+- **Migrate adapter** (`create_adapter("neptune", ...)`) — version and
+  checksum tracking via plain Cypher.
+
+**Not supported / limitations**
+
+- **No async driver.**
+- **No `CALL … YIELD`** for arbitrary procedures.
+- **No fulltext search** in Cypher — Neptune integrates with Amazon
+  OpenSearch Service instead.
+- **No vector search** — vector similarity is a Neptune Analytics feature.
+- **No index or constraint DDL.** Neptune manages indexes automatically; the
+  migrate adapter logs a warning and continues.
+- **No TypeConverter Cypher wrappers.** `GeoLocation` is stored as a
+  `{"latitude": …, "longitude": …}` map.
+- `shortestPath()` / `allShortestPaths()`, user-defined functions, the `^`
+  operator, and non-static `SKIP`/`LIMIT` are rejected by Neptune's
+  openCypher implementation.
+
+```python
+from runic.ogm import create_driver, Session
+
+driver = create_driver(
+    "neptune",
+    endpoint="my-cluster.cluster-xxxx.eu-central-1.neptune.amazonaws.com",
+    port=8182,
+    use_iam_auth=True,
+    region="eu-central-1",
+)
+with Session(driver) as session:
+    ...
+```
+
+::: info IAM auth connection lifetime
+SigV4 signatures expire after about five minutes. runic re-signs on every new
+Bolt connection, but a long-pooled connection past the 10-day server limit or
+an aborted handshake will surface as an auth error — the auth manager then
+invalidates its token and the driver retries with a fresh signature.
+:::
+
+---
+
+## Amazon Neptune Analytics
+
+[Amazon Neptune Analytics](https://aws.amazon.com/neptune/) is a separate
+product from Neptune Database: an in-memory graph engine with **no Bolt
+endpoint**. runic talks to it over HTTPS through the `neptune-graph` AWS API
+(`boto3`), which handles SigV4 authentication itself.
+
+::: warning Not yet live-verified
+Implemented against AWS's documented behaviour but not yet validated against
+a live graph — Neptune Analytics has no local emulator.
+:::
+
+**Supported**
+
+- Sync execution via `NeptuneAnalyticsDriver` — each query is one
+  `ExecuteQuery` request, individually atomic.
+- **Native vector KNN** via
+  `CALL neptune.algo.vectors.topK.byEmbedding(...)`, with the node label
+  applied as a `vertexFilter`. The yielded `score` is a squared Euclidean
+  distance — lower is closer, matching runic's ascending `__score` ordering.
+- `CALL … YIELD` for the built-in `neptune.algo.*` procedures.
+- **String node IDs**, multi-label nodes, undirected `MERGE`.
+- **Migrate adapter** (`create_adapter("neptune_analytics", ...)`) — version
+  and checksum tracking via plain Cypher.
+
+**Not supported / limitations**
+
+- **No async driver.**
+- **No explicit transactions** — like FalkorDB, every query is atomic on its
+  own; `Session.commit()` batches nothing at the database level.
+- **No fulltext search** in Cypher.
+- **One vector index per graph**, its dimension fixed at graph creation.
+  runic's per-field vector model maps onto it loosely: the field name is
+  ignored and only the label filter narrows results.
+- **`Vector` fields are auto-synced into the vector index.** Embeddings live
+  in a dedicated index, not in node properties, so whenever a Session write
+  stores a `Vector` field the mapper appends
+  `CALL neptune.algo.vectors.upsert(n, $embedding)` to the same statement —
+  the property and the index stay in sync with no extra round trip:
+
+  ```python
+  from runic.ogm import Session, Vector, create_driver
+
+  driver = create_driver(
+      "neptune_analytics", graph_id="g-abc123xyz", region="eu-central-1"
+  )
+  with Session(driver) as session:
+      article = Article(title="Graphs!", embedding=Vector([0.1, 0.2, 0.3]))
+      session.add(article)
+      session.commit()   # node written AND indexed for vector search
+  ```
+
+  Two caveats: the graph must have been created with a
+  `vectorSearchConfiguration` whose dimension matches (pass
+  `sync_vectors=False` to the driver for graphs without one — writes with
+  `Vector` fields would otherwise fail), and writes that bypass the Session's
+  entity mapper (raw `session.execute`, the query-builder write pipeline)
+  still need a manual `driver.upsert_vector(node_id, embedding)`.
+- **No index or constraint DDL** — the vector index is configured when the
+  graph is created (`vectorSearchConfiguration`), and everything else is
+  automatic.
 
 ---
 

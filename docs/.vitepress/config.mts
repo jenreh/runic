@@ -21,7 +21,7 @@ const SITE_URL = "https://runic.rehpoehler.de";
 const DOCS_ROOT = `${SITE_URL}/en/latest/`;
 const SITE_DESCRIPTION =
   "Python graph OGM, Graph-RAG toolkit and Alembic-style schema migrations " +
-  "for Cypher graph databases — FalkorDB, Neo4j, Memgraph, ArcadeDB and Apache AGE.";
+  "for Cypher graph databases — FalkorDB, Neo4j, Memgraph, ArcadeDB, Apache AGE and Amazon Neptune.";
 
 // Read the package version from pyproject.toml at build time so the navbar
 // badge always matches the released version without manual updates.

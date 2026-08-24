@@ -105,6 +105,10 @@ def migrate_context(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[
         from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
 
         adapter = ArcadeDBAdapter(driver, graph_name)
+    elif backend in ("neptune", "neptune_analytics"):
+        from runic.migrate.adapters.neptune import NeptuneAdapter
+
+        adapter = NeptuneAdapter(driver, graph_name)
     else:
         pytest.skip(f"No migrate adapter for backend {backend!r}")
         return
@@ -154,6 +158,10 @@ def migrate_adapter(request: pytest.FixtureRequest) -> Iterator[Any]:
         from runic.migrate.adapters.arcadedb import ArcadeDBAdapter
 
         adapter = ArcadeDBAdapter(driver, graph_name)
+    elif backend in ("neptune", "neptune_analytics"):
+        from runic.migrate.adapters.neptune import NeptuneAdapter
+
+        adapter = NeptuneAdapter(driver, graph_name)
     else:
         pytest.skip(f"No migrate adapter for backend {backend!r}")
         return
