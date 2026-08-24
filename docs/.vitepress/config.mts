@@ -24,7 +24,7 @@ export default defineConfigWithTheme<ThemeConfig>({
   base,
   ignoreDeadLinks: true,
   sitemap: {
-    hostname: 'https://runic.rehpoehler.de'
+    hostname: 'https://runic.rehpoehler.de/en/latest/'
   },
 
   head: [
