@@ -8,10 +8,13 @@ objects keyed by RETURN alias, with nodes and relationships serialised as
 
 Vector similarity is native (``CALL neptune.algo.vectors.topK.byEmbedding``),
 but embeddings live in the graph's **single vector index** (dimension fixed at
-graph creation), *not* in node properties.  Writing a runic ``Vector`` model
-field stores a plain list property and does **not** populate that index — use
-:meth:`NeptuneAnalyticsDriver.upsert_vector` to register embeddings for
-similarity search.
+graph creation), *not* in node properties.  Session-managed writes of runic
+``Vector`` model fields therefore append ``CALL neptune.algo.vectors.upsert``
+to the same statement automatically (see
+:meth:`NeptuneAnalyticsDialect.vector_sync_clause`), keeping the index in
+sync.  Pass ``sync_vectors=False`` to the driver for graphs created without a
+vector index, and use :meth:`NeptuneAnalyticsDriver.upsert_vector` for
+embeddings written outside the Session (raw Cypher, bulk loads).
 
 Implemented against AWS's documented behaviour (2026-08) but **not yet
 live-verified** — Neptune Analytics has no local emulator.
@@ -127,12 +130,41 @@ class NeptuneAnalyticsDialect:
       ``__score`` ordering.
     - Still no Cypher-level fulltext search.
     - ``id()`` returns strings; no Cypher function wrappers.
+    - ``Vector`` field writes are auto-synced into the vector index via
+      :meth:`vector_sync_clause` (disable with ``sync_vectors=False``).
     """
 
     unsupported_features: frozenset[str] = frozenset({CypherFeature.FULLTEXT_SEARCH})
 
+    def __init__(self, *, sync_vectors: bool = True) -> None:
+        self._sync_vectors = sync_vectors
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
+
+    def vector_sync_clause(
+        self,
+        alias: str,
+        fi: FieldInfo,  # noqa: ARG002 - one index per graph; field is irrelevant
+        param_ref: str,
+    ) -> str | None:
+        """Cypher fragment syncing a written vector into the graph's index.
+
+        Embeddings live in the per-graph vector index, not in node
+        properties, so the mapper appends this to CREATE/SET statements for
+        every ``Vector`` field it writes — one statement, no second round
+        trip.  The graph must have been created with a
+        ``vectorSearchConfiguration`` whose dimension matches; returns
+        ``None`` (no sync) when the dialect was built with
+        ``sync_vectors=False``.
+        """
+        if not self._sync_vectors:
+            return None
+        return (
+            f"WITH {alias} "
+            f"CALL neptune.algo.vectors.upsert({alias}, {param_ref}) "
+            f"YIELD success WITH {alias}"
+        )
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:  # noqa: ARG002
         return None
@@ -212,6 +244,7 @@ class NeptuneAnalyticsDriver:
         *,
         region: str | None = None,
         client: Any | None = None,
+        sync_vectors: bool = True,
     ) -> None:
         if client is None:
             import boto3
@@ -223,6 +256,13 @@ class NeptuneAnalyticsDriver:
             )
         self._client = client
         self._graph_id = graph_id
+        # Session writes auto-upsert Vector fields into the vector index;
+        # sync_vectors=False opts out for graphs created without one.
+        self._dialect = (
+            _NEPTUNE_ANALYTICS_DIALECT
+            if sync_vectors
+            else NeptuneAnalyticsDialect(sync_vectors=False)
+        )
 
     @property
     def graph_id(self) -> str:
@@ -230,7 +270,7 @@ class NeptuneAnalyticsDriver:
 
     @property
     def dialect(self) -> NeptuneAnalyticsDialect:
-        return _NEPTUNE_ANALYTICS_DIALECT
+        return self._dialect
 
     def execute(self, cypher: str, params: dict[str, Any]) -> NeptuneAnalyticsResult:
         request: dict[str, Any] = {
@@ -253,10 +293,10 @@ class NeptuneAnalyticsDriver:
     def upsert_vector(self, node_id: str, embedding: list[float]) -> bool:
         """Register *embedding* for the node in the graph's vector index.
 
-        Neptune Analytics keeps embeddings in a dedicated per-graph vector
-        index rather than in node properties, so storing a runic ``Vector``
-        field does **not** make the node searchable — call this after writing
-        the node.  Returns whether the upsert reported success.
+        Session-managed ``Vector`` field writes sync the index automatically;
+        this is the manual escape hatch for embeddings written outside the
+        Session (raw Cypher, bulk loads) or when the driver was built with
+        ``sync_vectors=False``.  Returns whether the upsert reported success.
         """
         result = self.execute(
             "MATCH (n) WHERE id(n) = $__vec_id "
@@ -275,6 +315,7 @@ def create_neptune_analytics_driver(
     *,
     region: str | None = None,
     client: Any | None = None,
+    sync_vectors: bool = True,
 ) -> NeptuneAnalyticsDriver:
     """Create a :class:`NeptuneAnalyticsDriver` for the given graph.
 
@@ -287,5 +328,12 @@ def create_neptune_analytics_driver(
     client:
         Optional pre-built ``neptune-graph`` boto3 client (useful for custom
         sessions, assumed roles, or testing); *region* is ignored when given.
+    sync_vectors:
+        When ``True`` (default), Session writes of ``Vector`` model fields
+        append ``CALL neptune.algo.vectors.upsert`` to the same statement so
+        the graph's vector index stays in sync automatically.  Set to
+        ``False`` for graphs created without a ``vectorSearchConfiguration``.
     """
-    return NeptuneAnalyticsDriver(graph_id, region=region, client=client)
+    return NeptuneAnalyticsDriver(
+        graph_id, region=region, client=client, sync_vectors=sync_vectors
+    )
