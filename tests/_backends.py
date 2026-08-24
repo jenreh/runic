@@ -17,6 +17,12 @@ Environment overrides
 ``RUNIC_ARCADEDB_PORT``        default ``2424``
 ``RUNIC_AGE_HOST``             default ``localhost``
 ``RUNIC_AGE_PORT``             default ``5432``
+``RUNIC_NEPTUNE_ENDPOINT``     no default — Neptune is VPC-only (skipped when unset)
+``RUNIC_NEPTUNE_PORT``         default ``8182``
+``RUNIC_NEPTUNE_REGION``       AWS region (IAM auth)
+``RUNIC_NEPTUNE_USE_IAM``      default ``true``
+``RUNIC_NEPTUNE_ANALYTICS_GRAPH_ID``  no default (skipped when unset)
+``RUNIC_NEPTUNE_ANALYTICS_REGION``    AWS region
 """
 
 from __future__ import annotations
@@ -252,6 +258,71 @@ def _make_age(graph_name: str) -> tuple[Any, Callable[[], None]]:
     return driver, cleanup
 
 
+def _make_neptune(graph_name: str) -> tuple[Any, Callable[[], None]]:  # noqa: ARG001
+    import pytest
+
+    endpoint = os.environ.get("RUNIC_NEPTUNE_ENDPOINT")
+    if not endpoint:
+        pytest.skip(
+            "RUNIC_NEPTUNE_ENDPOINT not set — Neptune is VPC-only and has "
+            "no local container"
+        )
+    port = int(os.environ.get("RUNIC_NEPTUNE_PORT", "8182"))
+    region = os.environ.get("RUNIC_NEPTUNE_REGION")
+    use_iam = os.environ.get("RUNIC_NEPTUNE_USE_IAM", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+    try:
+        from runic.ogm.driver.neptune import create_neptune_driver
+
+        # Neptune has one graph per cluster — like neo4j/memgraph, isolation
+        # comes from DETACH DELETE on teardown, not per-test graphs.
+        driver = create_neptune_driver(
+            endpoint, port, use_iam_auth=use_iam, region=region
+        )
+        driver.execute("RETURN 1", {})
+    except Exception as exc:
+        pytest.skip(f"Neptune not reachable at {endpoint}:{port}: {exc}")
+
+    def cleanup() -> None:
+        with contextlib.suppress(Exception):
+            driver.execute("MATCH (n) DETACH DELETE n", {})
+        with contextlib.suppress(Exception):
+            driver.close()
+
+    return driver, cleanup
+
+
+def _make_neptune_analytics(graph_name: str) -> tuple[Any, Callable[[], None]]:  # noqa: ARG001
+    import pytest
+
+    graph_id = os.environ.get("RUNIC_NEPTUNE_ANALYTICS_GRAPH_ID")
+    if not graph_id:
+        pytest.skip("RUNIC_NEPTUNE_ANALYTICS_GRAPH_ID not set")
+    region = os.environ.get("RUNIC_NEPTUNE_ANALYTICS_REGION")
+
+    try:
+        from runic.ogm.driver.neptune_analytics import (
+            create_neptune_analytics_driver,
+        )
+
+        driver = create_neptune_analytics_driver(graph_id, region=region)
+        driver.execute("RETURN 1", {})
+    except Exception as exc:
+        pytest.skip(f"Neptune Analytics graph {graph_id!r} not reachable: {exc}")
+
+    def cleanup() -> None:
+        with contextlib.suppress(Exception):
+            driver.execute("MATCH (n) DETACH DELETE n", {})
+        with contextlib.suppress(Exception):
+            driver.close()
+
+    return driver, cleanup
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -262,6 +333,8 @@ _FACTORIES: dict[str, Any] = {
     "memgraph": _make_memgraph,
     "arcadedb": _make_arcadedb,
     "age": _make_age,
+    "neptune": _make_neptune,
+    "neptune_analytics": _make_neptune_analytics,
 }
 
 

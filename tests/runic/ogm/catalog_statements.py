@@ -588,6 +588,10 @@ _SEMANTIC: list[CatalogCase] = [
                 "database other tests have written to. A fixture isolation "
                 "limitation rather than a defect in the statement."
             ),
+            "neptune": (
+                "Neptune Database has no vector search — vector similarity is "
+                "a Neptune Analytics feature."
+            ),
         },
     ),
     CatalogCase(
@@ -640,6 +644,14 @@ _SEMANTIC: list[CatalogCase] = [
             ),
             "arcadedb": "ArcadeDB has no CALL … YIELD for arbitrary procedures.",
             "age": "Apache AGE has no CALL … YIELD for arbitrary procedures.",
+            "neptune": (
+                "Neptune Database has no CALL … YIELD for arbitrary procedures."
+            ),
+            "neptune_analytics": (
+                "Neptune Analytics only exposes its built-in neptune.algo.* "
+                "procedures; FalkorDB's db.idx.vector.queryNodes does not "
+                "exist there. See the neo4j note."
+            ),
         },
     ),
     CatalogCase(
@@ -668,6 +680,13 @@ _SEMANTIC: list[CatalogCase] = [
                 "tables instead."
             ),
             "arcadedb": ("ArcadeDB exposes no fulltext search through Cypher."),
+            "neptune": (
+                "Neptune has no Cypher-level fulltext search; fulltext goes "
+                "through the Amazon OpenSearch integration."
+            ),
+            "neptune_analytics": (
+                "Neptune Analytics has no Cypher-level fulltext search."
+            ),
         },
     ),
     CatalogCase(
