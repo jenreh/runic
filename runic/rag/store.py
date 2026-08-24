@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import escape_identifier, escape_string, property_ref
 from runic.ogm import Session
 from runic.ogm.schema import extract_declared_specs
 from runic.rag.domain import ChunkHit, EntityHit, RelationHit, ScoredKey
@@ -75,24 +76,31 @@ def _falkordb_normalize(score: Any) -> float:
 
 def _falkordb_vector_proc(label: str, prop: str, k: int) -> str:
     return (
-        f"CALL db.idx.vector.queryNodes('{label}', '{prop}', {k}, vecf32($q)) "
+        f"CALL db.idx.vector.queryNodes({escape_string(label)}, "
+        f"{escape_string(prop)}, {k}, vecf32($q)) "
         "YIELD node, score"
     )
 
 
 def _falkordb_fulltext_proc(label: str) -> str:
-    return f"CALL db.idx.fulltext.queryNodes('{label}', $q) YIELD node, score"
+    return (
+        f"CALL db.idx.fulltext.queryNodes({escape_string(label)}, $q) YIELD node, score"
+    )
 
 
 def _neo4j_vector_proc(label: str, prop: str, k: int) -> str:  # noqa: ARG001
     # Neo4j convention: a named index "{label}_{prop}"; k is a $param.
     return (
-        f"CALL db.index.vector.queryNodes('{label}_{prop}', $k, $q) YIELD node, score"
+        f"CALL db.index.vector.queryNodes({escape_string(f'{label}_{prop}')}, "
+        "$k, $q) YIELD node, score"
     )
 
 
 def _neo4j_fulltext_proc(label: str) -> str:
-    return f"CALL db.index.fulltext.queryNodes('{label}', $q) YIELD node, score"
+    return (
+        f"CALL db.index.fulltext.queryNodes({escape_string(label)}, $q) "
+        "YIELD node, score"
+    )
 
 
 # Brute-force backends (Memgraph/ArcadeDB/AGE): no native proc — the store uses
@@ -636,7 +644,11 @@ class GraphStore:
         if type_filter:
             where = "WHERE n.type = $type_filter OR $type_filter IN labels(n) "
             params["type_filter"] = type_filter
-        cypher = f"MATCH (n:{label}) {where}RETURN n.{key_prop} AS key, n.{prop} AS emb"
+        cypher = (
+            f"MATCH (n:{escape_identifier(label)}) {where}"
+            f"RETURN {property_ref('n', key_prop)} AS key, "
+            f"{property_ref('n', prop)} AS emb"
+        )
         result = self._driver.execute(cypher, params)
         scored: list[ScoredKey] = []
         for row in result.rows:
@@ -666,7 +678,10 @@ class GraphStore:
             return self._brute_force_fulltext(label, prop, query, k)
         key_prop = "canonical_key" if label == "Entity" else "id"
         proc = self._dialect.fulltext_proc(label)
-        cypher = f"{proc} RETURN node.{key_prop} AS key, score AS score LIMIT {int(k)}"
+        cypher = (
+            f"{proc} RETURN {property_ref('node', key_prop)} AS key, "
+            f"score AS score LIMIT {int(k)}"
+        )
         try:
             result = self._driver.execute(cypher, {"q": query})
         except Exception as exc:  # noqa: BLE001 - classify before returning empty
@@ -705,12 +720,15 @@ class GraphStore:
         key_prop = "canonical_key" if label == "Entity" else "id"
         if label == "Entity":
             cypher = (
-                f"MATCH (n:{label}) "
-                f"RETURN n.{key_prop} AS key, n.name AS a, n.description AS b"
+                f"MATCH (n:{escape_identifier(label)}) "
+                f"RETURN {property_ref('n', key_prop)} AS key, "
+                "n.name AS a, n.description AS b"
             )
         else:
             cypher = (
-                f"MATCH (n:{label}) RETURN n.{key_prop} AS key, n.{prop} AS a, '' AS b"
+                f"MATCH (n:{escape_identifier(label)}) "
+                f"RETURN {property_ref('n', key_prop)} AS key, "
+                f"{property_ref('n', prop)} AS a, '' AS b"
             )
         result = self._driver.execute(cypher, {})
         scored: list[ScoredKey] = []

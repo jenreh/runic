@@ -58,7 +58,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from runic.cypher import validate_reference
+from runic.cypher import escape_identifier, escape_reference, property_ref
 
 if TYPE_CHECKING:
     pass
@@ -248,7 +248,7 @@ class OrderExpr:
             if self.raw.split()[-1].upper() in ("ASC", "DESC"):
                 return self.raw
             return f"{self.raw} {direction}"
-        return f"{self.alias}.{self.prop} {direction}"
+        return f"{property_ref(self.alias or '', self.prop or '')} {direction}"
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +304,11 @@ class AggExpr:
 
         if isinstance(self.field, FieldDescriptor):
             cls_alias = alias_map.get(self.field.owner, "n")
-            field_ref = f"{cls_alias}.{self.field.field_name}"
+            field_ref = property_ref(cls_alias, self.field.field_name)
         else:
             # A raw-string operand is an escape hatch and is interpolated
             # straight into RETURN, so it must be a property reference.
-            field_ref = validate_reference(
+            field_ref = escape_reference(
                 str(self.field), "aggregate operand", allow_star=True
             )
 
@@ -316,7 +316,7 @@ class AggExpr:
         expr = f"{self.func}({distinct_kw}{field_ref})"
 
         if self.result_alias:
-            return f"{expr} AS {self.result_alias}"
+            return f"{expr} AS {escape_identifier(self.result_alias)}"
         return expr
 
 

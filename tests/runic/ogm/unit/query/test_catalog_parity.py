@@ -56,6 +56,19 @@ def _mock_session() -> Any:
 _UNIT_BACKEND = "falkordb"
 
 
+def _unquoted(cypher: str) -> str:
+    """Drop the backticks runic puts around every property key and result alias.
+
+    Parity is semantic, not textual, and quoting belongs with the other textual
+    differences the case table already ignores — parameter naming, spacing,
+    alias choice.  Keeping ``expect`` in the catalogue's own unquoted spelling
+    is what lets a case be read against the statement it replaces.  That the
+    quoting happens at all is asserted directly in
+    :mod:`tests.runic.ogm.unit.query.test_identifier_escaping`.
+    """
+    return cypher.replace("`", "")
+
+
 def _build(case: CatalogCase) -> tuple[str, dict[str, Any]]:
     """Compile *case* to ``(cypher, params)`` against a mock session."""
     assert case.build is not None  # guarded by the caller
@@ -107,7 +120,7 @@ class TestExpressible:
     def test_emits_expected_fragments(self, case: CatalogCase) -> None:
         _skip_if_unsupported(case)
         cypher, _ = _build(case)
-        missing = [frag for frag in case.expect if frag not in cypher]
+        missing = [frag for frag in case.expect if frag not in _unquoted(cypher)]
         assert not missing, (
             f"{case.name}: missing {missing} from generated Cypher:\n{cypher}"
         )
@@ -232,5 +245,5 @@ class TestNoFreeCypher:
             .order_by("total DESC")
         )
         cypher, _ = _build(CatalogCase(name="raw-ok", build=lambda: stmt))
-        assert "RETURN n.subject, count(*) AS total" in cypher
+        assert "RETURN n.`subject`, count(*) AS `total`" in cypher
         assert "ORDER BY total DESC" in cypher

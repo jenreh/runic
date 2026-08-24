@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import UNIVERSAL_RESERVED_VARIABLES
 from runic.ogm.driver import yield_as
 from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 
@@ -46,6 +47,9 @@ class Neo4jDialect:
     - No Cypher function wrappers (``vecf32``, ``intern``) — raw values only.
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
+
+    reserved_variable_names: frozenset[str] = UNIVERSAL_RESERVED_VARIABLES
+    """Only the boolean literals; every other keyword works as a variable here."""
 
     unsupported_features: frozenset[str] = frozenset()
 

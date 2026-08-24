@@ -16,7 +16,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
-from runic.cypher import validate_identifier, validate_order_term, validate_reference
+from runic.cypher import escape_order_term, validate_identifier, validate_reference
 from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.core.metadata import metadata as _global_metadata
 from runic.ogm.driver import CypherFeature
@@ -612,7 +612,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
                 self._alias_for_cls(field.owner) if field.owner else self._root_alias
             )
             return OrderExpr(alias=alias, prop=field.field_name, desc=desc)
-        raw = validate_order_term(str(field), "order_by term")
+        raw = escape_order_term(str(field), "order_by term")
         return OrderExpr(alias=None, prop=None, raw=raw, desc=desc)
 
     def limit(self, n: int | ValueExpr) -> QueryBuilder[T]:
@@ -768,6 +768,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
             A ``(cypher_string, params_dict)`` pair ready to pass to
             :meth:`~runic.ogm.session.session.Session.execute`.
         """
+        self._validate_variables()
         # Reset params for each build call so multiple .all() calls are clean.
         self._param_counter = 0
         self._params = {}

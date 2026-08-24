@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import escape_identifier, property_ref
 from runic.ogm.core.descriptors import _NOT_LOADED, FieldInfo
 from runic.ogm.core.metadata import MetaData, NodeMeta
 from runic.ogm.exceptions import MetadataError
@@ -92,7 +93,8 @@ class Mapper:
 
         if props:
             param_str = ", ".join(
-                f"{k}: {self._prop_ref(k, self._find_field(node_meta.fields, k))}"
+                f"{escape_identifier(k)}: "
+                f"{self._prop_ref(k, self._find_field(node_meta.fields, k))}"
                 for k in props
             )
             sync = self._vector_sync_clauses("n", node_meta, props)
@@ -114,7 +116,8 @@ class Mapper:
             return "", {}
 
         set_str = ", ".join(
-            f"n.{k} = {self._prop_ref(k, self._find_field(node_meta.fields, k))}"
+            f"{property_ref('n', k)} = "
+            f"{self._prop_ref(k, self._find_field(node_meta.fields, k))}"
             for k in props
         )
         params: dict[str, Any] = {"__pk": pk_val, **props}
@@ -127,9 +130,9 @@ class Mapper:
                 f"SET {set_str}{sync} RETURN n"
             )
         else:
-            pk_name = node_meta.pk_field_name
+            pk_key = escape_identifier(node_meta.pk_field_name or "")
             cypher = (
-                f"MATCH (n:{node_meta.primary_label} {{{pk_name}: $__pk}}) "
+                f"MATCH (n:{node_meta.primary_label} {{{pk_key}: $__pk}}) "
                 f"SET {set_str}{sync} RETURN n"
             )
 
@@ -146,9 +149,9 @@ class Mapper:
             id_where = self._dialect.generated_id_where("n", "__pk")
             cypher = f"MATCH (n:{node_meta.primary_label}) {id_where} DETACH DELETE n"
         else:
-            pk_name = node_meta.pk_field_name
+            pk_key = escape_identifier(node_meta.pk_field_name or "")
             cypher = (
-                f"MATCH (n:{node_meta.primary_label} {{{pk_name}: $__pk}}) "
+                f"MATCH (n:{node_meta.primary_label} {{{pk_key}: $__pk}}) "
                 f"DETACH DELETE n"
             )
 
@@ -169,8 +172,8 @@ class Mapper:
                 id_where = f"WHERE {subtype_filter} AND {id_where[6:]}"
             return f"MATCH (n:{labels_str}) {id_where}"
 
-        pk_name = node_meta.pk_field_name
-        match = f"MATCH (n:{labels_str} {{{pk_name}: $__pk}})"
+        pk_key = escape_identifier(node_meta.pk_field_name or "")
+        match = f"MATCH (n:{labels_str} {{{pk_key}: $__pk}})"
         if subtype_filter:
             return f"{match} WHERE {subtype_filter}"
         return match
@@ -210,7 +213,7 @@ class Mapper:
         if self._is_generated_pk(node_meta):
             id_match = "id(n) IN $__pks"
         else:
-            id_match = f"n.{node_meta.pk_field_name} IN $__pks"
+            id_match = f"{property_ref('n', node_meta.pk_field_name or '')} IN $__pks"
 
         cypher = f"MATCH (n:{labels_str}) {where}{id_match} RETURN n"
         return cypher, {"__pks": pks}

@@ -280,11 +280,11 @@ class TestAGEDialect:
 
     def test_subtype_where_condition_for_subtype(self) -> None:
         result = _AGE_DIALECT.subtype_where("n", ["Location", "Country"])
-        assert result == '"Country" IN n._labels'
+        assert result == '"Country" IN n.`_labels`'
 
     def test_subtype_where_multiple_subtypes(self) -> None:
         result = _AGE_DIALECT.subtype_where("n", ["A", "B", "C"])
-        assert result == '"B" IN n._labels AND "C" IN n._labels'
+        assert result == '"B" IN n.`_labels` AND "C" IN n.`_labels`'
 
     def test_needs_labels_property_true(self) -> None:
         assert _AGE_DIALECT.needs_labels_property() is True

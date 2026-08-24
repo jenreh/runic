@@ -12,7 +12,13 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from runic.cypher import validate_reference
+from runic.cypher import (
+    UNIVERSAL_RESERVED_VARIABLES,
+    escape_identifier,
+    escape_reference,
+    property_ref,
+    validate_variable_name,
+)
 from runic.ogm.core.descriptors import FieldDescriptor, FieldInfo
 from runic.ogm.query._decoder import _ResultDecoder
 from runic.ogm.query.expressions import (
@@ -99,7 +105,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             lhs = expr.left.to_cypher(self)
         else:
             alias = expr.alias or self._alias_for_cls(expr.cls)
-            lhs = f"{alias}.{expr.prop}"
+            lhs = property_ref(alias, expr.prop)
 
         # Null checks have no parameter
         if expr.op == "IS NULL":
@@ -237,10 +243,11 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if isinstance(item, FieldDescriptor):
             item = _prop_ref(item)
         if isinstance(item, PropertyRef) and item.prop:
-            return f"{item.to_cypher(self)} AS {item.prop}", item.prop
+            alias_kw = escape_identifier(item.prop)
+            return f"{item.to_cypher(self)} AS {alias_kw}", item.prop
         if isinstance(item, ValueExpr):
             return item.to_cypher(self), None
-        return validate_reference(str(item), "projection"), None
+        return escape_reference(str(item), "projection"), None
 
     def _compile_return_item(self, value: Any) -> str:
         """Render one explicit RETURN expression, aggregate or value."""
@@ -268,7 +275,9 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if isinstance(agg.field, ValueExpr):
             distinct_kw = "DISTINCT " if agg.distinct else ""
             rendered = f"{agg.func}({distinct_kw}{agg.field.to_cypher(self)})"
-            return f"{rendered} AS {agg.result_alias}" if agg.result_alias else rendered
+            if agg.result_alias:
+                return f"{rendered} AS {escape_identifier(agg.result_alias)}"
+            return rendered
         return agg.to_cypher(cls_to_alias)
 
     def _compile_paging(self) -> list[str]:
@@ -295,7 +304,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             return value.to_cypher(self)
         if isinstance(value, FieldDescriptor):
             return _prop_ref(value).to_cypher(self)
-        return validate_reference(str(value), "projection")
+        return escape_reference(str(value), "projection")
 
     def _expr_aliases(self, expr: Expr) -> set[str]:
         """The Cypher variables *expr* reads, across both operands and nesting."""
@@ -353,6 +362,45 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     # ------------------------------------------------------------------
     # Internal: alias / parameter / field helpers
     # ------------------------------------------------------------------
+
+    def _validate_variables(self) -> None:
+        """Refuse any Cypher variable this backend cannot parse.
+
+        Property keys are backtick-quoted on the way out, so a model may declare
+        a field called ``count``.  A *variable* has no such escape: Memgraph
+        scopes ``WITH `n``` as a different variable than the ``n`` its MATCH
+        bound, and ArcadeDB rejects ``DETACH DELETE `n```.  So an alias the
+        backend cannot use is reported here — at compile time, with the backend
+        named — rather than reaching the store as a syntax error.  On Apache AGE
+        that error would also abort the surrounding transaction, making every
+        later statement in the session fail with a misleading message.
+        """
+        dialect = self._dialect
+        reserved = getattr(
+            dialect, "reserved_variable_names", UNIVERSAL_RESERVED_VARIABLES
+        )
+        if not reserved:
+            return
+        backend = type(dialect).__name__.removesuffix("Dialect") or "this backend"
+        for variable, kind in self._declared_variables():
+            validate_variable_name(variable, reserved, backend=backend, kind=kind)
+
+    def _declared_variables(self) -> list[tuple[str, str]]:
+        """Every Cypher variable this statement will emit, with what named it."""
+        found: list[tuple[str, str]] = []
+        root = getattr(self, "_root_alias", None)
+        if root:
+            found.append((root, "alias"))
+        found.extend((name, "alias") for name in getattr(self, "_alias_map", {}))
+        clauses = [*getattr(self, "_pipeline", ())]
+        unwind = getattr(self, "_unwind", None)
+        if unwind is not None:
+            clauses.append(unwind)
+        for clause in clauses:
+            variable = getattr(clause, "variable", None)
+            if isinstance(variable, str) and variable:
+                found.append((variable, "UNWIND variable"))
+        return found
 
     def _alias_for_cls(self, cls: type) -> str:
         """Return the first registered Cypher alias for *cls*, or root alias."""

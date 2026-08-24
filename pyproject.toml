@@ -263,6 +263,10 @@ markers = [
 python-version = "3.14"
 
 [tool.ty.src]
+# Not part of the shipped package. "docs" carries PEP 723 standalone scripts
+# (docs/diagrams/wordmark.py declares `dependencies = ["fonttools"]` inline and
+# runs via `uv run`), so their imports are deliberately absent from the project
+# environment and ty cannot resolve them.
 exclude = [
     ".agents",
     ".cache",
@@ -270,6 +274,7 @@ exclude = [
     ".venv",
     "build",
     "dist",
+    "docs",
     "examples",
     "packages",
     "skill",

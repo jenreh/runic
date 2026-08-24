@@ -113,6 +113,14 @@ class GraphDialect(Protocol):
     unsupported_features: frozenset[str]
     """Cypher constructs this backend cannot parse. Empty for most backends."""
 
+    reserved_variable_names: frozenset[str]
+    """Names this backend cannot use as a Cypher variable, in any quoting.
+
+    Property keys are backtick-quoted, so a keyword works as a *property* name
+    everywhere.  A variable cannot be rescued that way — Memgraph and ArcadeDB
+    mis-scope a quoted variable — so the builder refuses these aliases instead.
+    """
+
     def generated_id_where(self, alias: str, param: str) -> str:
         """Return ``WHERE id({alias}) = ...`` clause for generated-PK lookups."""
         ...
