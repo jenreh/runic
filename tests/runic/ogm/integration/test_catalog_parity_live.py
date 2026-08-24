@@ -123,6 +123,8 @@ def _backend_of(driver: Any) -> str:
         "memgraph": "memgraph",
         "arcadedb": "arcadedb",
         "age": "age",
+        "neptune": "neptune",
+        "neptuneanalytics": "neptune_analytics",
     }.get(dialect, dialect)
 
 
