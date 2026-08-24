@@ -95,7 +95,7 @@ def test_node_match_clause_explicit_pk() -> None:
     node_meta = metadata.get_node_meta(WrCompany)
     assert node_meta is not None
     clause = _node_match_clause("a", node_meta, "__pk", generated=False)
-    assert clause == "MATCH (a:WrCompany {id: $__pk})"
+    assert clause == "MATCH (a:WrCompany {`id`: $__pk})"
 
 
 def test_node_match_clause_generated_pk() -> None:
@@ -140,8 +140,8 @@ def test_build_relate_no_edge_outgoing() -> None:
 
     cypher, params = writer.build_relate_query(source, fi, target, edge=None)
 
-    assert "MATCH (a:WrPerson {id: $__src_pk})" in cypher
-    assert "MATCH (b:WrCompany {id: $__tgt_pk})" in cypher
+    assert "MATCH (a:WrPerson {`id`: $__src_pk})" in cypher
+    assert "MATCH (b:WrCompany {`id`: $__tgt_pk})" in cypher
     assert "MERGE (a)-[r:WORKS_FOR]->(b)" in cypher
     assert "SET" not in cypher
     assert params == {"__src_pk": "p1", "__tgt_pk": "c1"}
@@ -185,8 +185,8 @@ def test_build_relate_with_edge_props() -> None:
     cypher, params = writer.build_relate_query(source, fi, target, edge=edge)
 
     assert "MERGE (a)-[r:MEMBER_OF]->(b)" in cypher
-    assert "r.role = $__e_role" in cypher
-    assert "r.since = $__e_since" in cypher
+    assert "r.`role` = $__e_role" in cypher
+    assert "r.`since` = $__e_since" in cypher
     assert params["__e_role"] == "admin"
     assert params["__e_since"] == "2024-01-01"
     assert params["__src_pk"] == "p1"
@@ -202,7 +202,7 @@ def test_build_relate_with_edge_skips_none_props() -> None:
 
     cypher, params = writer.build_relate_query(source, fi, target, edge=edge)
 
-    assert "r.role = $__e_role" in cypher
+    assert "r.`role` = $__e_role" in cypher
     assert "__e_since" not in params
 
 
@@ -234,8 +234,8 @@ def test_build_unrelate_outgoing() -> None:
 
     cypher, params = writer.build_unrelate_query(source, fi, target)
 
-    assert "MATCH (a:WrPerson {id: $__src_pk})" in cypher
-    assert "MATCH (b:WrCompany {id: $__tgt_pk})" in cypher
+    assert "MATCH (a:WrPerson {`id`: $__src_pk})" in cypher
+    assert "MATCH (b:WrCompany {`id`: $__tgt_pk})" in cypher
     assert "MATCH (a)-[r:WORKS_FOR]->(b)" in cypher
     assert "DELETE r" in cypher
     assert params == {"__src_pk": "p1", "__tgt_pk": "c1"}

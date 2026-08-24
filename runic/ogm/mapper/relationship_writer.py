@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import escape_identifier, property_ref
 from runic.ogm.core.descriptors import FieldInfo
 from runic.ogm.core.metadata import MetaData, NodeMeta
 
@@ -62,7 +63,9 @@ class RelationshipWriter:
         if edge is not None:
             edge_props = self._encode_edge_props(edge)
             if edge_props:
-                set_parts = ", ".join(f"r.{k} = $__e_{k}" for k in edge_props)
+                set_parts = ", ".join(
+                    f"{property_ref('r', k)} = $__e_{k}" for k in edge_props
+                )
                 clauses.append(f"SET {set_parts}")
                 params.update({f"__e_{k}": v for k, v in edge_props.items()})
 
@@ -135,8 +138,8 @@ def _node_match_clause(
         else:
             id_where = f"WHERE id({alias}) = toInteger(${pk_param})"
         return f"MATCH ({alias}:{node_meta.primary_label}) {id_where}"
-    pk_name = node_meta.pk_field_name or "id"
-    return f"MATCH ({alias}:{node_meta.primary_label} {{{pk_name}: ${pk_param}}})"
+    pk_key = escape_identifier(node_meta.pk_field_name or "id")
+    return f"MATCH ({alias}:{node_meta.primary_label} {{{pk_key}: ${pk_param}}})"
 
 
 def _rel_clause(

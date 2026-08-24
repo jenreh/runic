@@ -21,6 +21,11 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from runic.cypher import (
+    UNIVERSAL_RESERVED_VARIABLES,
+    property_ref,
+    unquote_identifier,
+)
 from runic.ogm.driver import CypherFeature
 
 if TYPE_CHECKING:
@@ -278,6 +283,32 @@ def _split_agtype_array_elements(text: str) -> list[str]:
     return parts
 
 
+# An identifier in a RETURN item, in either form the compiler emits: bare
+# (``n``, ``score``) or backtick-quoted (``n.`count```).  runic quotes every
+# property key and result alias because Apache AGE cannot parse a reserved word
+# unquoted, so the column-name parser has to read the quoted form back — a
+# backticked item falling through to the positional ``col{i}`` fallback would
+# silently change the keys ``all_rows()`` returns on AGE.
+_IDENTIFIER_PART = r"(?:`(?:[^`]|``)+`|\w+)"
+_AS_ALIAS_RE = re.compile(rf"\bAS\s+({_IDENTIFIER_PART})\s*$", re.IGNORECASE)
+_PROPERTY_ACCESS_RE = re.compile(rf"^{_IDENTIFIER_PART}\.({_IDENTIFIER_PART})$")
+_BARE_IDENTIFIER_RE = re.compile(rf"^({_IDENTIFIER_PART})$")
+
+
+def _quote_sql_identifier(name: str) -> str:
+    """Return *name* as a double-quoted PostgreSQL identifier.
+
+    The ``AS (col agtype, ...)`` list is SQL, not Cypher, so it has PostgreSQL's
+    reserved words to contend with as well: 22 of 26 sampled column names —
+    ``end``, ``order``, ``where``, ``group``, ``user`` — are a syntax error bare.
+    Quoting also stops PostgreSQL down-casing the name, so a ``createdAt``
+    property keeps its case in ``all_rows()`` the way it does on every other
+    backend.
+    """
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def _parse_return_columns(cypher: str) -> list[str]:
     """Extract SQL column names from the Cypher RETURN clause.
 
@@ -313,20 +344,20 @@ def _parse_return_columns(cypher: str) -> list[str]:
     cols: list[str] = []
     for i, item in enumerate(_split_at_top_level_commas(return_expr)):
         item = item.strip()
-        # Explicit AS alias: "expr AS alias"
-        as_m = re.search(r"\bAS\s+(\w+)\s*$", item, re.IGNORECASE)
+        # Explicit AS alias: "expr AS alias" / "expr AS `alias`"
+        as_m = _AS_ALIAS_RE.search(item)
         if as_m:
-            cols.append(as_m.group(1))
+            cols.append(unquote_identifier(as_m.group(1)))
             continue
-        # Property access: "n.prop"
-        dot_m = re.match(r"^\w+\.(\w+)$", item)
+        # Property access: "n.prop" / "n.`prop`"
+        dot_m = _PROPERTY_ACCESS_RE.match(item)
         if dot_m:
-            cols.append(dot_m.group(1))
+            cols.append(unquote_identifier(dot_m.group(1)))
             continue
         # Simple identifier: "n"
-        id_m = re.match(r"^(\w+)$", item)
+        id_m = _BARE_IDENTIFIER_RE.match(item)
         if id_m:
-            cols.append(id_m.group(1))
+            cols.append(unquote_identifier(id_m.group(1)))
             continue
         # Fallback: positional name
         cols.append(f"col{i}")
@@ -381,6 +412,71 @@ def _setup_age_connection(conn: Any, graph_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Names AGE's parser resolves as keywords before treating them as a variable, so
+# ``MATCH (count:Label)`` is a syntax error where every other backend accepts it.
+# Unlike a property key this cannot be fixed by quoting — Memgraph and ArcadeDB
+# mis-scope a backticked variable — so the builder refuses these aliases instead.
+# Swept live against all five backends: AGE refuses these 50 plus ``true``/
+# ``false`` (which every backend refuses); the other four refuse only the two
+# literals.  tests/runic/ogm/integration/test_reserved_variable_names.py
+# re-derives the set from the running parser, so an AGE upgrade that moves it
+# fails there rather than in production.
+_AGE_RESERVED_VARIABLES: frozenset[str] = frozenset(
+    {
+        "all",
+        "and",
+        "any",
+        "as",
+        "asc",
+        "ascending",
+        "by",
+        "call",
+        "case",
+        "coalesce",
+        "contains",
+        "count",
+        "create",
+        "delete",
+        "desc",
+        "descending",
+        "detach",
+        "distinct",
+        "else",
+        "end",
+        "ends",
+        "exists",
+        "explain",
+        "in",
+        "is",
+        "limit",
+        "match",
+        "merge",
+        "none",
+        "not",
+        "null",
+        "on",
+        "optional",
+        "or",
+        "order",
+        "reduce",
+        "remove",
+        "return",
+        "set",
+        "single",
+        "skip",
+        "starts",
+        "then",
+        "union",
+        "unwind",
+        "when",
+        "where",
+        "with",
+        "xor",
+        "yield",
+    }
+)
+
+
 class AGEDialect:
     """Strategy for Apache AGE-specific Cypher generation.
 
@@ -403,6 +499,10 @@ class AGEDialect:
         }
     )
 
+    reserved_variable_names: frozenset[str] = (
+        UNIVERSAL_RESERVED_VARIABLES | _AGE_RESERVED_VARIABLES
+    )
+
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
@@ -413,7 +513,8 @@ class AGEDialect:
     def subtype_where(self, alias: str, labels: list[str]) -> str | None:
         """Return a WHERE condition filtering by emulated subtype labels."""
         if len(labels) > 1:
-            return " AND ".join(f'"{lbl}" IN {alias}._labels' for lbl in labels[1:])
+            ref = property_ref(alias, "_labels")
+            return " AND ".join(f'"{lbl}" IN {ref}' for lbl in labels[1:])
         return None
 
     def needs_labels_property(self) -> bool:
@@ -560,7 +661,7 @@ class AGEDriver:
 
     def execute(self, cypher: str, params: dict[str, Any]) -> AGEResult:
         cols = _parse_return_columns(cypher)
-        as_clause = ", ".join(f"{c} agtype" for c in cols)
+        as_clause = ", ".join(f"{_quote_sql_identifier(c)} agtype" for c in cols)
 
         with self._conn.cursor() as cur:
             if params:

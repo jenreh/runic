@@ -314,6 +314,11 @@ argument to `cypher()`, making them available inside the Cypher query as
 - TLS — supported via PostgreSQL SSL (pass SSL keyword arguments directly
   to `psycopg.connect` by instantiating
   `AGEDriver` manually).
+- Properties named after Cypher keywords (`count`, `end`, `order`, `where`, …).
+  AGE's parser reads an unquoted key as the keyword it spells — `WHERE r.count
+  > 0` raises `syntax error at or near ">"` — so runic backtick-quotes every
+  property key and result alias it emits. See
+  [Why property names are backtick-quoted](/ogm/query-builder#why-property-names-are-backtick-quoted).
 
 **Not supported / limitations**
 
@@ -338,6 +343,18 @@ argument to `cypher()`, making them available inside the Cypher query as
 - **No index DDL** in runic's migration adapter. AGE does not expose
   Cypher-level index creation; create PostgreSQL indexes on the underlying
   `ag_label` tables directly.
+- **Reserved words as query aliases.** 52 names — `count`, `end`, `order`,
+  `where`, `match`, … — cannot be a Cypher variable on AGE, and unlike a
+  property key they cannot be rescued by quoting. The builder rejects them at
+  `build()` with a message naming the backend; see
+  [Aliases are checked, not quoted](/ogm/query-builder#aliases-are-checked-not-quoted).
+  Every other backend refuses only `true` and `false`.
+
+::: warning Reading AGE errors
+A Cypher syntax error aborts the enclosing PostgreSQL transaction, so every
+later statement in the same `Session` fails with `current transaction is
+aborted`. The first error in the run is the real one.
+:::
 
 ```python
 from runic.ogm import create_driver, Session
