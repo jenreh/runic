@@ -250,10 +250,6 @@ _MERGES: list[CatalogCase] = [
                 "rejected. The pair must be canonically ordered by the caller "
                 "and merged with an arrow instead."
             ),
-            "age": (
-                "Apache AGE cannot parse an unquoted property named 'count'; "
-                "see TOP_CO_ADDRESSED."
-            ),
         },
     ),
     CatalogCase(
@@ -402,15 +398,6 @@ _ANALYSES: list[CatalogCase] = [
             .project(_a.id.as_("left_id"), _b.id.as_("right_id"))
             .limit(param("limit"))
         ),
-        unsupported={
-            "age": (
-                "Apache AGE cannot parse an unquoted property named 'count' — "
-                "its parser reads it as the aggregate function. Verified: "
-                "r.count fails, r.`count` succeeds, and the same holds for node "
-                "properties. runic does not yet escape property names in "
-                "emitted Cypher; tracked separately."
-            )
-        },
     ),
     CatalogCase(
         name="RECURRING_GROUPS",

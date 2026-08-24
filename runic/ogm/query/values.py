@@ -55,7 +55,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, overload
 
-from runic.cypher import validate_identifier
+from runic.cypher import escape_identifier, property_ref, validate_identifier
 from runic.ogm.query.expressions import Expr, FilterExpr
 
 if TYPE_CHECKING:
@@ -208,7 +208,7 @@ class PropertyRef(ValueExpr):
 
     def to_cypher(self, compiler: Any) -> str:
         alias = self._resolve_alias(compiler)
-        return f"{alias}.{self.prop}" if self.prop else alias
+        return property_ref(alias, self.prop) if self.prop else alias
 
     def referenced_aliases(self, compiler: Any) -> set[str]:
         return {self._resolve_alias(compiler)}
@@ -337,7 +337,7 @@ class RowRef(ValueExpr):
         validate_identifier(self.var, "unwind variable")
 
     def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
-        return f"{self.var}.{self.key}"
+        return property_ref(self.var, self.key)
 
 
 @dataclass(eq=False)
@@ -404,7 +404,7 @@ class AliasedExpr(ValueExpr):
     alias: str
 
     def to_cypher(self, compiler: Any) -> str:
-        return f"{self.expr.to_cypher(compiler)} AS {self.alias}"
+        return f"{self.expr.to_cypher(compiler)} AS {escape_identifier(self.alias)}"
 
     def referenced_aliases(self, compiler: Any) -> set[str]:
         return self.expr.referenced_aliases(compiler)

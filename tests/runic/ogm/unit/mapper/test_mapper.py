@@ -434,7 +434,7 @@ class TestInternedCypher:
     def test_create_non_interned_field_uses_plain_ref(self, mapper: Mapper) -> None:
         n = MapperInterned(id="i1", country="Germany", name="Alice")
         cypher, _ = mapper.build_create_query(n)
-        assert "name: $name" in cypher
+        assert "`name`: $name" in cypher
 
     def test_update_interned_field_uses_intern_fn(self, mapper: Mapper) -> None:
         n = MapperInterned(id="i1", country="France", name="Bob")
@@ -445,7 +445,7 @@ class TestInternedCypher:
     def test_update_non_interned_field_plain(self, mapper: Mapper) -> None:
         n = MapperInterned(id="i1", country="France", name="Bob")
         cypher, _ = mapper.build_update_query(n)
-        assert "n.name = $name" in cypher
+        assert "n.`name` = $name" in cypher
 
     def test_interned_value_decoded_as_plain_string(self, mapper: Mapper) -> None:
         node = _fake_node(

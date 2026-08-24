@@ -137,3 +137,102 @@ def validate_order_term(expr: str, kind: str = "order term") -> str:
         )
         raise ValueError(msg)
     return expr
+
+
+def property_ref(alias: str, prop: str) -> str:
+    """Return ``alias.`prop``` — a property reference every backend parses.
+
+    Property *keys* live in a grammar position where openCypher permits any
+    identifier, but Apache AGE's parser resolves an unquoted key against its
+    keyword and function tokens first: ``r.count > 0`` is read as a call to
+    ``count`` and raises ``syntax error at or near ">"``.  37 of 65 sampled
+    words fail this way — the whole keyword set, not a short deny-list — so the
+    key is always backtick-quoted rather than quoted on a per-word basis.
+    Backticks are accepted in this position by all five supported backends.
+
+    The *alias* is a Cypher variable rather than an identifier the model names,
+    so it is passed through as given.
+    """
+    return f"{alias}.{escape_identifier(prop)}"
+
+
+def escape_reference(
+    expr: str, kind: str = "reference", *, allow_star: bool = False
+) -> str:
+    """Validate a raw ``alias`` / ``alias.property`` string and quote its key.
+
+    The escape-hatch counterpart of :func:`property_ref`: callers may hand
+    ``project()``, ``order_by()`` and ``aggregate()`` a reference as text, which
+    is validated by :func:`validate_reference` and then needs the same quoting
+    as a reference built from a field descriptor.  A bare alias is returned
+    unchanged — it names a Cypher variable, not a property.
+    """
+    validated = validate_reference(expr, kind, allow_star=allow_star)
+    if "." not in validated:
+        return validated
+    alias, _, prop = validated.partition(".")
+    return property_ref(alias, prop)
+
+
+def escape_order_term(expr: str, kind: str = "order term") -> str:
+    """Validate an ORDER BY term and quote the property key in its reference.
+
+    Accepts the same forms as :func:`validate_order_term` (``"n.created_at"``,
+    ``"total DESC"``) and returns them with the reference escaped.
+    """
+    validated = validate_order_term(expr, kind)
+    reference, _, direction = validated.partition(" ")
+    escaped = escape_reference(reference, kind)
+    return f"{escaped} {direction}" if direction else escaped
+
+
+def unquote_identifier(name: str) -> str:
+    """Return a backtick-quoted identifier's plain text, or *name* unchanged.
+
+    The inverse of :func:`escape_identifier`: strips the quotes and collapses
+    the doubled backticks that escaping introduced.
+    """
+    if len(name) >= 2 and name.startswith("`") and name.endswith("`"):
+        return name[1:-1].replace("``", "`")
+    return name
+
+
+def unquote_reference(name: str) -> str:
+    """Return ``alias.`prop``` as ``alias.prop``.
+
+    Quoting is an emission detail and must not reach the caller: a store reports
+    an unaliased projection under whatever text it was written as, so without
+    this the keys of :meth:`QueryBuilder.all_rows` would gain backticks the day
+    runic started quoting.
+    """
+    if "." not in name:
+        return unquote_identifier(name)
+    alias, _, prop = name.rpartition(".")
+    return f"{unquote_identifier(alias)}.{unquote_identifier(prop)}"
+
+
+#: Names no supported backend accepts as a Cypher *variable*, whatever the
+#: quoting.  Unlike a property key, a variable cannot be rescued with backticks:
+#: Memgraph scopes ``WITH `n``` as a different variable than the ``n`` a MATCH
+#: bound ("Unbound variable: n"), and ArcadeDB rejects ``DETACH DELETE `n```.
+#: So an unusable variable name is refused up front instead.
+UNIVERSAL_RESERVED_VARIABLES: frozenset[str] = frozenset({"false", "true"})
+
+
+def validate_variable_name(
+    name: str, reserved: frozenset[str], *, backend: str, kind: str = "alias"
+) -> str:
+    """Return *name* unless the backend cannot use it as a Cypher variable.
+
+    Raises with the backend named, because the answer is backend-specific: the
+    same alias that works on FalkorDB is a syntax error on Apache AGE, whose
+    parser resolves it as a keyword before treating it as a variable.
+    """
+    if name.lower() in reserved:
+        msg = (
+            f"{name!r} cannot be used as a Cypher {kind} on {backend}: it is a "
+            "reserved word there, and a variable cannot be backtick-quoted to "
+            "escape it the way a property name can. Choose another name."
+        )
+        raise ValueError(msg)
+    return name

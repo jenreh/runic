@@ -30,7 +30,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from runic.cypher import validate_identifier
+from runic.cypher import property_ref, validate_identifier
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -228,7 +228,8 @@ class SetClause(Clause):
 
     def to_cypher(self, compiler: Any) -> str:
         parts = [
-            f"{alias}.{prop} = {_render_assignment(alias, prop, value, compiler)}"
+            f"{property_ref(alias, prop)} = "
+            f"{_render_assignment(alias, prop, value, compiler)}"
             for alias, prop, value in self.assignments
         ]
         return f"SET {', '.join(parts)}"
