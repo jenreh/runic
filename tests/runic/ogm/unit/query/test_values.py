@@ -85,8 +85,8 @@ class TestCol:
 class TestAliasHandle:
     def test_renders_as_the_bare_variable(self) -> None:
         m = alias(Message, "m")
-        assert m.to_cypher(None) == "m"
-        assert m.referenced_aliases(None) == {"m"}
+        assert m.to_cypher(MagicMock()) == "m"
+        assert m.referenced_aliases(MagicMock()) == {"m"}
 
     def test_attribute_access_pins_a_property(self) -> None:
         m = alias(Message, "m")
@@ -143,10 +143,10 @@ class TestLiteralAndRow:
 
     def test_row_renders_the_unwind_variable(self) -> None:
         assert isinstance(row("group_id"), RowRef)
-        assert row("group_id").to_cypher(None) == "row.`group_id`"
+        assert row("group_id").to_cypher(MagicMock()) == "row.`group_id`"
 
     def test_row_variable_is_configurable(self) -> None:
-        assert row("id", var="entry").to_cypher(None) == "entry.`id`"
+        assert row("id", var="entry").to_cypher(MagicMock()) == "entry.`id`"
 
     def test_row_key_must_be_an_identifier(self) -> None:
         with pytest.raises(ValueError, match="row key"):

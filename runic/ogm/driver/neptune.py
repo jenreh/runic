@@ -42,11 +42,11 @@ _SIGNED_HEADERS = ("Authorization", "X-Amz-Date", "X-Amz-Security-Token", "Host"
 
 
 class NeptuneNode(BoltNode):
-    """BoltNode variant returning Neptune's string node ID.
+    """BoltNode variant that pins Neptune's node ID to ``str``.
 
-    Neptune node IDs are strings (UUIDs when auto-assigned), so the legacy
-    integer ``.id`` that :class:`BoltNode` reads carries no meaning here; the
-    Bolt ``element_id`` field holds the real ID.
+    Neptune node IDs are strings (UUIDs when auto-assigned) and ``id()``
+    returns the same value the Bolt ``element_id`` field carries, so this only
+    narrows the declared type of the inherited property.
     """
 
     @property

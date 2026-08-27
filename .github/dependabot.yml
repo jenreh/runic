@@ -1,4 +1,3 @@
-# Enhanced configuration with more options
 version: 2
 updates:
   - package-ecosystem: "devcontainers"
@@ -15,7 +14,8 @@ updates:
     assignees:
       - "dependabot"
 
-  - package-ecosystem: "docker"
+  # Test backend images pinned in docker-compose.test.yml (repo root).
+  - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -26,6 +26,21 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    assignees:
+      - "dependabot"
+
+  # Workflow action versions under .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
     assignees:
       - "dependabot"
 
@@ -47,5 +62,23 @@ updates:
         update-types:
           - "minor"
           - "patch"
-        exclude-patterns:
-          - "reflex*"  # Keep your main framework separate
+
+  # Separately published sibling package with its own pyproject.toml/uv.lock.
+  - package-ecosystem: "uv"
+    directory: "/packages/runic-rag-docling"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "uv"
+    assignees:
+      - "dependabot"
+    # Group minor and patch updates together
+    groups:
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

@@ -122,7 +122,16 @@ class GraphDialect(Protocol):
     """
 
     def generated_id_where(self, alias: str, param: str) -> str:
-        """Return ``WHERE id({alias}) = ...`` clause for generated-PK lookups."""
+        """Return the ``WHERE`` clause matching *alias* against one generated PK.
+
+        Which function names the identifier is the backend's business: Bolt
+        backends compare ``elementId()``, FalkorDB and AGE compare ``id()``.
+
+        Dialects may also define the batch form,
+        ``generated_ids_where(alias, pks) -> (predicate, params)``, when
+        ``id(alias) IN $__pks`` is wrong or unsafe for them; see
+        ``Mapper.generated_ids_where`` for the default.
+        """
         ...
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:

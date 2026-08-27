@@ -173,7 +173,7 @@ class TestBooleanComposition:
         assert len(compound.operands) == 3  # ty: ignore[unresolved-attribute]
 
     def test_not_wraps_filter(self) -> None:
-        negated = ~(ExprPerson.active == True)  # noqa: E712
+        negated = ~(ExprPerson.active == True)  # noqa: E712  # ty: ignore[deprecated]
         assert isinstance(negated, NegatedExpr)
         assert isinstance(negated.operand, FilterExpr)
 

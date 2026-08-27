@@ -34,14 +34,14 @@ class _WriteMixin:
 
     _pipeline: list[Clause]
     _returning: list[Any]
-    _root_alias: str
+    root_alias: str
     _last_alias: str
 
     if TYPE_CHECKING:
         # Provided by the builder; declared here so these methods type-check.
         # Not defined at runtime — a stub would shadow the real implementation,
         # because the mixin comes first in the MRO.
-        def _alias_for_cls(self, cls: type) -> str: ...
+        def alias_for_cls(self, cls: type) -> str: ...
         def _flush_pending_paging(self) -> None: ...
 
     # ------------------------------------------------------------------
@@ -242,7 +242,7 @@ class _WriteMixin:
         """Resolve a SET key to ``(alias, property)``."""
         if isinstance(target, FieldDescriptor):
             alias = on or (
-                self._alias_for_cls(target.owner) if target.owner else self._root_alias
+                self.alias_for_cls(target.owner) if target.owner else self.root_alias
             )
             return alias, target.field_name
         text = validate_reference(str(target), "assignment target")

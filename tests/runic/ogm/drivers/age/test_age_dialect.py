@@ -240,6 +240,31 @@ class TestAGEDialect:
     def test_generated_id_where(self) -> None:
         assert _AGE_DIALECT.generated_id_where("n", "pk") == "WHERE id(n) = $pk"
 
+    def test_generated_ids_where_expands_to_or_chain(self) -> None:
+        predicate, params = _AGE_DIALECT.generated_ids_where("n", [11, 22, 33])
+        assert predicate == ("(id(n) = $__pk_0 OR id(n) = $__pk_1 OR id(n) = $__pk_2)")
+        assert params == {"__pk_0": 11, "__pk_1": 22, "__pk_2": 33}
+
+    def test_generated_ids_where_never_emits_in_over_ids(self) -> None:
+        # `id(n) IN <list>` segfaults the PostgreSQL backend (signal 11).
+        predicate, _ = _AGE_DIALECT.generated_ids_where("n", [1, 2])
+        assert " IN " not in predicate
+        assert "$__pks" not in predicate
+
+    def test_generated_ids_where_single_id(self) -> None:
+        predicate, params = _AGE_DIALECT.generated_ids_where("n", [7])
+        assert predicate == "(id(n) = $__pk_0)"
+        assert params == {"__pk_0": 7}
+
+    def test_generated_ids_where_empty_matches_nothing(self) -> None:
+        predicate, params = _AGE_DIALECT.generated_ids_where("n", [])
+        assert predicate == "false"
+        assert params == {}
+
+    def test_generated_ids_where_honours_alias(self) -> None:
+        predicate, _ = _AGE_DIALECT.generated_ids_where("tag", [1])
+        assert predicate == "(id(tag) = $__pk_0)"
+
     def test_cypher_fn_for_field_always_none(self) -> None:
         fi = MagicMock()
         assert _AGE_DIALECT.cypher_fn_for_field(fi) is None

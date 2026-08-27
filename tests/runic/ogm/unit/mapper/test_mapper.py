@@ -280,8 +280,8 @@ class TestQueryBuilders:
 
     def test_find_all_by_ids_generated(self, mapper: Mapper) -> None:
         cypher, params = mapper.build_find_all_by_ids_query(MapperGenerated, [1, 2])
-        assert "id(n)" in cypher.lower() or "$__pks" in cypher
-        assert params["__pks"] == [1, 2]
+        assert "id(n) IN [x IN $__pks | toInteger(x)]" in cypher
+        assert params == {"__pks": [1, 2]}
 
     def test_count(self, mapper: Mapper) -> None:
         cypher, _ = mapper.build_count_query(MapperPerson)
@@ -568,6 +568,13 @@ class _SingleLabelDialect:
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
 
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        params = {f"__pk_{i}": pk for i, pk in enumerate(pks)}
+        chain = " OR ".join(f"id({alias}) = ${name}" for name in params)
+        return f"({chain})", params
+
     def cypher_fn_for_field(self, fi: Any) -> str | None:  # noqa: ARG002
         return None
 
@@ -610,6 +617,43 @@ class TestDialectHelpers:
         mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
         result = mapper.subtype_where("n", ["Location", "Country"])
         assert result == '"Country" IN n._labels'
+
+    def test_generated_ids_where_casts_on_falkordb(self, meta: MetaData) -> None:
+        """An unconfigured Mapper is FalkorDB, which casts the batch like the
+        single-id form — a string pk otherwise matches nothing instead of
+        raising."""
+        mapper = Mapper(meta)
+        assert mapper.generated_ids_where("n", [1, 2]) == (
+            "id(n) IN [x IN $__pks | toInteger(x)]",
+            {"__pks": [1, 2]},
+        )
+
+    def test_generated_ids_where_default_for_a_silent_dialect(
+        self, meta: MetaData
+    ) -> None:
+        """A dialect that declares no batch form falls back to a plain ``IN``."""
+
+        class _NoBatchDialect(_SingleLabelDialect):
+            generated_ids_where = None  # type: ignore[assignment]
+
+        mapper = Mapper(meta, dialect=_NoBatchDialect())  # ty: ignore[invalid-argument-type]
+        assert mapper.generated_ids_where("n", [1, 2]) == (
+            "id(n) IN $__pks",
+            {"__pks": [1, 2]},
+        )
+
+    def test_generated_ids_where_delegates_to_dialect(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
+        assert mapper.generated_ids_where("n", [1, 2]) == (
+            "(id(n) = $__pk_0 OR id(n) = $__pk_1)",
+            {"__pk_0": 1, "__pk_1": 2},
+        )
+
+    def test_find_all_by_ids_uses_dialect_batch_predicate(self, meta: MetaData) -> None:
+        mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]
+        cypher, params = mapper.build_find_all_by_ids_query(MapperGenerated, [1, 2])
+        assert "(id(n) = $__pk_0 OR id(n) = $__pk_1)" in cypher
+        assert params == {"__pk_0": 1, "__pk_1": 2}
 
     def test_build_create_injects_labels_property(self, meta: MetaData) -> None:
         mapper = Mapper(meta, dialect=_SingleLabelDialect())  # ty: ignore[invalid-argument-type]

@@ -43,7 +43,9 @@ class Neo4jDialect:
       (requires a pre-created fulltext index named after the label).
     - Vector KNN via ``CALL db.index.vector.queryNodes(indexName, k, vec)``
       (requires a pre-created vector index named ``{type}_{field}``).
-    - Integer node IDs accessed via ``id()``, no ``toInteger()`` cast needed.
+    - Engine-assigned node IDs are the Bolt element ids (``"4:<db-uuid>:285"``),
+      matched with ``elementId()``; ``id()`` is deprecated in Neo4j 5 and gone
+      in 6.
     - No Cypher function wrappers (``vecf32``, ``intern``) — raw values only.
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
@@ -54,7 +56,14 @@ class Neo4jDialect:
     unsupported_features: frozenset[str] = frozenset()
 
     def generated_id_where(self, alias: str, param: str) -> str:
-        return f"WHERE id({alias}) = ${param}"
+        """Match on ``elementId()``: ``id()`` is deprecated and drops in Neo4j 6."""
+        return f"WHERE elementId({alias}) = ${param}"
+
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Return the batch counterpart of :meth:`generated_id_where`."""
+        return f"elementId({alias}) IN $__pks", {"__pks": pks}
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:
         from runic.ogm.core.types import GeoLocationConverter

@@ -252,8 +252,21 @@ def _make_age(graph_name: str) -> tuple[Any, Callable[[], None]]:
         pytest.skip(f"Apache AGE not reachable at {host}:{port}: {exc}")
 
     def cleanup() -> None:
+        # drop_graph, not just DETACH DELETE: create_age_driver() calls
+        # create_graph() per test, and AGE keeps every graph in
+        # ag_catalog.ag_graph forever. Deleting only the nodes leaks one catalog
+        # row and one set of backing tables per test, which the server
+        # eventually complains about.
         with contextlib.suppress(Exception):
             driver.execute("MATCH (n) DETACH DELETE n", {})
+        with contextlib.suppress(Exception):
+            with driver._conn.cursor() as cur:  # noqa: SLF001
+                cur.execute(
+                    "SELECT * FROM ag_catalog.drop_graph(%s, true)", (graph_name,)
+                )
+            driver._conn.commit()  # noqa: SLF001
+        with contextlib.suppress(Exception):
+            driver.close()
 
     return driver, cleanup
 

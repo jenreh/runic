@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from runic.ogm.core.descriptors import FieldDescriptor
+    from runic.ogm.query.protocol import CompilationContext
 
 log = logging.getLogger(__name__)
 
@@ -105,11 +106,11 @@ class ValueExpr:
     does.
     """
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         """Render to a Cypher fragment, binding operands via *compiler*."""
         raise NotImplementedError
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:  # noqa: ARG002
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:  # noqa: ARG002
         """The Cypher variables this expression reads.
 
         The builder uses this to decide where a predicate may be emitted: one
@@ -206,14 +207,14 @@ class PropertyRef(ValueExpr):
     prop: str
     owner: type | None = None
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         alias = self._resolve_alias(compiler)
         return property_ref(alias, self.prop) if self.prop else alias
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:
         return {self._resolve_alias(compiler)}
 
-    def _resolve_alias(self, compiler: Any) -> str:
+    def _resolve_alias(self, compiler: CompilationContext) -> str:
         """Pin the Cypher variable, deferring to the builder when unset.
 
         ``col(Message.id)`` does not know which variable the builder gave
@@ -222,8 +223,8 @@ class PropertyRef(ValueExpr):
         if self.alias != _DEFERRED_ALIAS:
             return self.alias
         if self.owner is not None:
-            return compiler._alias_for_cls(self.owner)  # noqa: SLF001
-        return compiler._root_alias  # noqa: SLF001
+            return compiler.alias_for_cls(self.owner)
+        return compiler.root_alias
 
 
 class Alias(ValueExpr):
@@ -250,10 +251,10 @@ class Alias(ValueExpr):
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "_cls", cls)
 
-    def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
+    def to_cypher(self, compiler: CompilationContext) -> str:  # noqa: ARG002
         return self._name
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:  # noqa: ARG002
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:  # noqa: ARG002
         return {self._name}
 
     def __getattr__(self, item: str) -> PropertyRef:
@@ -302,7 +303,7 @@ class ParamRef(ValueExpr):
     def __post_init__(self) -> None:
         validate_identifier(self.name, "parameter name")
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         compiler.declare_param(self.name)
         return f"${self.name}"
 
@@ -317,8 +318,8 @@ class LiteralValue(ValueExpr):
 
     value: Any
 
-    def to_cypher(self, compiler: Any) -> str:
-        return f"${compiler._next_param(self.value)}"  # noqa: SLF001
+    def to_cypher(self, compiler: CompilationContext) -> str:
+        return f"${compiler.bind_param(self.value)}"
 
 
 @dataclass(eq=False)
@@ -336,7 +337,7 @@ class RowRef(ValueExpr):
         validate_identifier(self.key, "row key")
         validate_identifier(self.var, "unwind variable")
 
-    def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
+    def to_cypher(self, compiler: CompilationContext) -> str:  # noqa: ARG002
         return property_ref(self.var, self.key)
 
 
@@ -355,11 +356,11 @@ class FnCall(ValueExpr):
     def __post_init__(self) -> None:
         validate_identifier(self.name, "function name")
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         rendered = [_render(a, compiler) for a in self.args]
         return f"{self.name}({', '.join(rendered)})"
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:
         return _aliases_of(self.args, compiler)
 
 
@@ -376,20 +377,20 @@ class CaseExpr(ValueExpr):
     else_value: Any = None
     has_else: bool = False
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         parts = ["CASE"]
         for condition, value in self.branches:
-            rendered_when = compiler._compile_expr(condition)  # noqa: SLF001
+            rendered_when = compiler.compile_expr(condition)
             parts.append(f"WHEN {rendered_when} THEN {_render(value, compiler)}")
         if self.has_else:
             parts.append(f"ELSE {_render(self.else_value, compiler)}")
         parts.append("END")
         return " ".join(parts)
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:
         found: set[str] = set()
         for condition, value in self.branches:
-            found |= compiler._expr_aliases(condition)  # noqa: SLF001
+            found |= compiler.expr_aliases(condition)
             found |= _aliases_of((value,), compiler)
         if self.has_else:
             found |= _aliases_of((self.else_value,), compiler)
@@ -403,10 +404,10 @@ class AliasedExpr(ValueExpr):
     expr: ValueExpr
     alias: str
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         return f"{self.expr.to_cypher(compiler)} AS {escape_identifier(self.alias)}"
 
-    def referenced_aliases(self, compiler: Any) -> set[str]:
+    def referenced_aliases(self, compiler: CompilationContext) -> set[str]:
         return self.expr.referenced_aliases(compiler)
 
     @property
@@ -431,7 +432,7 @@ def _prop_ref(descriptor: Any) -> PropertyRef:
     )
 
 
-def _aliases_of(values: tuple[Any, ...], compiler: Any) -> set[str]:
+def _aliases_of(values: tuple[Any, ...], compiler: CompilationContext) -> set[str]:
     """Union the Cypher variables read by a tuple of operands."""
     from runic.ogm.core.descriptors import FieldDescriptor
 
@@ -444,7 +445,7 @@ def _aliases_of(values: tuple[Any, ...], compiler: Any) -> set[str]:
     return found
 
 
-def _render(value: Any, compiler: Any) -> str:
+def _render(value: Any, compiler: CompilationContext) -> str:
     """Render *value* as a Cypher fragment, binding it if it is a plain value.
 
     The single chokepoint through which every operand passes, so a Python value
@@ -456,7 +457,7 @@ def _render(value: Any, compiler: Any) -> str:
         return value.to_cypher(compiler)
     if isinstance(value, FieldDescriptor):
         return _prop_ref(value).to_cypher(compiler)
-    return f"${compiler._next_param(value)}"  # noqa: SLF001
+    return f"${compiler.bind_param(value)}"
 
 
 # ---------------------------------------------------------------------------

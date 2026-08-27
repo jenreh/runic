@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from runic.ogm.core.descriptors import Field
+from runic.ogm.core.descriptors import Field, Relation
 from runic.ogm.core.models import Node
 from runic.ogm.repository.repository import Repository
 from runic.ogm.session.session import Session
@@ -25,8 +25,25 @@ class CrudPerson(Node, labels=["CrudPerson"]):
 
 
 class CrudTag(Node, labels=["CrudTag"]):
-    id: int | None = Field(default=None, generated=True)
+    id: str | int | None = Field(default=None, generated=True)
     label: str = Field()
+
+
+class CrudTopic(Node, labels=["CrudTopic"]):
+    id: str = Field()
+    title: str = Field()
+
+
+class CrudNote(Node, labels=["CrudNote"]):
+    """Generated PK plus a relation — exercises the batch + eager-fetch path."""
+
+    id: str | int | None = Field(default=None, generated=True)
+    body: str = Field()
+    topic: CrudTopic | None = Relation(
+        relationship="ABOUT",
+        direction="OUTGOING",
+        target="CrudTopic",
+    )
 
 
 class CrudLocation(Node, labels=["CrudLocation"], primary_label="CrudLocation"):
@@ -208,6 +225,29 @@ def test_find_all_subtype_returns_only_subtype(graph_driver: Any) -> None:
 # ---------------------------------------------------------------------------
 # Generated IDs
 # ---------------------------------------------------------------------------
+
+
+def test_find_all_by_ids_generated_pk_with_fetch(graph_driver: Any) -> None:
+    # The eager-fetch builder is a second call site for the batch-id predicate;
+    # on AGE it is the second place `id(n) IN <list>` would crash the server.
+    with Session(graph_driver) as s:
+        topic = CrudTopic(id="t1", title="Graphs")
+        s.add(topic)
+        note = CrudNote(body="opaque ids")
+        s.add(note)
+        s.commit()
+        s.relate(note, "topic", topic)
+        s.commit()
+        note_id = note.id
+
+    with Session(graph_driver) as s:
+        repo = Repository(s, CrudNote)
+        result = repo.find_all_by_ids([note_id], fetch=["topic"])
+
+    assert len(result) == 1
+    assert result[0].body == "opaque ids"
+    assert result[0].topic is not None
+    assert result[0].topic.title == "Graphs"
 
 
 def test_find_all_by_ids_generated_pk(graph_driver: Any) -> None:

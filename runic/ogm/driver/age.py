@@ -486,6 +486,7 @@ class AGEDialect:
     - Fulltext search: not supported natively (raises ``NotImplementedError``)
     - Vector KNN: not supported natively (raises ``NotImplementedError``)
     - Multi-label emulation: extra labels stored as ``_labels`` property array
+    - ``id(n) IN <list>`` is expanded to an OR chain — it segfaults the server
     """
 
     # AGE's openCypher subset omits these; a statement using one fails at
@@ -505,6 +506,28 @@ class AGEDialect:
 
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = ${param}"
+
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Expand a batch id lookup into an OR chain of single comparisons.
+
+        ``id(n) IN $pks`` does not fail on AGE — it **segfaults the PostgreSQL
+        backend** (signal 11, verified on AGE 1.8 / PG 18), which the client
+        sees only as "server closed the connection unexpectedly" and which
+        takes every other connection to that server down with it. A literal
+        list fares no better (``not a common type``). One equality at a time is
+        the form AGE evaluates, so the predicate is expanded here rather than
+        in the shared query builder.
+
+        An empty batch yields ``false`` so the caller still gets a parseable
+        predicate; ``Repository.find_all_by_ids`` short-circuits before that.
+        """
+        if not pks:
+            return "false", {}
+        params: dict[str, Any] = {f"__pk_{i}": pk for i, pk in enumerate(pks)}
+        chain = " OR ".join(f"id({alias}) = ${name}" for name in params)
+        return f"({chain})", params
 
     def labels_clause(self, labels: list[str]) -> str:
         """AGE only supports one label per vertex — use the primary label."""

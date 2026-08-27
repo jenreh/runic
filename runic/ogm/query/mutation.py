@@ -235,7 +235,7 @@ class MutationBuilder(QueryBuilder[Any]):
         """Compile to Cypher, opening with the ``UNWIND`` instead of a MATCH."""
         self._validate_variables()
         self._param_counter = 0
-        self._params = {}
+        self.params = {}
         self._declared_params = set()
 
         parts: list[str] = [self._unwind.to_cypher(self)]
@@ -252,7 +252,7 @@ class MutationBuilder(QueryBuilder[Any]):
             )
         parts.extend(self._compile_paging())
 
-        return "\n".join(parts), dict(self._params)
+        return "\n".join(parts), dict(self.params)
 
     # ------------------------------------------------------------------
     # Internals
@@ -299,7 +299,7 @@ class MutationBuilder(QueryBuilder[Any]):
         self._last_alias = alias
         if self._root_cls is _NoRoot:
             self._root_cls = cls
-            self._root_alias = alias
+            self.root_alias = alias
         return alias
 
     def _node_pattern(self, cls: type, alias: str, key: Mapping[Any, Any]) -> str:
@@ -308,7 +308,7 @@ class MutationBuilder(QueryBuilder[Any]):
         if meta is None:
             msg = f"Class {cls.__name__!r} is not a registered Node subclass"
             raise ValueError(msg)
-        _lc = getattr(self._dialect, "labels_clause", None)
+        _lc = getattr(self.dialect, "labels_clause", None)
         labels = _lc(meta.labels) if _lc else ":".join(meta.labels)
 
         entries = []
@@ -327,8 +327,8 @@ class MutationBuilder(QueryBuilder[Any]):
         if isinstance(value, ValueExpr):
             rendered = value.to_cypher(self)
         else:
-            rendered = f"${self._next_param(self._convert_for(alias, prop, value))}"
-        fn = self._cypher_fn_for(alias, prop)
+            rendered = f"${self.bind_param(self.convert_for(alias, prop, value))}"
+        fn = self.cypher_fn_for(alias, prop)
         return f"{fn}({rendered})" if fn else rendered
 
 

@@ -16,7 +16,7 @@ queries (`get_history`, `get_heads`, `create_revision`) in one coherent API.
 
 ### Constructor
 
-```python
+```text
 Runic(
     adapter: GraphAdapter,
     script_location: Path,

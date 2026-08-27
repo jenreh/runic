@@ -25,8 +25,19 @@ class BoltNode:
 
     @property
     def element_id(self) -> Any:
-        # Use deprecated .id (int) for compatibility with ArcadeDB Bolt and neo4j <5
-        return self._raw.id
+        """Return the Bolt element id verbatim — never a value derived from it.
+
+        Every Bolt backend mints this string differently (Neo4j
+        ``"4:<db-uuid>:285"``, Memgraph ``"285"``, ArcadeDB ``"#1:0"``), and
+        the integer ``id()`` a backend reports alongside it may use a different
+        bit layout — on ArcadeDB the two differ by a shift width that is a
+        *server* setting. So the id is carried opaquely and matched with
+        ``elementId()``; see ``generated_id_where`` on each Bolt dialect.
+
+        The neo4j driver's ``Node.id`` is deprecated and gone in its next
+        major, so it is not read here.
+        """
+        return self._raw.element_id
 
     @property
     def labels(self) -> list[str]:

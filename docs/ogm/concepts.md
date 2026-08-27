@@ -18,7 +18,7 @@ or `Edge`.
 from runic.ogm import Edge, Field, Node
 
 class Person(Node, labels=["Person"]):
-    id: str = Field(primary_key=True, generated=True)
+    id: str | int | None = Field(primary_key=True, generated=True, default=None)
     name: str
     email: str = Field(index=True, unique=True)
 
@@ -31,6 +31,12 @@ class InvitationEdge(Edge, type="INVITED_TO"):
 `Node` maps to a graph vertex.  `Edge` maps to a relationship type.
 Both register themselves in the global metadata registry when the class body
 executes — forward references in `target=` strings are resolved at that point.
+
+`generated=True` hands primary-key assignment to the backend, which is why `id`
+is annotated `str | int | None` above: FalkorDB and Apache AGE return an
+integer, every Bolt backend returns an element-id string. The value is opaque —
+hand it back to `session.get()` rather than computing with it. See
+[engine-assigned ids](./drivers.md#engine-assigned-ids-are-opaque).
 
 **labels** controls which graph labels are applied.  Multi-label nodes
 implement polymorphic hierarchies:

@@ -235,11 +235,11 @@ class TestClauseObjects:
     def test_match_clause_optionality(self) -> None:
         assert (
             MatchClause("(a)-[:T]->(b)", optional=True)
-            .to_cypher(None)
+            .to_cypher(MagicMock())
             .startswith("OPTIONAL MATCH")
         )
         assert (
-            MatchClause("(a)-[:T]->(b)", optional=False).to_cypher(None)
+            MatchClause("(a)-[:T]->(b)", optional=False).to_cypher(MagicMock())
             == "MATCH (a)-[:T]->(b)"
         )
 

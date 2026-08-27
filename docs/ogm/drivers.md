@@ -69,6 +69,8 @@ driver = create_driver(
 | Migrate adapter (`create_adapter`) | ✓ — `FalkorDBAdapter` | ✓ — `ArcadeDBAdapter` | ✓ — `Neo4jAdapter` | ✓ — `MemgraphAdapter` | ✓ — `AGEAdapter` | ✓ — `NeptuneAdapter` | ✓ — `NeptuneAdapter` |
 | IndexManager DDL | ✓ — range / fulltext / vector / unique | ✓ — range / fulltext / unique (vector via HTTP API) | ✓ — range / fulltext / vector / unique (`IF NOT EXISTS`) | ✓ — range / text / vector / unique | ✗ — log.warning only (PostgreSQL-level DDL required) | ✗ — log.warning only (indexes are automatic) | ✗ — log.warning only (vector index fixed at graph creation) |
 | Multi-label nodes | ✓ | ✓ | ✓ | ✓ | ✗ — emulated via `_labels` property | ✓ | ✓ |
+| Engine-assigned ids (`Field(generated=True)`) | `int` — matched with `id()` | `str` RID `#1:0` — matched with `elementId()` | `str` element id `4:<db-uuid>:285` — matched with `elementId()` | `str` element id `285` — matched with `elementId()` | `int` — matched with `id()` | `str` — matched with `id()` | `str` — matched with `id()` |
+| `find_all_by_ids()` on a generated id | one `IN` predicate | one `IN` predicate | one `IN` predicate | one `IN` predicate | expanded to an `OR` chain — `id(n) IN <list>` crashes the server | one `IN` predicate | one `IN` predicate |
 | GeoLocation in-place update | ✓ — `SET n.geo = toPoint($v)` | ✗ — stored as `{latitude, longitude}` map | ✓ — `SET n.geo = point($v)` | ✓ — `SET n.geo = point($v)` | ✗ — agtype point not supported via psycopg | ✗ — stored as `{latitude, longitude}` map | ✓ — stored as `{latitude, longitude}` map |
 | `relate()` on a `direction="BOTH"` relation | ✗ — the `MERGE` is written `OUTGOING` instead | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Required Python package | `falkordb` | `neo4j` | `neo4j` | `neo4j` | `psycopg[binary]` | `neo4j` + `botocore` | `boto3` |
@@ -80,6 +82,26 @@ backend answers with a syntax error pointing at a character. The check runs when
 a statement is compiled for a session — a `select()` statement does not know its
 backend until then.
 :::
+
+### Engine-assigned ids are opaque
+
+A `Field(generated=True)` primary key holds whatever the backend calls that
+node, and that value is stored and compared verbatim — runic never parses,
+casts, or arithmetically adjusts it.
+
+The type therefore varies: FalkorDB and Apache AGE hand back an integer, while
+every Bolt backend hands back its element id as a string (`"4:<db-uuid>:285"`
+on Neo4j, `"285"` on Memgraph, the RID `"#1:0"` on ArcadeDB). Annotate such a
+field `str | int | None` if your models must cover both families, and treat the
+value as a token to hand back to `session.get()` / `find_all_by_ids()` rather
+than as a number to sort or compute with.
+
+The reason is that a backend may report *two different* identifiers for the
+same node. ArcadeDB is the sharp case: Bolt sends the RID, while Cypher `id()`
+packs bucket and position into a long using a different shift width — and which
+width it uses is a **server setting**. Any client that reconstructs one from the
+other is guessing, so the Bolt dialects match on `elementId()`, which compares
+the value runic actually holds.
 
 ---
 
@@ -143,6 +165,12 @@ Python driver (`encrypted=False`).
   supported; ArcadeDB may accept or reject it depending on configuration.
 - **No TypeConverter Cypher wrappers.** Raw Python values stored as-is.
 - **Plaintext Bolt only.** `create_arcadedb_driver` forces `bolt://`.
+- **Generated ids are RIDs, not numbers.** A `Field(generated=True)` primary
+  key holds the RID Bolt reports (`"#1:0"`), and lookups compare
+  `elementId(n)`. ArcadeDB's Cypher `id()` returns a *different* encoding of
+  the same vertex whose bit layout is a server setting, so runic never derives
+  one from the other. See [Engine-assigned ids are
+  opaque](#engine-assigned-ids-are-opaque).
 - **No vector index DDL.** `create_vector_index()` logs a warning and
   directs you to the ArcadeDB HTTP management API.
 - **No GeoLocation in-place update.** `SET n.geo = point($v)` is not
@@ -208,6 +236,10 @@ unique:    CREATE CONSTRAINT {label}_{prop}_unique  IF NOT EXISTS FOR (n:{label}
 
 - **No async driver.**
 - **No TypeConverter Cypher wrappers.**
+- **Generated ids are element-id strings.** A `Field(generated=True)` primary
+  key holds `"4:<db-uuid>:285"` and lookups compare `elementId(n)`. Neo4j
+  deprecated `id()` in 5.x and removes it in 6, and the driver's `Node.id`
+  along with it.
 - Vector index dimension is not stored in `Field()` metadata; pass
   `dimension` when calling `create_vector_index()` directly, or
   pre-create vector indexes via Cypher DDL.
@@ -276,6 +308,10 @@ the node. Requires the MAGE `text_search` module.
 
 - **No async driver.**
 - **No TypeConverter Cypher wrappers.**
+- **Generated ids are element-id strings.** A `Field(generated=True)` primary
+  key holds Memgraph's element id — the integer id rendered as a string, e.g.
+  `"285"` — and lookups compare `elementId(n)`. Compare and sort on a property
+  of your own if you need ordering.
 - Vector index dimension is not stored in `Field()` metadata; pass
   `dimension` when calling `create_vector_index()` directly, or
   pre-create vector indexes via Cypher DDL.
@@ -350,6 +386,15 @@ argument to `cypher()`, making them available inside the Cypher query as
   full-text search directly on the underlying tables.
 - **No vector KNN** in Cypher. Use [pgvector](https://github.com/pgvector/pgvector) on the underlying tables.
 - **No TypeConverter Cypher wrappers** (no `vecf32()`, `intern()`).
+- **No `id(n) IN <list>`.** Comparing a node id against a list segfaults the
+  PostgreSQL backend (signal 11 — verified on AGE 1.8 / PG 18); a literal list
+  fails with `not a common type`. Client-side this appears only as
+  `server closed the connection unexpectedly`, and it takes every other session
+  on that server down with it. `AGEDialect.generated_ids_where` therefore
+  expands a batch lookup on a `Field(generated=True)` id into an `OR` chain of
+  single comparisons, so `Repository.find_all_by_ids()` works normally — but
+  the statement grows with the batch, so prefer batches in the hundreds rather
+  than tens of thousands. `IN` over an ordinary *property* is unaffected.
 - **No index DDL** in runic's migration adapter. AGE does not expose
   Cypher-level index creation; create PostgreSQL indexes on the underlying
   `ag_label` tables directly.

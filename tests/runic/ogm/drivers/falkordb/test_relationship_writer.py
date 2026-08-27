@@ -8,7 +8,7 @@ import pytest
 
 from runic.ogm.core.descriptors import _NOT_LOADED, Field, FieldInfo, Relation
 from runic.ogm.core.models import Edge, Node
-from runic.ogm.driver.falkordb import FalkorDBDriver
+from runic.ogm.driver.falkordb import FalkorDBDialect, FalkorDBDriver
 from runic.ogm.mapper.mapper import Mapper
 from runic.ogm.mapper.relationship_writer import (
     RelationshipWriter,
@@ -94,7 +94,9 @@ def test_node_match_clause_explicit_pk() -> None:
 
     node_meta = metadata.get_node_meta(WrCompany)
     assert node_meta is not None
-    clause = _node_match_clause("a", node_meta, "__pk", generated=False)
+    clause = _node_match_clause(
+        "a", node_meta, "__pk", generated=False, dialect=FalkorDBDialect()
+    )
     assert clause == "MATCH (a:WrCompany {`id`: $__pk})"
 
 
@@ -103,8 +105,23 @@ def test_node_match_clause_generated_pk() -> None:
 
     node_meta = metadata.get_node_meta(WrCompany)
     assert node_meta is not None
-    clause = _node_match_clause("a", node_meta, "__pk", generated=True)
+    clause = _node_match_clause(
+        "a", node_meta, "__pk", generated=True, dialect=FalkorDBDialect()
+    )
     assert clause == "MATCH (a:WrCompany) WHERE id(a) = toInteger($__pk)"
+
+
+def test_node_match_clause_generated_pk_follows_the_dialect() -> None:
+    """A Bolt dialect matches on ``elementId()``, not ``id()``."""
+    from runic.ogm.core.metadata import metadata
+    from runic.ogm.driver.arcadedb import ArcadeDBDialect
+
+    node_meta = metadata.get_node_meta(WrCompany)
+    assert node_meta is not None
+    clause = _node_match_clause(
+        "a", node_meta, "__pk", generated=True, dialect=ArcadeDBDialect()
+    )
+    assert clause == "MATCH (a:WrCompany) WHERE elementId(a) = $__pk"
 
 
 # ---------------------------------------------------------------------------

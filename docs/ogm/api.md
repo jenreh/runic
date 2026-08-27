@@ -584,7 +584,8 @@ Cypher dialect customisations for Neo4j. `unsupported_features` is empty.
   a pre-created index named after the label
 - vector KNN via `CALL db.index.vector.queryNodes(indexName, k, vec)` —
   requires an index named `{type}_{field}`
-- integer node ids via `id()`, no `toInteger()` cast
+- engine-assigned ids are the Bolt element id string (`4:<db-uuid>:285`),
+  matched with `elementId()` — `id()` is deprecated in Neo4j 5 and gone in 6
 - no Cypher function wrappers (`vecf32`, `intern`) — raw values only; `point`
   is still used for `GeoLocation`
 - TLS via `bolt+s://` (`encrypted=True` on the factory)
@@ -601,7 +602,8 @@ Cypher dialect customisations for Memgraph. `unsupported_features` is empty.
 - vector KNN via `CALL vector_search.search(indexName, k, vec)`, yielding
   `node`, `distance` and `similarity`; the index must be pre-created with
   `CREATE VECTOR INDEX {type}_{field} ON :{type}({field}) WITH CONFIG {...}`
-- integer node ids via `id()`, no `toInteger()` cast
+- engine-assigned ids are the Bolt element id string (`285`), matched with
+  `elementId()`
 - no Cypher function wrappers except `point`
 - TLS via `bolt+s://` (`encrypted=True` on the factory)
 
@@ -613,6 +615,9 @@ Cypher dialect customisations for ArcadeDB.
 
 - `unsupported_features` — `{PROCEDURE_CALL, FULLTEXT_SEARCH}`;
   `fulltext_call()` raises `NotImplementedError`
+- engine-assigned ids are the RID Bolt reports (`#1:0`), matched with
+  `elementId()`; ArcadeDB's Cypher `id()` uses a different bit layout whose
+  width is a server setting, so runic never derives one from the other
 - `supports_geo_update` — `False`
 - `cypher_fn_for_field()` returns `None` for every field — raw values only
 
@@ -642,6 +647,8 @@ AGE needs because it stores one label per node.
   property
 - `labels_clause(labels)` / `subtype_where(alias, labels)` — emit the single
   label and the `_labels` predicate that recovers the rest
+- `generated_ids_where(alias, pks)` — expands a batch id lookup into an `OR`
+  chain; `id(n) IN <list>` segfaults the PostgreSQL backend
 - `fulltext_call()` and `vector_knn_start()` raise `NotImplementedError`
 
 ### NeptuneDialect
@@ -651,8 +658,8 @@ AGE needs because it stores one label per node.
 Cypher dialect customisations for Amazon Neptune Database (over Bolt).
 
 - `unsupported_features` — `{PROCEDURE_CALL, FULLTEXT_SEARCH, VECTOR_SEARCH}`
-- string node ids via `id()`, no `toInteger()` cast; `NeptuneNode` reads the
-  Bolt string `element_id` instead of the legacy integer id
+- string node ids via `id()`, no `toInteger()` cast; `NeptuneNode` narrows the
+  inherited Bolt `element_id` to `str`
 - `supports_geo_update` — `False`; `GeoLocation` is stored as a plain map
 - `cypher_fn_for_field()` returns `None` for every field — raw values only
 
@@ -1224,9 +1231,17 @@ and helpers as `FieldDescriptor` — `==`, `!=`, `>`, `>=`, `<`, `<=`,
 `matches()`, `in_()`, `not_in_()`, `any_of()` — plus:
 
 - `as_(name)` → `AliasedExpr`
-- `to_cypher(compiler)` — render (internal)
+- `to_cypher(compiler)` — render, binding operands through *compiler*
 - `referenced_aliases(compiler)` — which variables this expression needs in
   scope, used to validate `WITH` stages
+
+Both take a `CompilationContext`: the interface the query compiler publishes to
+the objects it compiles — parameter binding (`bind_param`, `declare_param`),
+alias resolution (`root_alias`, `alias_for_cls`, `cls_alias_map`,
+`expr_aliases`), sub-expression rendering (`compile_expr`, `compile_and`,
+`compile_agg`), and field-aware writing (`dialect`, `cypher_fn_for`,
+`convert_for`, `params`). A custom `ValueExpr` or `Clause` types against it and
+uses nothing else — everything else on the builder is its own business.
 
 ### Alias
 
