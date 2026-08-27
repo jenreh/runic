@@ -15,6 +15,7 @@ from runic.ogm.core.descriptors import FieldDescriptor
 from runic.ogm.driver import CypherFeature, require_feature
 from runic.ogm.query.builder import QueryBuilder
 from runic.ogm.query.clauses import CallClause
+from runic.ogm.query.protocol import CompilationContext
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class _ProcedureRootBuilder(QueryBuilder[T]):  # noqa: UP046
         """Compile to Cypher, opening with the procedure call."""
         self._validate_variables()
         self._param_counter = 0
-        self._params = dict(self._seed_params())
+        self.params = dict(self._seed_params())
         self._declared_params = set()
 
         parts: list[str] = [self._root_clause.to_cypher(self)]
@@ -170,7 +171,7 @@ class _ProcedureRootBuilder(QueryBuilder[T]):  # noqa: UP046
             )
         parts.extend(self._compile_paging())
 
-        return "\n".join(parts), dict(self._params)
+        return "\n".join(parts), dict(self.params)
 
     def _seed_params(self) -> dict[str, Any]:
         """Auto-bound values this search needs before compilation starts."""
@@ -243,7 +244,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
         """Compile to Cypher, opening with the fulltext procedure."""
         self._validate_variables()
         self._param_counter = 0
-        self._params = {}
+        self.params = {}
         self._declared_params = set()
 
         query_ref = _bind_or_declare(self, self._fts_query, "__fts_query")
@@ -252,7 +253,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
         require_feature(
             dialect, CypherFeature.FULLTEXT_SEARCH, "fulltext search from Cypher"
         )
-        call = dialect.fulltext_call(label, self._root_alias, query_ref.lstrip("$"))
+        call = dialect.fulltext_call(label, self.root_alias, query_ref.lstrip("$"))
 
         parts: list[str] = [call]
         # Bind the yielded score under the same name a vector search uses, so
@@ -260,7 +261,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
         # normalised: a fulltext score is a relevance, higher is better, which
         # is the opposite of a vector distance.
         if getattr(dialect, "fulltext_yields_score", lambda: False)():
-            parts.append(f"WITH {self._root_alias}, score AS __score")
+            parts.append(f"WITH {self.root_alias}, score AS __score")
         self._append_where_and_traversals(parts)
 
         if self._wants_return():
@@ -271,7 +272,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
             )
         parts.extend(self._compile_paging())
 
-        return "\n".join(parts), dict(self._params)
+        return "\n".join(parts), dict(self.params)
 
 
 class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
@@ -336,7 +337,7 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
         """Compile to Cypher, opening with the vector index procedure."""
         self._validate_variables()
         self._param_counter = 0
-        self._params = {}
+        self.params = {}
         self._declared_params = set()
 
         vec_ref = _bind_or_declare(self, self._knn_vector, "__knn_vec")
@@ -349,7 +350,7 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
 
         parts: list[str] = [
             dialect.vector_knn_call(
-                self._root_alias,
+                self.root_alias,
                 label,
                 self._knn_field.field_name,
                 k_ref,
@@ -357,7 +358,7 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
             ),
             # Normalise the backend's own convention to a distance, so a score
             # means the same thing everywhere: lower is closer.
-            f"WITH {self._root_alias}, {dialect.vector_score_expr()} AS __score",
+            f"WITH {self.root_alias}, {dialect.vector_score_expr()} AS __score",
         ]
         self._append_where_and_traversals(parts)
 
@@ -373,10 +374,12 @@ class VectorQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
             parts.append(knn_order)
         parts.extend(self._compile_paging())
 
-        return "\n".join(parts), dict(self._params)
+        return "\n".join(parts), dict(self.params)
 
 
-def _bind_or_declare(compiler: Any, value: Any, fallback_name: str) -> str:
+def _bind_or_declare(
+    compiler: CompilationContext, value: Any, fallback_name: str
+) -> str:
     """Render *value* as a parameter reference.
 
     A :func:`~runic.ogm.query.values.param` is declared for the caller to bind;
@@ -386,5 +389,5 @@ def _bind_or_declare(compiler: Any, value: Any, fallback_name: str) -> str:
 
     if isinstance(value, ValueExpr):
         return value.to_cypher(compiler)
-    compiler._params[fallback_name] = value  # noqa: SLF001
+    compiler.params[fallback_name] = value
     return f"${fallback_name}"

@@ -87,6 +87,19 @@ class FalkorDBDialect:
     def generated_id_where(self, alias: str, param: str) -> str:
         return f"WHERE id({alias}) = toInteger(${param})"
 
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Cast the batch the same way :meth:`generated_id_where` casts one id.
+
+        ``id()`` yields an integer, so a primary key that arrives as a string
+        matches nothing rather than raising — silently returning an empty
+        result. The single-id form guards against that with ``toInteger()``;
+        without this override the batch form would inherit the uncast default
+        and the two would disagree on the same input.
+        """
+        return f"id({alias}) IN [x IN $__pks | toInteger(x)]", {"__pks": pks}
+
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:
         if fi.field.converter is not None:
             fn = getattr(fi.field.converter, "cypher_fn", None)

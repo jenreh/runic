@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import logging
-import weakref
 from collections.abc import Mapping
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from runic.ogm.core.descriptors import _NOT_LOADED, FieldDescriptor
-from runic.ogm.exceptions import EntityNotFoundError, LazyLoadError
+from runic.ogm.core.descriptors import FieldDescriptor
+from runic.ogm.exceptions import LazyLoadError
 from runic.ogm.mapper.mapper import Mapper
 from runic.ogm.session._base import _SessionBase
 
@@ -61,6 +60,9 @@ class AsyncSession(_SessionBase):
     # ------------------------------------------------------------------
 
     async def _run_query(self, cypher: str, params: dict[str, Any]) -> GraphResult:
+        # Logged here rather than in _SessionBase so `log_cypher` output keeps
+        # arriving on the concrete session's logger, which is the name callers
+        # enable DEBUG on (`runic.ogm.session.async_session`).
         if self._log_cypher:
             log.debug("Cypher: %s | params: %s", cypher, params)
         return await self._driver.execute(cypher, params)
@@ -89,16 +91,7 @@ class AsyncSession(_SessionBase):
 
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = await self._run_query(cypher, params)
-
-        if not result.rows:
-            return None
-
-        raw_node = result.rows[0][0]
-        entity = self._mapper.decode_node(raw_node, cls)
-        actual_pk = self._mapper.get_pk_value(entity)
-        self._register_entity(entity, cls, actual_pk)
-        log.debug("Loaded %s pk=%r from graph", cls.__name__, actual_pk)
-        return entity
+        return self._decode_get_result(result, cls)
 
     def load_relationship(self, entity: Any, field_name: str) -> Any:  # noqa: ARG002
         """Raise ``LazyLoadError``; lazy loading is not supported in async sessions.
@@ -125,16 +118,11 @@ class AsyncSession(_SessionBase):
     async def commit(self) -> None:
         """``flush()`` then clear the pending/deleted tracking sets."""
         await self.flush()
-        self._pending.clear()
-        self._deleted.clear()
+        self._clear_staged()
 
     async def rollback(self) -> None:
         """Discard un-flushed pending/deleted sets; expire all persistent entities."""
-        self._pending.clear()
-        self._deleted.clear()
-        for entity in self._identity_map.values():
-            entity.__dict__["_expired"] = True
-            entity.__dict__["_dirty"] = False
+        self._discard_uncommitted_state()
 
     # ------------------------------------------------------------------
     # Refresh
@@ -169,11 +157,9 @@ class AsyncSession(_SessionBase):
         The cached value of the relation field on *source* is invalidated after
         the write so the next access re-fetches fresh data from the graph.
         """
-        fi = self._resolve_relation_fi(source, field_name)
-        cypher, params = self._rel_writer.build_relate_query(source, fi, target, edge)
+        fi, cypher, params = self._prepare_relate(source, field_name, target, edge)
         await self._run_query(cypher, params)
-        source.__dict__[fi.name] = _NOT_LOADED
-        log.debug("Related %r -[%s]-> %r", source, fi.field.relationship, target)
+        self._finish_relate(source, fi, target)
 
     async def unrelate(
         self,
@@ -189,11 +175,9 @@ class AsyncSession(_SessionBase):
         The cached value of the relation field on *source* is invalidated after
         the write so the next access re-fetches fresh data from the graph.
         """
-        fi = self._resolve_relation_fi(source, field_name)
-        cypher, params = self._rel_writer.build_unrelate_query(source, fi, target)
+        fi, cypher, params = self._prepare_unrelate(source, field_name, target)
         await self._run_query(cypher, params)
-        source.__dict__[fi.name] = _NOT_LOADED
-        log.debug("Unrelated %r -[%s]-x %r", source, fi.field.relationship, target)
+        self._finish_unrelate(source, fi, target)
 
     # ------------------------------------------------------------------
     # Raw Cypher
@@ -228,8 +212,7 @@ class AsyncSession(_SessionBase):
         self._require_query_builder(stmt, "scalars")
         stmt._require_node_shape("scalars")  # noqa: SLF001
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, _ = bound.build()
-            merged = bound.bind(params)
+            cypher, merged = self._build_and_bind(bound, params)
             result = await self._run_query(cypher, merged)
             return bound._decode_node_result(result)  # type: ignore[return-value]  # noqa: SLF001
 
@@ -251,8 +234,7 @@ class AsyncSession(_SessionBase):
         stmt._limit_val = 1  # noqa: SLF001
         try:
             with stmt._bound_to(self) as bound:  # noqa: SLF001
-                cypher, _ = bound.build()
-                merged = bound.bind(params)
+                cypher, merged = self._build_and_bind(bound, params)
                 result = await self._run_query(cypher, merged)
                 entities = bound._decode_node_result(result)  # noqa: SLF001
                 return entities[0] if entities else None  # type: ignore[return-value]
@@ -271,8 +253,7 @@ class AsyncSession(_SessionBase):
         """
         self._require_query_builder(stmt, "all_rows")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, _ = bound.build()
-            merged = bound.bind(params)
+            cypher, merged = self._build_and_bind(bound, params)
             result = await self._run_query(cypher, merged)
             return bound._decode_rows_as_dicts(result)  # noqa: SLF001
 
@@ -289,8 +270,7 @@ class AsyncSession(_SessionBase):
         """
         self._require_query_builder(stmt, "all_with_edges")
         with stmt._bound_to(self) as bound:  # noqa: SLF001
-            cypher, _ = bound.build()
-            merged = bound.bind(params)
+            cypher, merged = self._build_and_bind(bound, params)
             result = await self._run_query(cypher, merged)
             return bound._decode_edge_result(result)  # noqa: SLF001
 
@@ -317,8 +297,8 @@ class AsyncSession(_SessionBase):
         stmt._project_fields = [_count_fn("*").as_("_count")]  # noqa: SLF001
         try:
             with stmt._bound_to(self) as bound:  # noqa: SLF001
-                cypher, _ = bound.build()
-                result = await self._run_query(cypher, bound.bind(params))
+                cypher, merged = self._build_and_bind(bound, params)
+                result = await self._run_query(cypher, merged)
                 return int(result.rows[0][0]) if result.rows else 0
         finally:
             stmt._limit_val = old_limit  # noqa: SLF001
@@ -346,31 +326,6 @@ class AsyncSession(_SessionBase):
         from runic.ogm.query.specialised import AsyncQueryBuilder
 
         return AsyncQueryBuilder(self, cls, name)
-
-    def fulltext_search(
-        self,
-        cls: type[Any],
-        *,
-        query: str,
-        fields: list[str] | None = None,
-    ) -> Any:
-        """Async fulltext search; mirrors :meth:`~runic.ogm.session.session.Session.fulltext_search`."""
-        from runic.ogm.query.specialised import FulltextQueryBuilder
-
-        return FulltextQueryBuilder(self, cls, query=query, fields=fields)
-
-    def vector_search(
-        self,
-        cls: type[Any],
-        *,
-        field: Any,
-        vector: list[float],
-        k: int = 10,
-    ) -> Any:
-        """Async vector KNN search; mirrors :meth:`~runic.ogm.session.session.Session.vector_search`."""
-        from runic.ogm.query.specialised import VectorQueryBuilder
-
-        return VectorQueryBuilder(self, cls, field=field, vector=vector, k=k)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -407,82 +362,38 @@ class AsyncSession(_SessionBase):
             cls, pk, fetch
         )
         result = await self._run_query(cypher, params)
-
-        if not result.rows:
-            return None
-
-        row = result.rows[0]
-        raw_node = row[0]
-        entity = self._mapper.decode_node(raw_node, cls)
-        related = self._rel_loader.decode_eager_columns(row, entity, fetch_meta)
-
-        actual_pk = self._mapper.get_pk_value(entity)
-        self._register_entity(entity, cls, actual_pk)
-        self._inject_session_into(related)
-        log.debug("Loaded %s pk=%r with fetch=%r", cls.__name__, actual_pk, fetch)
-        return entity
+        return self._decode_fetch_result(result, cls, fetch, fetch_meta)
 
     async def _flush_pending(self) -> None:
+        """CREATE all entities in the pending list."""
         for entity in list(self._pending):
             cypher, params = self._mapper.build_create_query(entity)
             result = await self._run_query(cypher, params)
-
-            raw_node = result.rows[0][0] if result.rows else None
-            if raw_node is not None:
-                self._mapper.update_entity_from_node(entity, raw_node)
-
-            entity.__dict__["_new"] = False
-            entity.__dict__["_dirty"] = False
-
-            pk = self._mapper.get_pk_value(entity)
-            entity.__dict__["_session"] = weakref.ref(self)
-            self._identity_map[(type(entity), pk)] = entity
-            # Drop per-entity so a failure later in the loop cannot re-create an
-            # already-created entity when the caller retries flush().
-            self._pending.remove(entity)
-            log.debug("Created %r pk=%r", entity, pk)
+            self._finish_create(entity, result)
 
     async def _flush_dirty(self) -> None:
-        for (_cls, _pk), entity in list(self._identity_map.items()):
-            if not entity.__dict__.get("_dirty", False):
-                continue
-            if entity.__dict__.get("_new", False):
-                continue
-
-            cypher, params = self._mapper.build_update_query(entity)
-            if not cypher:
-                entity.__dict__["_dirty"] = False
+        """MERGE/SET all dirty persistent entities."""
+        for entity in list(self._identity_map.values()):
+            if not self._needs_update(entity):
                 continue
 
+            prepared = self._prepare_update(entity)
+            if prepared is None:
+                continue
+
+            cypher, params = prepared
             result = await self._run_query(cypher, params)
-            if result.rows:
-                self._mapper.update_entity_from_node(entity, result.rows[0][0])
-            else:
-                entity.__dict__["_dirty"] = False
-
-            log.debug("Updated %s", type(entity).__name__)
+            self._finish_update(entity, result)
 
     async def _flush_deleted(self) -> None:
+        """DETACH DELETE all entities in the deleted list."""
         for entity in list(self._deleted):
             cypher, params = self._mapper.build_delete_query(entity)
             await self._run_query(cypher, params)
-
-            cls = type(entity)
-            pk = self._mapper.get_pk_value(entity)
-            self._identity_map.pop((cls, pk), None)
-            entity.__dict__.pop("_session", None)
-            # Drop per-entity so a failure later in the loop does not re-issue a
-            # DELETE for an already-deleted entity when the caller retries.
-            self._deleted.remove(entity)
-            log.debug("Deleted %s pk=%r", cls.__name__, pk)
+            self._finish_delete(entity)
 
     async def _reload(self, entity: Any, cls: type, pk: Any) -> None:
+        """Re-query a single entity from the graph and update it in-place."""
         cypher, params = self._mapper.build_get_query(cls, pk)
         result = await self._run_query(cypher, params)
-
-        if not result.rows:
-            raise EntityNotFoundError(
-                f"{cls.__name__} pk={pk!r} no longer exists in the graph"
-            )
-
-        self._mapper.update_entity_from_node(entity, result.rows[0][0])
+        self._apply_reload_result(entity, cls, pk, result)

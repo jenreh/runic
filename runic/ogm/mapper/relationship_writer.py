@@ -129,14 +129,16 @@ def _node_match_clause(
     node_meta: NodeMeta,
     pk_param: str,
     generated: bool,
-    dialect: GraphDialect | None = None,
+    dialect: GraphDialect,
 ) -> str:
-    """Return a single ``MATCH`` clause for one node."""
+    """Return a single ``MATCH`` clause for one node.
+
+    *dialect* is required: how a generated primary key is matched differs per
+    backend (``id()`` on FalkorDB and Apache AGE, ``elementId()`` on the Bolt
+    family), so there is no correct backend-neutral default to fall back on.
+    """
     if generated:
-        if dialect is not None:
-            id_where = dialect.generated_id_where(alias, pk_param)
-        else:
-            id_where = f"WHERE id({alias}) = toInteger(${pk_param})"
+        id_where = dialect.generated_id_where(alias, pk_param)
         return f"MATCH ({alias}:{node_meta.primary_label}) {id_where}"
     pk_key = escape_identifier(node_meta.pk_field_name or "id")
     return f"MATCH ({alias}:{node_meta.primary_label} {{{pk_key}: ${pk_param}}})"

@@ -52,26 +52,27 @@ neptune-analytics = [
 dev = [
     "aiohttp>=3.14.3",
     "boto3>=1.34,<2.0",
-    "bump-my-version==1.5.0",
-    "deepeval==4.1.5",
+    "bump-my-version==1.5.1",
+    "deepeval==4.2.0",
     "detect-secrets==1.5.0",
     "falkordb>=1.6.1",
     "falkordblite==0.10.0",
     "furo==2025.12.19",
     "neo4j==6.2.0",
-    "pre-commit==4.6.1",
+    "pre-commit==4.6.2",
     "psycopg[binary]==3.3.4",
-    "pydantic-ai-slim[openai]>=2.25.0",
-    "pymupdf>=1.28.0",
+    "pydantic-ai-slim[openai]>=2.35.1",
+    "pydantic-settings>=2.14.0",
+    "pymupdf>=1.28.2",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pytest-httpserver==1.1.5",
     "pytest==9.1.1",
-    "python-dotenv==1.2.2",
-    "ruff==0.16.1",
-    "setuptools>=83.0.0",
-    "tiktoken>=0.13.0",
-    "ty==0.0.69",
+    "python-dotenv==1.2.3",
+    "ruff==0.16.4",
+    "setuptools>=84.0.0",
+    "tiktoken>=0.14.0",
+    "ty==0.0.75",
 ]
 
 [project.scripts]
@@ -243,9 +244,6 @@ docstring-code-format = true
 docstring-code-line-length = "dynamic"
 exclude = ["*.pyi"]
 
-[tool.ruff.lint.isort]
-known-local-folder = ["sonos"]
-
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest"
 testpaths = ["tests"]
@@ -282,20 +280,16 @@ exclude = [
 ]
 
 [tool.ty.rules]
-unresolved-import = "warn"
+unresolved-import = "error"
 missing-argument = "error"
-
-[tool.mypy]
-cache_dir = ".cache/mypy"
 
 [tool.coverage.run]
 branch = true
 source = ["runic"]
-omit = ["runic/adapters/*"]
 
 [tool.coverage.report]
 exclude_lines = ["if TYPE_CHECKING:", "if __name__ == .__main__.:", "pragma: no cover"]
-fail_under = 80
+fail_under = 85
 show_missing = true
 skip_covered = true
 

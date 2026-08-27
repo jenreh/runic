@@ -144,19 +144,19 @@ class RelationshipLoader:
         labels_str = self._mapper.labels_clause(node_meta.labels)
         subtype_filter = self._mapper.subtype_where("n", node_meta.labels)
 
+        where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
         if generated:
-            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
-            main_match = f"MATCH (n:{labels_str}) {where}id(n) IN $__pks"
+            id_match, params = self._mapper.generated_ids_where("n", pks)
         else:
             pk_ref = property_ref("n", node_meta.pk_field_name or "")
-            where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
-            main_match = f"MATCH (n:{labels_str}) {where}{pk_ref} IN $__pks"
+            id_match, params = f"{pk_ref} IN $__pks", {"__pks": pks}
+        main_match = f"MATCH (n:{labels_str}) {where}{id_match}"
 
         optional_clauses, return_cols, fetch_meta = self._build_fetch_clauses(
             node_meta, fetch
         )
         parts = [main_match, *optional_clauses, f"RETURN {', '.join(return_cols)}"]
-        return "\n".join(parts), {"__pks": pks}, fetch_meta
+        return "\n".join(parts), params, fetch_meta
 
     def decode_eager_columns(
         self,

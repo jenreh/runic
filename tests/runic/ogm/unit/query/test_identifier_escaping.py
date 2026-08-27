@@ -246,8 +246,8 @@ class TestValueExpressions:
         assert "CASE WHEN n.`end` = $marker" in cypher
 
     def test_row_reference_quotes_the_key(self) -> None:
-        assert row("count").to_cypher(None) == "row.`count`"
-        assert row("count", var="entry").to_cypher(None) == "entry.`count`"
+        assert row("count").to_cypher(MagicMock()) == "row.`count`"
+        assert row("count", var="entry").to_cypher(MagicMock()) == "entry.`count`"
 
 
 # ---------------------------------------------------------------------------

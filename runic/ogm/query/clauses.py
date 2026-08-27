@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from runic.ogm.query.expressions import Expr, OrderExpr
+    from runic.ogm.query.protocol import CompilationContext
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ __all__ = [
 class Clause:
     """One clause in the pipeline between the opening MATCH and the RETURN."""
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         """Render this clause, binding any operands via *compiler*."""
         raise NotImplementedError
 
@@ -78,12 +79,12 @@ class MatchClause(Clause):
     the query is compiled for one.
     """
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         if self.requires is not None:
             from runic.ogm.driver import require_feature
 
             feature, description = self.requires
-            require_feature(compiler._dialect, feature, description)  # noqa: SLF001
+            require_feature(compiler.dialect, feature, description)
         prefix = "OPTIONAL MATCH" if self.optional else "MATCH"
         return f"{prefix} {self.pattern}"
 
@@ -119,7 +120,7 @@ class WithClause(Clause):
     where: Sequence[Expr] = field(default_factory=tuple)
     distinct: bool = False
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         rendered = [_render_variable(v, compiler) for v in self.variables]
         distinct_kw = "DISTINCT " if self.distinct else ""
         parts = [f"WITH {distinct_kw}{', '.join(rendered)}"]
@@ -131,12 +132,12 @@ class WithClause(Clause):
             if value is not None:
                 parts.append(f"{keyword} {_render_bound(value, compiler)}")
         if self.where:
-            parts.append(f"WHERE {compiler._compile_and(list(self.where))}")  # noqa: SLF001
+            parts.append(f"WHERE {compiler.compile_and(list(self.where))}")
 
         return "\n".join(parts)
 
 
-def _render_variable(value: Any, compiler: Any) -> str:
+def _render_variable(value: Any, compiler: CompilationContext) -> str:
     """Render one item carried by a ``WITH``.
 
     A bare string is a Cypher variable and is validated as an identifier; a
@@ -151,11 +152,11 @@ def _render_variable(value: Any, compiler: Any) -> str:
     if isinstance(value, AggExpr):
         # A stage that aggregates is how a query filters on a computed value:
         # WITH m, count(r) AS n ... WHERE n > 1.
-        return compiler._compile_agg(value, compiler._cls_alias_map())  # noqa: SLF001
+        return compiler.compile_agg(value, compiler.cls_alias_map())
     return validate_identifier(str(value), "WITH variable")
 
 
-def _render_bound(value: Any, compiler: Any) -> str:
+def _render_bound(value: Any, compiler: CompilationContext) -> str:
     """Render a row bound, which may be an integer or a bound parameter."""
     from runic.ogm.query.values import ValueExpr
 
@@ -180,13 +181,13 @@ class UnwindClause(Clause):
     def __post_init__(self) -> None:
         validate_identifier(self.variable, "unwind variable")
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         from runic.ogm.query.values import ValueExpr
 
         rendered = (
             self.source.to_cypher(compiler)
             if isinstance(self.source, ValueExpr)
-            else f"${compiler._next_param(self.source)}"  # noqa: SLF001
+            else f"${compiler.bind_param(self.source)}"
         )
         return f"UNWIND {rendered} AS {self.variable}"
 
@@ -205,12 +206,12 @@ class MergeClause(Clause):
     pattern: str
     requires: tuple[str, str] | None = None
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         if self.requires is not None:
             from runic.ogm.driver import require_feature
 
             feature, description = self.requires
-            require_feature(compiler._dialect, feature, description)  # noqa: SLF001
+            require_feature(compiler.dialect, feature, description)
         return f"MERGE {self.pattern}"
 
 
@@ -226,7 +227,7 @@ class SetClause(Clause):
     assignments: tuple[tuple[str, str, Any], ...]
     """``(alias, property, value)`` triples."""
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         parts = [
             f"{property_ref(alias, prop)} = "
             f"{_render_assignment(alias, prop, value, compiler)}"
@@ -254,12 +255,14 @@ class DeleteClause(Clause):
         for variable in self.variables:
             validate_identifier(variable, "delete target")
 
-    def to_cypher(self, compiler: Any) -> str:  # noqa: ARG002
+    def to_cypher(self, compiler: CompilationContext) -> str:  # noqa: ARG002
         keyword = "DETACH DELETE" if self.detach else "DELETE"
         return f"{keyword} {', '.join(self.variables)}"
 
 
-def _render_assignment(alias: str, prop: str, value: Any, compiler: Any) -> str:
+def _render_assignment(
+    alias: str, prop: str, value: Any, compiler: CompilationContext
+) -> str:
     """Render the right-hand side of one ``SET`` assignment.
 
     ``None`` becomes the Cypher literal ``NULL`` rather than a bound parameter:
@@ -273,10 +276,10 @@ def _render_assignment(alias: str, prop: str, value: Any, compiler: Any) -> str:
         return "NULL"
     if isinstance(value, ValueExpr):
         rendered = value.to_cypher(compiler)
-        fn = compiler._cypher_fn_for(alias, prop)  # noqa: SLF001
+        fn = compiler.cypher_fn_for(alias, prop)
         return f"{fn}({rendered})" if fn else rendered
-    param = compiler._next_param(compiler._convert_for(alias, prop, value))  # noqa: SLF001
-    fn = compiler._cypher_fn_for(alias, prop)  # noqa: SLF001
+    param = compiler.bind_param(compiler.convert_for(alias, prop, value))
+    fn = compiler.cypher_fn_for(alias, prop)
     return f"{fn}(${param})" if fn else f"${param}"
 
 
@@ -303,12 +306,12 @@ class CallClause(Clause):
         for part in self.procedure.split("."):
             validate_identifier(part, "procedure name")
 
-    def to_cypher(self, compiler: Any) -> str:
+    def to_cypher(self, compiler: CompilationContext) -> str:
         if self.requires is not None:
             from runic.ogm.driver import require_feature
 
             feature, description = self.requires
-            require_feature(compiler._dialect, feature, description)  # noqa: SLF001
+            require_feature(compiler.dialect, feature, description)
 
         rendered = [_render_call_arg(a, compiler) for a in self.args]
         call = f"CALL {self.procedure}({', '.join(rendered)})"
@@ -317,7 +320,7 @@ class CallClause(Clause):
         return call
 
 
-def _render_call_arg(value: Any, compiler: Any) -> str:
+def _render_call_arg(value: Any, compiler: CompilationContext) -> str:
     """Render one procedure argument.
 
     A string is a literal name — an index or label the *model* names, not the
@@ -331,4 +334,4 @@ def _render_call_arg(value: Any, compiler: Any) -> str:
         return value.to_cypher(compiler)
     if isinstance(value, str):
         return escape_string(value)
-    return f"${compiler._next_param(value)}"  # noqa: SLF001
+    return f"${compiler.bind_param(value)}"

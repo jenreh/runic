@@ -7,20 +7,33 @@ from unittest.mock import MagicMock
 from runic.ogm.driver.arcadedb import (
     _ARCADE_DIALECT,
     ArcadeDBDialect,
-    ArcadeDBNode,
     create_arcadedb_driver,
 )
-from runic.ogm.driver.bolt import BoltEdge
+from runic.ogm.driver.bolt import BoltEdge, BoltNode
 
 
 class TestArcadeDBDialectGeneratedIdWhere:
-    def test_basic(self) -> None:
-        assert _ARCADE_DIALECT.generated_id_where("n", "pk") == "WHERE id(n) = $pk"
+    def test_matches_on_element_id(self) -> None:
+        assert (
+            _ARCADE_DIALECT.generated_id_where("n", "pk") == "WHERE elementId(n) = $pk"
+        )
+
+    def test_never_uses_cypher_id(self) -> None:
+        # ArcadeDB's id() width is a server setting, so the client must not
+        # reconstruct it — see docs/ogm/drivers.md.
+        assert "id(n) =" not in _ARCADE_DIALECT.generated_id_where("n", "pk")
 
     def test_alias_substituted(self) -> None:
         result = _ARCADE_DIALECT.generated_id_where("node", "node_id")
         assert "node" in result
         assert "$node_id" in result
+
+
+class TestArcadeDBDialectGeneratedIdsWhere:
+    def test_matches_batch_on_element_id(self) -> None:
+        predicate, params = _ARCADE_DIALECT.generated_ids_where("n", ["#1:0", "#1:1"])
+        assert predicate == "elementId(n) IN $__pks"
+        assert params == {"__pks": ["#1:0", "#1:1"]}
 
 
 class TestArcadeDBDialectCypherFnForField:
@@ -50,30 +63,21 @@ class TestArcadeDBDialectFulltextCallRaises:
 
 
 class TestArcadeDBDialectWrappers:
-    def test_wrap_node_returns_arcadedb_node(self) -> None:
+    def test_wrap_node_returns_bolt_node(self) -> None:
         raw = MagicMock()
-        raw.element_id = "10"
+        raw.element_id = "#1:0"
         node = _ARCADE_DIALECT.wrap_node(raw)
-        assert isinstance(node, ArcadeDBNode)
+        assert isinstance(node, BoltNode)
+
+    def test_wrapped_node_exposes_rid_unchanged(self) -> None:
+        raw = MagicMock()
+        raw.element_id = "#1:0"
+        assert _ARCADE_DIALECT.wrap_node(raw).element_id == "#1:0"
 
     def test_wrap_edge_returns_bolt_edge(self) -> None:
         raw = MagicMock()
         node = _ARCADE_DIALECT.wrap_edge(raw)
         assert isinstance(node, BoltEdge)
-
-
-class TestArcadeDBNodeElementId:
-    def test_element_id_divided_by_two(self) -> None:
-        raw = MagicMock()
-        raw.element_id = "20"
-        node = ArcadeDBNode(raw)
-        assert node.element_id == 10
-
-    def test_odd_element_id_floored(self) -> None:
-        raw = MagicMock()
-        raw.element_id = "7"
-        node = ArcadeDBNode(raw)
-        assert node.element_id == 3
 
 
 class TestCreateArcadedbDriver:

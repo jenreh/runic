@@ -1,6 +1,6 @@
 services:
   falkordb:
-    image: falkordb/falkordb:latest
+    image: falkordb/falkordb:v4.20.4
     ports:
       - "6379:6379"
     healthcheck:
@@ -25,7 +25,7 @@ services:
       retries: 15
 
   memgraph:
-    image: memgraph/memgraph:latest
+    image: memgraph/memgraph:3.12.0
     ports:
       - "7688:7687"
     healthcheck:
@@ -35,7 +35,9 @@ services:
       retries: 15
 
   arcadedb:
-    image: arcadedata/arcadedb:latest
+    # ArcadeDB publishes the build the suite is validated against only under a
+    # moving snapshot tag, so the digest is pinned alongside it for reproducibility.
+    image: arcadedata/arcadedb:26.9.1-SNAPSHOT@sha256:fc0641f3e1b73b9e4ed601142c0bb69be10ff294b785dbfee803053a7cc7cf80
     ports:
       - "2480:2480"
       - "2424:7687"
@@ -50,7 +52,7 @@ services:
       retries: 15
 
   age:
-    image: apache/age:latest
+    image: apache/age:release_PG18_1.8.0
     ports:
       - "5432:5432"
     environment:

@@ -127,7 +127,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         # The most recently registered target alias (default RETURN target)
         self._last_alias: str = root_name
         # The root node alias
-        self._root_alias: str = root_name
+        self.root_alias: str = root_name
         # Counter for auto-generated traversal-target names
         self._auto_alias_counter: int = 0
 
@@ -158,7 +158,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         # Parameters -------------------------------------------------------
         # Auto-bound values ($p0, $p1, …) allocated during compilation.
         self._param_counter: int = 0
-        self._params: dict[str, Any] = {}
+        self.params: dict[str, Any] = {}
         # Names declared via param(), supplied by the caller at execution.
         self._declared_params: set[str] = set()
 
@@ -608,9 +608,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         if isinstance(field, ValueExpr):
             return OrderExpr(alias=None, prop=None, expr=field, desc=desc)
         if isinstance(field, FieldDescriptor):
-            alias = (
-                self._alias_for_cls(field.owner) if field.owner else self._root_alias
-            )
+            alias = self.alias_for_cls(field.owner) if field.owner else self.root_alias
             return OrderExpr(alias=alias, prop=field.field_name, desc=desc)
         raw = escape_order_term(str(field), "order_by term")
         return OrderExpr(alias=None, prop=None, raw=raw, desc=desc)
@@ -730,10 +728,10 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
             post_exprs = self._where_exprs
 
         if root_exprs:
-            parts.append(f"WHERE {self._compile_and(root_exprs)}")
+            parts.append(f"WHERE {self.compile_and(root_exprs)}")
         parts.extend(clause.to_cypher(self) for clause in self._pipeline)
         if post_exprs:
-            parts.append(f"WHERE {self._compile_and(post_exprs)}")
+            parts.append(f"WHERE {self.compile_and(post_exprs)}")
 
     def _wants_return(self) -> bool:
         """Whether this statement should emit a RETURN clause at all."""
@@ -743,11 +741,6 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         return not any(
             isinstance(clause, (SetClause, DeleteClause)) for clause in self._pipeline
         )
-
-    def _compile_and(self, exprs: list[Expr]) -> str:
-        """Compile one or more expressions into a single (AND-joined) condition."""
-        expr = exprs[0] if len(exprs) == 1 else CompoundExpr(op="AND", operands=exprs)
-        return self._compile_expr(expr)
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile the accumulated builder state to a ``(cypher, params)`` pair.
@@ -771,7 +764,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         self._validate_variables()
         # Reset params for each build call so multiple .all() calls are clean.
         self._param_counter = 0
-        self._params = {}
+        self.params = {}
         self._declared_params = set()
 
         parts: list[str] = []
@@ -782,11 +775,11 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
             raise ValueError(
                 f"Class {self._root_cls.__name__!r} is not a registered Node subclass"
             )
-        _lc = getattr(self._dialect, "labels_clause", None)
+        _lc = getattr(self.dialect, "labels_clause", None)
         labels_str = _lc(root_meta.labels) if _lc else ":".join(root_meta.labels)
-        _sw = getattr(self._dialect, "subtype_where", None)
-        subtype_filter = _sw(self._root_alias, root_meta.labels) if _sw else None
-        parts.append(f"MATCH ({self._root_alias}:{labels_str})")
+        _sw = getattr(self.dialect, "subtype_where", None)
+        subtype_filter = _sw(self.root_alias, root_meta.labels) if _sw else None
+        parts.append(f"MATCH ({self.root_alias}:{labels_str})")
         if subtype_filter:
             parts.append(f"WHERE {subtype_filter}")
 
@@ -822,7 +815,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         parts.extend(self._compile_paging())
 
         cypher = "\n".join(parts)
-        return cypher, dict(self._params)
+        return cypher, dict(self.params)
 
     def parameter_names(self) -> tuple[str, ...]:
         """The caller-bound parameter names this statement declares, sorted.
@@ -862,7 +855,7 @@ class QueryBuilder(_TerminalMixin, _WriteMixin, _CypherCompiler[T]):  # noqa: UP
         unknown = sorted(supplied.keys() - self._declared_params)
         if unknown:
             log.debug("extra parameters supplied and ignored: %s", ", ".join(unknown))
-        return {**self._params, **supplied}
+        return {**self.params, **supplied}
 
     # ------------------------------------------------------------------
     # Internal: traversal registration (called by TraversalStep.alias)

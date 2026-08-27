@@ -9,13 +9,22 @@ from runic.ogm.driver.neo4j import _NEO4J_DIALECT, Neo4jDialect, create_neo4j_dr
 
 
 class TestNeo4jDialectGeneratedIdWhere:
-    def test_basic(self) -> None:
-        assert _NEO4J_DIALECT.generated_id_where("n", "pk") == "WHERE id(n) = $pk"
+    def test_matches_on_element_id(self) -> None:
+        assert (
+            _NEO4J_DIALECT.generated_id_where("n", "pk") == "WHERE elementId(n) = $pk"
+        )
 
     def test_alias_and_param_are_substituted(self) -> None:
         result = _NEO4J_DIALECT.generated_id_where("node", "node_id")
         assert "node" in result
         assert "$node_id" in result
+
+
+class TestNeo4jDialectGeneratedIdsWhere:
+    def test_matches_batch_on_element_id(self) -> None:
+        predicate, params = _NEO4J_DIALECT.generated_ids_where("n", ["4:x:1"])
+        assert predicate == "elementId(n) IN $__pks"
+        assert params == {"__pks": ["4:x:1"]}
 
 
 class TestNeo4jDialectCypherFnForField:
@@ -89,10 +98,11 @@ class TestNeo4jDialectVectorKnn:
 class TestNeo4jDialectWrappers:
     def test_wrap_node_returns_bolt_node(self) -> None:
         raw = MagicMock()
-        raw.id = 42
+        raw.element_id = "4:db:42"
         raw.labels = frozenset(["Person"])
         node = _NEO4J_DIALECT.wrap_node(raw)
         assert isinstance(node, BoltNode)
+        assert node.element_id == "4:db:42"
 
     def test_wrap_edge_returns_bolt_edge(self) -> None:
         raw = MagicMock()

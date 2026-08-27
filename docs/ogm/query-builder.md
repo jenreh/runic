@@ -1170,7 +1170,7 @@ required for a node. On an *edge* it takes both endpoints down with it — and f
 a derived edge between two ground-truth nodes, that means destroying real data
 to clean up a computed one.
 
-```python
+```text
 # Nodes: detach, because Cypher will not delete a node that has edges
 .limit(param("batch")).delete(detach=True)
 

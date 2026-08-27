@@ -1,9 +1,11 @@
 name: CI Quality Gate
 
 on:
-  pull_request:
+  push:
     branches:
       - main
+  pull_request:
+    branches:
       - '**'
 
 jobs:
@@ -63,5 +65,49 @@ jobs:
       - name: Run tests
         env:
           RUNIC_TEST_BACKENDS: falkordb
-        run: uv run pytest --ignore=tests/evals
+        run: uv run pytest --ignore=tests/evals --cov
 
+  runic-rag-docling:
+    name: runic-rag-docling Package Gate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/runic-rag-docling
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "packages/runic-rag-docling/pyproject.toml"
+
+      # No --all-extras here: 'local' and 'server' are declared as conflicting
+      # extras (see the package's [tool.uv] block) and cannot be installed
+      # together. The default dev group already covers the whole unit suite --
+      # the only docling-dependent test importorskip's it -- so we stay on the
+      # light path instead of pulling docling + torch into CI.
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Run Ruff Format check
+        if: always()
+        run: uv run ruff format --check .
+
+      - name: Run Ruff Linter check
+        if: always()
+        run: uv run ruff check .
+
+      - name: Run Type check
+        if: always()
+        run: uv run ty check .

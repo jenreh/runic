@@ -6,7 +6,7 @@ default_install_hook_types:
   - post-rewrite
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.19
+    rev: 0.12.6
     hooks:
       - id: uv-sync
         args: ["--locked", "--all-packages"]
@@ -37,10 +37,14 @@ repos:
     hooks:
       - id: gitleaks
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.16
+    rev: v0.16.4
     hooks:
       - id: ruff-format
         exclude: '^\.(claude|agents?)/'
       - id: ruff
         exclude: '^\.(claude|agents?)/'
         args: ["--fix"]
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.74
+    hooks:
+      - id: ty

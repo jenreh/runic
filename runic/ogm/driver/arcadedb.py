@@ -17,24 +17,11 @@ if TYPE_CHECKING:
     from runic.ogm.core.descriptors import FieldInfo
 
 
-class ArcadeDBNode(BoltNode):
-    """BoltNode variant that corrects ArcadeDB's Bolt element_id offset.
-
-    ArcadeDB's Bolt implementation sends ``element_id`` as 2× the value that
-    the Cypher ``id()`` function returns.  Dividing by 2 realigns the stored
-    primary-key with what ``WHERE id(n) = $pk`` expects.
-    """
-
-    @property
-    def element_id(self) -> int:
-        return int(self._raw.element_id) // 2
-
-
 class ArcadeDBDialect:
     """Strategy for ArcadeDB-specific Cypher generation.
 
     Key differences from FalkorDB:
-    - No ``toInteger()`` cast needed for ``id()``-based lookups
+    - Engine-assigned ids are matched with ``elementId()``, never ``id()``
     - No ``vecf32()`` or ``intern()`` wrappers (raw values stored as-is)
     - Vector KNN via ``CALL vector.neighbors(...)``
     - Fulltext search not yet supported (raises ``NotImplementedError``)
@@ -51,7 +38,23 @@ class ArcadeDBDialect:
     supports_geo_update: bool = False
 
     def generated_id_where(self, alias: str, param: str) -> str:
-        return f"WHERE id({alias}) = ${param}"
+        """Match on the RID, which is what the Bolt layer hands back.
+
+        ArcadeDB reports two different identifiers for the same vertex: Bolt
+        sends the RID (``"#1:0"``) as ``element_id``, while Cypher ``id()``
+        packs bucket and position into a long. The two use different shift
+        widths (``BoltStructureMapper.ridToId`` vs ``IdFunction``), and the
+        Cypher one is governed by a server setting, so a client that
+        reconstructs it is guessing. ``elementId()`` compares the RID runic
+        actually holds.
+        """
+        return f"WHERE elementId({alias}) = ${param}"
+
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Return the batch counterpart of :meth:`generated_id_where`."""
+        return f"elementId({alias}) IN $__pks", {"__pks": pks}
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:  # noqa: ARG002
         # GeoLocation serialised as a plain map dict — no point() wrapper needed.
@@ -92,8 +95,8 @@ class ArcadeDBDialect:
     def fulltext_yields_score(self) -> bool:
         return False
 
-    def wrap_node(self, raw: Any) -> ArcadeDBNode:
-        return ArcadeDBNode(raw)
+    def wrap_node(self, raw: Any) -> BoltNode:
+        return BoltNode(raw)
 
     def wrap_edge(self, raw: Any) -> BoltEdge:
         return BoltEdge(raw)

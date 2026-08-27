@@ -48,6 +48,18 @@ class RelPerson(Node, labels=["RelPerson"]):
     )
 
 
+class RelTicket(Node, labels=["RelTicket"]):
+    """Generated PK plus a relation — for the batch-id + eager-fetch builder."""
+
+    id: int | None = Field(default=None, generated=True)
+    subject: str = Field()
+    company: RelCompany | None = Relation(
+        relationship="RAISED_BY",
+        direction="OUTGOING",
+        target="RelCompany",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -312,6 +324,54 @@ def test_detached_entity_raises_on_lazy_access(mock_graph: MagicMock) -> None:
 
     with pytest.raises(DetachedEntityError):
         _ = entity.company
+
+
+# ---------------------------------------------------------------------------
+# RelationshipLoader — build_find_all_by_ids_with_fetch_query
+# ---------------------------------------------------------------------------
+
+
+def test_find_all_by_ids_with_fetch_generated_pk_uses_dialect_predicate() -> None:
+    from runic.ogm.core.metadata import metadata
+
+    mapper = Mapper(metadata)
+    loader = RelationshipLoader(metadata, mapper)
+
+    cypher, params, _ = loader.build_find_all_by_ids_with_fetch_query(
+        RelTicket, [1, 2], ["company"]
+    )
+
+    assert "id(n) IN [x IN $__pks | toInteger(x)]" in cypher
+    assert params == {"__pks": [1, 2]}
+
+
+def test_find_all_by_ids_with_fetch_generated_pk_delegates_to_dialect() -> None:
+    from runic.ogm.core.metadata import metadata
+    from runic.ogm.driver.arcadedb import ArcadeDBDialect
+
+    mapper = Mapper(metadata, dialect=ArcadeDBDialect())
+    loader = RelationshipLoader(metadata, mapper)
+
+    cypher, params, _ = loader.build_find_all_by_ids_with_fetch_query(
+        RelTicket, ["#1:0"], ["company"]
+    )
+
+    assert "elementId(n) IN $__pks" in cypher
+    assert params == {"__pks": ["#1:0"]}
+
+
+def test_find_all_by_ids_with_fetch_natural_pk_unchanged() -> None:
+    from runic.ogm.core.metadata import metadata
+
+    mapper = Mapper(metadata)
+    loader = RelationshipLoader(metadata, mapper)
+
+    cypher, params, _ = loader.build_find_all_by_ids_with_fetch_query(
+        RelPerson, ["p1"], ["company"]
+    )
+
+    assert "n.`id` IN $__pks" in cypher
+    assert params == {"__pks": ["p1"]}
 
 
 # ---------------------------------------------------------------------------

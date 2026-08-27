@@ -22,7 +22,7 @@ print(answer.text)
 
 `query()` takes the question and an optional `mode` keyword:
 
-```python
+```text
 rag.query(q, *, mode="auto")   # mode in {"auto", "local", "hybrid"}
 ```
 

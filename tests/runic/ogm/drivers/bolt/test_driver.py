@@ -11,7 +11,7 @@ from runic.ogm.core.descriptors import Field
 from runic.ogm.core.models import Node
 from runic.ogm.driver import TransactionalGraphDriver
 from runic.ogm.driver.age import AGEDriver
-from runic.ogm.driver.bolt import BoltDriver
+from runic.ogm.driver.bolt import BoltDriver, BoltEdge, BoltNode
 from runic.ogm.driver.neo4j import _NEO4J_DIALECT
 from runic.ogm.session.session import Session
 
@@ -34,6 +34,81 @@ class TestTransactionalGraphDriverProtocol:
     def test_age_driver_satisfies_protocol(self) -> None:
         driver = AGEDriver(MagicMock(), "g")
         assert isinstance(driver, TransactionalGraphDriver)
+
+
+# ---------------------------------------------------------------------------
+# BoltNode / BoltEdge wrappers
+# ---------------------------------------------------------------------------
+
+
+class _RawBoltNode:
+    """Stand-in for ``neo4j.graph.Node`` whose ``.id`` raises when touched.
+
+    The neo4j driver deprecated ``Node.id``; reading it emits a
+    ``DeprecationWarning`` and it is gone in the next major. Raising here turns
+    any re-introduction of that access into a test failure rather than a
+    warning nobody reads.
+    """
+
+    element_id = "4:9b38fab1-085e-46aa-b72b-825702e59dcf:285"
+    labels = frozenset({"Person", "Actor"})
+
+    def __init__(self, props: dict[str, Any] | None = None) -> None:
+        self._props = props or {"name": "Alice"}
+
+    @property
+    def id(self) -> int:
+        raise AssertionError("BoltNode must not read the deprecated neo4j .id")
+
+    def __iter__(self) -> Any:
+        return iter(self._props)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._props[key]
+
+    def keys(self) -> Any:
+        return self._props.keys()
+
+
+class TestBoltNode:
+    def test_element_id_is_the_bolt_element_id(self) -> None:
+        node = BoltNode(_RawBoltNode())
+        assert node.element_id == "4:9b38fab1-085e-46aa-b72b-825702e59dcf:285"
+
+    def test_labels_are_listed(self) -> None:
+        assert sorted(BoltNode(_RawBoltNode()).labels) == ["Actor", "Person"]
+
+    def test_properties_are_copied(self) -> None:
+        assert BoltNode(_RawBoltNode({"name": "Bob"})).properties == {"name": "Bob"}
+
+
+class _RawBoltEdge:
+    """Stand-in for ``neo4j.graph.Relationship``; ``.id`` raises when touched."""
+
+    type = "ACTED_IN"
+
+    def __init__(self) -> None:
+        self._props = {"role": "lead"}
+
+    @property
+    def id(self) -> int:
+        raise AssertionError("BoltEdge must not read the deprecated neo4j .id")
+
+    def __iter__(self) -> Any:
+        return iter(self._props)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._props[key]
+
+    def keys(self) -> Any:
+        return self._props.keys()
+
+
+class TestBoltEdge:
+    def test_type_and_properties(self) -> None:
+        edge = BoltEdge(_RawBoltEdge())
+        assert edge.type == "ACTED_IN"
+        assert edge.properties == {"role": "lead"}
 
 
 # ---------------------------------------------------------------------------

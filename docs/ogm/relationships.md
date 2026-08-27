@@ -23,11 +23,11 @@ so that scalar data and graph topology never mix:
 from runic.ogm import Field, Node, Relation
 
 class Company(Node, labels=["Company"]):
-    id: str = Field(primary_key=True, generated=True)
+    id: str | int | None = Field(primary_key=True, generated=True, default=None)
     name: str = Field(index=True)
 
 class Person(Node, labels=["Person"]):
-    id: str = Field(primary_key=True, generated=True)
+    id: str | int | None = Field(primary_key=True, generated=True, default=None)
     name: str = Field(index=True)
     # single outgoing relationship
     company: Company | None = Relation(

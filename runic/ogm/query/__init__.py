@@ -18,6 +18,10 @@ Expression helpers imported here for convenience::
     from runic.ogm.query import count, avg, sum_, min_, max_, collect
 
 Refer to :mod:`runic.ogm.query.builder` for the full API reference.
+
+A custom clause or value expression renders against
+:class:`~runic.ogm.query.protocol.CompilationContext` — the interface the
+compiler publishes to the objects it compiles.
 """
 
 from typing import Any, TypeVar
@@ -43,6 +47,7 @@ from runic.ogm.query.specialised import (
     VectorQueryBuilder,
 )
 from runic.ogm.query.mutation import MutationBuilder, unwind
+from runic.ogm.query.protocol import CompilationContext
 from runic.ogm.query.values import (
     Alias,
     AliasedExpr,
@@ -226,4 +231,6 @@ __all__ = [  # noqa: RUF022
     # Bulk writes
     "MutationBuilder",
     "unwind",
+    # Compilation interface, for custom clauses / value expressions
+    "CompilationContext",
 ]

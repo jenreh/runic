@@ -46,6 +46,23 @@ class Mapper:
         fn = getattr(self._dialect, "subtype_where", None)
         return fn(alias, labels) if fn else None
 
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Return ``(predicate, params)`` matching *alias* against generated PKs.
+
+        The batch counterpart of ``GraphDialect.generated_id_where``. Backends
+        disagree on both halves: Bolt backends compare ``elementId()`` rather
+        than ``id()``, and Apache AGE cannot evaluate ``id(n) IN <list>`` at all
+        — it segfaults the server — so it expands the predicate itself. A
+        dialect that says nothing gets the plain ``id(n) IN $__pks`` form.
+        """
+        fn = getattr(self._dialect, "generated_ids_where", None)
+        if fn is not None:
+            predicate, params = fn(alias, pks)
+            return predicate, params
+        return f"id({alias}) IN $__pks", {"__pks": pks}
+
     def _vector_sync_clauses(
         self, alias: str, node_meta: NodeMeta, props: dict[str, Any]
     ) -> str:
@@ -211,12 +228,13 @@ class Mapper:
         where = f"WHERE {subtype_filter} AND " if subtype_filter else "WHERE "
 
         if self._is_generated_pk(node_meta):
-            id_match = "id(n) IN $__pks"
+            id_match, params = self.generated_ids_where("n", pks)
         else:
             id_match = f"{property_ref('n', node_meta.pk_field_name or '')} IN $__pks"
+            params = {"__pks": pks}
 
         cypher = f"MATCH (n:{labels_str}) {where}{id_match} RETURN n"
-        return cypher, {"__pks": pks}
+        return cypher, params
 
     def build_count_query(self, cls: type) -> tuple[str, dict[str, Any]]:
         """Return ``(cypher, params)`` to count all entities of *cls*."""

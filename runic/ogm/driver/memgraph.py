@@ -44,7 +44,8 @@ class MemgraphDialect:
       returns ``node``, ``distance``, and ``similarity`` columns.  Index must
       be pre-created as ``CREATE VECTOR INDEX {type}_{field} ON :{type}({field})
       WITH CONFIG {...}``.
-    - Integer node IDs accessed via ``id()``, no ``toInteger()`` cast needed.
+    - Engine-assigned node IDs are the Bolt element ids (the integer id as a
+      string, e.g. ``"285"``), matched with ``elementId()``.
     - No Cypher function wrappers (``vecf32``, ``intern``) — raw values only.
     - TLS available via ``bolt+s://`` (pass ``encrypted=True`` to factory).
     """
@@ -55,7 +56,14 @@ class MemgraphDialect:
     unsupported_features: frozenset[str] = frozenset()
 
     def generated_id_where(self, alias: str, param: str) -> str:
-        return f"WHERE id({alias}) = ${param}"
+        """Match on ``elementId()``, the identifier the Bolt layer reports."""
+        return f"WHERE elementId({alias}) = ${param}"
+
+    def generated_ids_where(
+        self, alias: str, pks: list[Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Return the batch counterpart of :meth:`generated_id_where`."""
+        return f"elementId({alias}) IN $__pks", {"__pks": pks}
 
     def cypher_fn_for_field(self, fi: FieldInfo) -> str | None:
         from runic.ogm.core.types import GeoLocationConverter

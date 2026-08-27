@@ -25,7 +25,7 @@ class Language(Node, labels=["Language"]):
 
 
 class Tag(Node, labels=["Tag"]):
-    id: int | None = Field(default=None, generated=True)
+    id: str | int | None = Field(default=None, generated=True)
     name: str = Field()
 
 
@@ -99,12 +99,20 @@ def test_delete(graph_driver: Any) -> None:
 
 
 def test_generated_id_assigned_after_flush(graph_driver: Any) -> None:
+    # The value is whatever the backend calls its own identifier — an integer on
+    # FalkorDB and AGE, an opaque element-id string on the Bolt backends — so
+    # the contract is that it is assigned and round-trips, not that it is an int.
     with Session(graph_driver) as s:
         tag = Tag(name="graph")
         s.add(tag)
         s.commit()
-        assert isinstance(tag.id, int)
         assert tag.id is not None
+        assert isinstance(tag.id, (int, str))
+
+    with Session(graph_driver) as s:
+        reloaded = s.get(Tag, tag.id)
+        assert reloaded is not None
+        assert reloaded.name == "graph"
 
 
 def test_identity_map_returns_same_instance(graph_driver: Any) -> None:

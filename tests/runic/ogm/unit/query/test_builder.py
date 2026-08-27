@@ -192,7 +192,7 @@ class TestBasicQueries:
 
     def test_where_not(self) -> None:
         q = QueryBuilder(_mock_session(), BPerson)
-        q.where(~(BPerson.active == True))  # noqa: E712  # ty: ignore[invalid-argument-type]
+        q.where(~(BPerson.active == True))  # noqa: E712  # ty: ignore[invalid-argument-type, deprecated]
         cypher, _ = q.build()
         assert "NOT" in cypher
 

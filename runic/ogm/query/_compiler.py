@@ -6,6 +6,11 @@ and owns the single responsibility of turning the builder's accumulated state
 alias/parameter/field-lookup helpers those fragments rely on.  It is internal;
 :class:`~runic.ogm.query.builder.QueryBuilder` inherits it and orchestrates the
 full ``build()``.
+
+The subset of it that clauses and value expressions render against is published
+as :class:`~runic.ogm.query.protocol.CompilationContext`; the members named
+there are this class's contract with its siblings, and everything else is its
+own business.
 """
 
 from __future__ import annotations
@@ -38,17 +43,21 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
 
     State attributes are populated by :meth:`QueryBuilder.__init__`; they are
     declared here so the compile methods type-check against the shared state.
+
+    Implements :class:`~runic.ogm.query.protocol.CompilationContext`
+    structurally — the public members below are that interface, and renaming
+    one is an interface change, not a local edit.
     """
 
     _cls_aliases: dict[type, list[str]]
-    _root_alias: str
+    root_alias: str
     _where_exprs: list[Expr]
     _distinct: bool
     _project_fields: list[FieldDescriptor | ValueExpr | AggExpr | str]
     _alias_map: dict[str, type]
     _returning: list[Any]
     _param_counter: int
-    _params: dict[str, Any]
+    params: dict[str, Any]
     _declared_params: set[str]
     _limit_val: Any
     _skip_val: Any
@@ -58,7 +67,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     # ------------------------------------------------------------------
 
     @property
-    def _dialect(self) -> Any:
+    def dialect(self) -> Any:
         if self._session is None:
             return None
         return self._session.mapper.dialect
@@ -73,7 +82,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         :class:`~runic.ogm.mapper.mapper.Mapper`'s, so an unbound statement
         compiles the same way a FalkorDB-bound one does.
         """
-        dialect = self._dialect
+        dialect = self.dialect
         if dialect is not None:
             return dialect
         from runic.ogm.driver.falkordb import FalkorDBDialect
@@ -81,19 +90,24 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         return FalkorDBDialect()
 
     # ------------------------------------------------------------------
-    # Internal: Cypher expression compilation
+    # Cypher expression compilation
     # ------------------------------------------------------------------
 
-    def _compile_expr(self, expr: Expr) -> str:
+    def compile_expr(self, expr: Expr) -> str:
         """Recursively compile an Expr tree to a Cypher predicate string."""
         if isinstance(expr, FilterExpr):
             return self._compile_filter(expr)
         if isinstance(expr, CompoundExpr):
-            parts = [f"({self._compile_expr(op)})" for op in expr.operands]
+            parts = [f"({self.compile_expr(op)})" for op in expr.operands]
             return f" {expr.op} ".join(parts)
         if isinstance(expr, NegatedExpr):
-            return f"NOT ({self._compile_expr(expr.operand)})"
+            return f"NOT ({self.compile_expr(expr.operand)})"
         raise TypeError(f"Unsupported expression type: {type(expr)!r}")
+
+    def compile_and(self, exprs: list[Expr]) -> str:
+        """Compile one or more expressions into a single (AND-joined) condition."""
+        expr = exprs[0] if len(exprs) == 1 else CompoundExpr(op="AND", operands=exprs)
+        return self.compile_expr(expr)
 
     def _compile_filter(self, expr: FilterExpr) -> str:
         """Compile a single FilterExpr to a Cypher condition string."""
@@ -104,7 +118,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if isinstance(expr.left, ValueExpr):
             lhs = expr.left.to_cypher(self)
         else:
-            alias = expr.alias or self._alias_for_cls(expr.cls)
+            alias = expr.alias or self.alias_for_cls(expr.cls)
             lhs = property_ref(alias, expr.prop)
 
         # Null checks have no parameter
@@ -155,9 +169,9 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         if converter is not None and param_value is not None:
             param_value = converter.to_graph(param_value)
 
-        param_name = self._next_param(param_value)
+        param_name = self.bind_param(param_value)
 
-        _d = self._dialect
+        _d = self.dialect
         cypher_fn = (
             _d.cypher_fn_for_field(fi) if (fi is not None and _d is not None) else None
         )
@@ -235,7 +249,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         )
 
         if isinstance(item, AggExpr):
-            return self._compile_agg(item, self._cls_alias_map()), item.result_alias
+            return self.compile_agg(item, self.cls_alias_map()), item.result_alias
         if isinstance(item, AliasedExpr):
             return item.to_cypher(self), item.alias
         if isinstance(item, Alias):
@@ -254,16 +268,16 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         from runic.ogm.query.expressions import AggExpr as _Agg
 
         if isinstance(value, _Agg):
-            return self._compile_agg(value, self._cls_alias_map())
+            return self.compile_agg(value, self.cls_alias_map())
         return self._compile_value(value)
 
-    def _cls_alias_map(self) -> dict[type, str]:
+    def cls_alias_map(self) -> dict[type, str]:
         """First registered Cypher variable per OGM class, for aggregates."""
         return {
             cls: aliases[0] for cls, aliases in self._cls_aliases.items() if aliases
         }
 
-    def _compile_agg(self, agg: AggExpr, cls_to_alias: dict[type, str]) -> str:
+    def compile_agg(self, agg: AggExpr, cls_to_alias: dict[type, str]) -> str:
         """Render one aggregation, whose operand may be a value expression.
 
         ``count(when(...))`` is the case that matters: several differently
@@ -306,7 +320,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             return _prop_ref(value).to_cypher(self)
         return escape_reference(str(value), "projection")
 
-    def _expr_aliases(self, expr: Expr) -> set[str]:
+    def expr_aliases(self, expr: Expr) -> set[str]:
         """The Cypher variables *expr* reads, across both operands and nesting."""
         from runic.ogm.query.values import ValueExpr, _aliases_of
 
@@ -315,17 +329,17 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             if isinstance(expr.left, ValueExpr):
                 found |= expr.left.referenced_aliases(self)
             else:
-                found.add(expr.alias or self._alias_for_cls(expr.cls))
+                found.add(expr.alias or self.alias_for_cls(expr.cls))
             found |= _aliases_of((expr.value,), self)
             return found
         if isinstance(expr, CompoundExpr):
             found = set()
             for operand in expr.operands:
-                found |= self._expr_aliases(operand)
+                found |= self.expr_aliases(operand)
             return found
         if isinstance(expr, NegatedExpr):
-            return self._expr_aliases(expr.operand)
-        return {self._root_alias}
+            return self.expr_aliases(expr.operand)
+        return {self.root_alias}
 
     def _split_where_exprs(self) -> tuple[list[Expr], list[Expr]]:
         """Split WHERE expressions into root-targeting and post-traversal groups.
@@ -352,7 +366,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
             # is invalid Cypher — so a predicate is a root condition only when
             # every variable it reads is the root one.  A parameter or literal
             # reads nothing and constrains nothing.
-            return self._expr_aliases(expr) <= {self._root_alias}
+            return self.expr_aliases(expr) <= {self.root_alias}
         if isinstance(expr, CompoundExpr):
             return all(self._expr_targets_root_only(op) for op in expr.operands)
         if isinstance(expr, NegatedExpr):
@@ -360,7 +374,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         return False
 
     # ------------------------------------------------------------------
-    # Internal: alias / parameter / field helpers
+    # Alias / parameter / field helpers
     # ------------------------------------------------------------------
 
     def _validate_variables(self) -> None:
@@ -375,7 +389,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         that error would also abort the surrounding transaction, making every
         later statement in the session fail with a misleading message.
         """
-        dialect = self._dialect
+        dialect = self.dialect
         reserved = getattr(
             dialect, "reserved_variable_names", UNIVERSAL_RESERVED_VARIABLES
         )
@@ -388,7 +402,7 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
     def _declared_variables(self) -> list[tuple[str, str]]:
         """Every Cypher variable this statement will emit, with what named it."""
         found: list[tuple[str, str]] = []
-        root = getattr(self, "_root_alias", None)
+        root = getattr(self, "root_alias", None)
         if root:
             found.append((root, "alias"))
         found.extend((name, "alias") for name in getattr(self, "_alias_map", {}))
@@ -402,27 +416,27 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
                 found.append((variable, "UNWIND variable"))
         return found
 
-    def _alias_for_cls(self, cls: type) -> str:
+    def alias_for_cls(self, cls: type) -> str:
         """Return the first registered Cypher alias for *cls*, or root alias."""
         aliases = self._cls_aliases.get(cls)
         if aliases:
             return aliases[0]
         # Fallback: if cls is the root, return root alias
         if cls is self._root_cls:
-            return self._root_alias
+            return self.root_alias
         return self._last_alias
 
-    def _next_param(self, value: Any) -> str:
+    def bind_param(self, value: Any) -> str:
         """Allocate a new positional parameter, store value, return name."""
         name = f"p{self._param_counter}"
         self._param_counter += 1
-        self._params[name] = value
+        self.params[name] = value
         return name
 
     def declare_param(self, name: str) -> str:
         """Record a caller-bound parameter encountered during compilation.
 
-        Unlike :meth:`_next_param`, no value is stored: the statement declares
+        Unlike :meth:`bind_param`, no value is stored: the statement declares
         that it expects ``$name`` and the caller supplies it at execution.  This
         is what makes a statement reusable as a module-level constant.
         """
@@ -434,19 +448,19 @@ class _CypherCompiler(_ResultDecoder[T]):  # noqa: UP046
         cls = self._alias_map.get(alias)
         return self._find_field_info(cls, prop) if cls is not None else None
 
-    def _cypher_fn_for(self, alias: str, prop: str) -> str | None:
+    def cypher_fn_for(self, alias: str, prop: str) -> str | None:
         """The dialect's wrapping function for a property, if it declares one.
 
         ``vecf32``, ``point`` and ``intern`` have to wrap a value on its way in
         or the backend stores something it cannot index.
         """
         fi = self._field_info_for_alias(alias, prop)
-        dialect = self._dialect
+        dialect = self.dialect
         if fi is None or dialect is None:
             return None
         return dialect.cypher_fn_for_field(fi)  # type: ignore[no-any-return]
 
-    def _convert_for(self, alias: str, prop: str, value: Any) -> Any:
+    def convert_for(self, alias: str, prop: str, value: Any) -> Any:
         """Apply a field's TypeConverter to a value being written."""
         fi = self._field_info_for_alias(alias, prop)
         converter = fi.field.converter if fi is not None else None

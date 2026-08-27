@@ -13,13 +13,23 @@ from runic.ogm.driver.memgraph import (
 
 
 class TestMemgraphDialectGeneratedIdWhere:
-    def test_basic(self) -> None:
-        assert _MEMGRAPH_DIALECT.generated_id_where("n", "pk") == "WHERE id(n) = $pk"
+    def test_matches_on_element_id(self) -> None:
+        assert (
+            _MEMGRAPH_DIALECT.generated_id_where("n", "pk")
+            == "WHERE elementId(n) = $pk"
+        )
 
     def test_alias_and_param_are_substituted(self) -> None:
         result = _MEMGRAPH_DIALECT.generated_id_where("node", "node_id")
         assert "node" in result
         assert "$node_id" in result
+
+
+class TestMemgraphDialectGeneratedIdsWhere:
+    def test_matches_batch_on_element_id(self) -> None:
+        predicate, params = _MEMGRAPH_DIALECT.generated_ids_where("n", ["1", "2"])
+        assert predicate == "elementId(n) IN $__pks"
+        assert params == {"__pks": ["1", "2"]}
 
 
 class TestMemgraphDialectCypherFnForField:
@@ -101,10 +111,11 @@ class TestMemgraphDialectVectorKnn:
 class TestMemgraphDialectWrappers:
     def test_wrap_node_returns_bolt_node(self) -> None:
         raw = MagicMock()
-        raw.id = 1
+        raw.element_id = "1"
         raw.labels = frozenset(["Thing"])
         node = _MEMGRAPH_DIALECT.wrap_node(raw)
         assert isinstance(node, BoltNode)
+        assert node.element_id == "1"
 
     def test_wrap_edge_returns_bolt_edge(self) -> None:
         raw = MagicMock()
