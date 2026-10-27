@@ -129,3 +129,7 @@ wheels/
 .playwright-mcp/
 .playwright/
 BusinessMagazin.pdf
+
+# Local env files
+.env.test
+.env.example
