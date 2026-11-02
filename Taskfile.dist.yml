@@ -65,10 +65,23 @@ tasks:
   # ----------------------------------------------------------------------------
 
   release:publish:
-    desc: Build and publish all library modules to PyPI
+    desc: Build and publish all library modules whose version is not on PyPI yet
     cmds:
-      - uv build
-      - uv publish
-      - uv build --directory packages/runic-rag-docling
-      - uv publish --directory packages/runic-rag-docling
+      - task: publish-package
+        vars: { NAME: runic-py, DIR: . }
+      - task: publish-package
+        vars: { NAME: runic-rag-docling, DIR: packages/runic-rag-docling }
       - echo "✅ All modules published successfully"
+
+  publish-package:
+    internal: true
+    dir: "{{.DIR}}"
+    cmds:
+      - |
+        VERSION=$(grep '^version = ' pyproject.toml | cut -d '"' -f2)
+        STATUS=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/{{.NAME}}/$VERSION/json")
+        case "$STATUS" in
+          200) echo "⏭️  {{.NAME}} $VERSION is already on PyPI, skipping" ;;
+          404) uv build --clear && uv publish ;;
+          *) echo "❌ PyPI returned HTTP $STATUS for {{.NAME}} $VERSION" >&2; exit 1 ;;
+        esac
