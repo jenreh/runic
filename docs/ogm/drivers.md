@@ -138,6 +138,10 @@ driver, and on ArcadeDB the old integer path did not merely differ, it raised
 
 ---
 
+## Transport security
+
+Bolt backends (Neo4j, Memgraph, ArcadeDB, Neptune) take their TLS setting from the URI scheme. `BoltDriver` logs a warning when a connection is cleartext (`bolt://`) to a host other than `localhost`, `127.0.0.1` or `::1`, and always warns for `bolt+ssc://`, which skips certificate verification. Memgraph and ArcadeDB default to `encrypted=False`; pass `encrypted=True` against a TLS-enabled server. runic always connects to ArcadeDB without TLS, so keep it on a private network.
+
 ## FalkorDB
 
 **Supported**

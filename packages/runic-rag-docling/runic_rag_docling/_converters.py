@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import urlsplit
 
 from runic.rag import RagError
 
@@ -43,12 +44,26 @@ __all__ = [
 # change is a one-line edit in this capsule.
 _CONVERT_FILE_PATH = "/v1alpha/convert/file"
 
+# Hosts where a plain-HTTP docling-serve is acceptable even with an API key:
+# the key never leaves the machine.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 # Shared install hint for the server path (httpx + docling-core), referenced by
 # both ServerDoclingConverter and the default rehydrate helper.
 _SERVER_INSTALL_HINT = (
     "ServerDoclingConverter requires the 'httpx' and 'docling-core' packages. "
     "Install it with: uv add 'runic-rag-docling[server]'"
 )
+
+
+def _require_tls_for_api_key(server_url: str, has_api_key: bool) -> None:
+    """Refuse to send an API key over cleartext HTTP to a non-loopback host."""
+    parts = urlsplit(server_url)
+    if has_api_key and parts.scheme == "http" and parts.hostname not in _LOOPBACK_HOSTS:
+        raise RagError(
+            "ServerDoclingConverter would send api_key over plain HTTP to "
+            f"{parts.hostname!r}; use an https:// server_url."
+        )
 
 
 class _DoclingConverter(Protocol):  # noqa: PYI046 - injected seam, used via TYPE_CHECKING
@@ -155,6 +170,7 @@ class ServerDoclingConverter:
     ) -> None:
         if not settings.server_url:
             raise RagError("ServerDoclingConverter requires settings.server_url")
+        _require_tls_for_api_key(settings.server_url, settings.api_key is not None)
         self._settings = settings
         self._server_url = settings.server_url.rstrip("/")
         self._rehydrate = rehydrate or _default_rehydrate
@@ -170,7 +186,7 @@ class ServerDoclingConverter:
     def _headers(self) -> dict[str, str]:
         """Return request headers, adding ``X-Api-Key`` only when configured."""
         if self._settings.api_key:
-            return {"X-Api-Key": self._settings.api_key}
+            return {"X-Api-Key": self._settings.api_key.get_secret_value()}
         return {}
 
     def _document_payload(self, path: str | Path) -> dict[str, Any]:

@@ -53,7 +53,8 @@ def test_env_overrides_apply(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.mode == "server"
     assert settings.server_url == "http://localhost:5001"
-    assert settings.api_key == "k-123"
+    assert settings.api_key is not None
+    assert settings.api_key.get_secret_value() == "k-123"
     assert settings.max_tokens == 256
     assert settings.ocr is True
 

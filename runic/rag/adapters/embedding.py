@@ -140,7 +140,7 @@ class OpenAIEmbedder(_BaseEmbedder):
                 "OPENAI_API_KEY is required when embedding_provider='openai'."
             )
         return OpenAI(
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_api_key.get_secret_value(),
             base_url=settings.openai_base_url,
         )
 

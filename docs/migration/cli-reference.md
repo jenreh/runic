@@ -21,6 +21,10 @@ execute ``env.py`` which calls ``context.configure()``.
 
 ---
 
+::: warning env.py and revision files are executed
+`runic` runs `env.py` and every revision script as Python code, the same trust model as Alembic. Only point `--config` and the migrations directory at code you control, and never at paths taken from untrusted input or from a CI workspace that outside contributors can write to.
+:::
+
 ## init
 
 ```bash

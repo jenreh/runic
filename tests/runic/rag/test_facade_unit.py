@@ -12,6 +12,7 @@ tests are deterministic regardless of any ambient ``.env`` / ``OPENAI_API_KEY``.
 from __future__ import annotations
 
 import pytest
+from pydantic import SecretStr
 
 from runic.rag.adapters import OllamaEmbedder, OpenAIEmbedder
 from runic.rag.config import RagSettings
@@ -33,7 +34,7 @@ def test_build_embedder_selects_ollama() -> None:
 def test_build_embedder_defaults_to_openai() -> None:
     """The default embedding provider stays OpenAI."""
     settings = RagSettings().model_copy(
-        update={"embedding_provider": "openai", "openai_api_key": "sk-test"}
+        update={"embedding_provider": "openai", "openai_api_key": SecretStr("sk-test")}
     )
 
     embedder = GraphRAG._build_embedder(settings)

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import secrets
 from typing import TYPE_CHECKING, Any
 
 from runic.cypher import (
@@ -293,6 +294,21 @@ _IDENTIFIER_PART = r"(?:`(?:[^`]|``)+`|\w+)"
 _AS_ALIAS_RE = re.compile(rf"\bAS\s+({_IDENTIFIER_PART})\s*$", re.IGNORECASE)
 _PROPERTY_ACCESS_RE = re.compile(rf"^{_IDENTIFIER_PART}\.({_IDENTIFIER_PART})$")
 _BARE_IDENTIFIER_RE = re.compile(rf"^({_IDENTIFIER_PART})$")
+
+
+def _dollar_quote(cypher: str) -> str:
+    """Wrap *cypher* in a PostgreSQL dollar-quote its text cannot terminate.
+
+    Cypher can carry caller-chosen text (backtick-quoted property keys), so a
+    fixed delimiter could be closed from inside the query and the remainder run
+    as SQL.  The tag is random per call and re-rolled if it ever appears in the
+    query.
+    """
+    while True:
+        tag = f"age_{secrets.token_hex(8)}"
+        delimiter = f"${tag}$"
+        if delimiter not in cypher:
+            return f"{delimiter} {cypher} {delimiter}"
 
 
 def _quote_sql_identifier(name: str) -> str:
@@ -686,19 +702,21 @@ class AGEDriver:
         cols = _parse_return_columns(cypher)
         as_clause = ", ".join(f"{_quote_sql_identifier(c)} agtype" for c in cols)
 
+        quoted_cypher = _dollar_quote(cypher)
+
         with self._conn.cursor() as cur:
             if params:
                 params_json = json.dumps(params, default=_serialize_param)
                 sql = (
                     f"SELECT * FROM cypher('{self._graph_name}', "  # noqa: S608
-                    f"$age_q$ {cypher} $age_q$, "
+                    f"{quoted_cypher}, "
                     f"%s::agtype) AS ({as_clause})"
                 )
                 cur.execute(sql, (params_json,))
             else:
                 sql = (
                     f"SELECT * FROM cypher('{self._graph_name}', "  # noqa: S608
-                    f"$age_q$ {cypher} $age_q$) AS ({as_clause})"
+                    f"{quoted_cypher}) AS ({as_clause})"
                 )
                 cur.execute(sql)
 

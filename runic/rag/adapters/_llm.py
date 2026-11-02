@@ -44,7 +44,7 @@ def _build_provider(settings: RagSettings) -> OpenAIProvider:
     if not settings.openai_api_key:
         raise ConfigError("OPENAI_API_KEY is required when llm_provider='openai'.")
     return OpenAIProvider(
-        api_key=settings.openai_api_key,
+        api_key=settings.openai_api_key.get_secret_value(),
         base_url=settings.openai_base_url,
     )
 

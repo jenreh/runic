@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,7 +34,7 @@ class DoclingSettings(BaseSettings):
 
     mode: Literal["local", "server"] = "local"
     server_url: str | None = None
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     max_tokens: int = 512
     tokenizer: str | None = None
     merge_peers: bool = True

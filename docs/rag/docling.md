@@ -344,6 +344,10 @@ extra installed (e.g. *"install with: `uv add 'runic-rag-docling[local]'`"*).
 
 ---
 
+## Security notes
+
+`RUNIC_DOCLING_API_KEY` is held as a `SecretStr` and sent as the `X-Api-Key` header. `ServerDoclingConverter` refuses to start when an API key is set and `server_url` is plain `http://` to a host other than `localhost`, `127.0.0.1` or `::1`. Use an `https://` URL for any remote server.
+
 ## Next steps
 
 ::: info See also

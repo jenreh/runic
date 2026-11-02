@@ -19,7 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from runic.rag.concurrency import BudgetGuard
-from runic.rag.config import RagSettings, load_settings
+from runic.rag.config import RagSettings, load_settings, reveal_secret
 from runic.rag.ontology import Ontology
 from runic.rag.services import IngestionService, RetrievalService
 from runic.rag.store import GraphStore
@@ -222,7 +222,7 @@ class GraphRAG:
                 port=_neo4j_port(settings.neo4j_uri),
                 database=settings.neo4j_database,
                 username=settings.neo4j_username or "",
-                password=settings.neo4j_password or "",
+                password=reveal_secret(settings.neo4j_password),
             )
         if backend == "memgraph":
             return create_driver(
@@ -231,7 +231,7 @@ class GraphRAG:
                 port=_neo4j_port(settings.memgraph_uri),
                 database=settings.memgraph_database,
                 username=settings.memgraph_username or "",
-                password=settings.memgraph_password or "",
+                password=reveal_secret(settings.memgraph_password),
             )
         if backend == "arcadedb":
             return create_driver(
@@ -240,7 +240,7 @@ class GraphRAG:
                 port=settings.arcadedb_port,
                 database=settings.arcadedb_database,
                 username=settings.arcadedb_username,
-                password=settings.arcadedb_password or "",
+                password=reveal_secret(settings.arcadedb_password),
             )
         if backend == "age":
             return create_driver(
@@ -250,7 +250,7 @@ class GraphRAG:
                 database=settings.age_database,
                 graph=settings.age_graph,
                 username=settings.age_username,
-                password=settings.age_password or "",
+                password=reveal_secret(settings.age_password),
             )
         if backend == "neptune":
             return create_driver(

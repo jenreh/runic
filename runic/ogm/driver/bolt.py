@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from runic.ogm.driver import GraphDialect
@@ -13,6 +14,32 @@ if TYPE_CHECKING:
     BoltAuth = tuple[str, str] | Any
 
 log = logging.getLogger(__name__)
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_CLEARTEXT_SCHEMES = frozenset({"bolt", "neo4j"})
+
+
+def _warn_if_insecure(uri: str) -> None:
+    """Warn when *uri* sends credentials in cleartext or skips cert checks.
+
+    Loopback hosts are exempt from the cleartext warning (local development);
+    ``+ssc`` (self-signed, no certificate verification) is always flagged.
+    """
+    parts = urlsplit(uri)
+    if parts.scheme.endswith("+ssc"):
+        log.warning(
+            "Bolt URI %s://%s uses a scheme that skips TLS certificate "
+            "verification; use +s with a trusted certificate in production.",
+            parts.scheme,
+            parts.netloc.rpartition("@")[2],
+        )
+    elif parts.scheme in _CLEARTEXT_SCHEMES and parts.hostname not in _LOOPBACK_HOSTS:
+        log.warning(
+            "Bolt connection to %s is not encrypted; credentials and data "
+            "travel in cleartext. Enable TLS (encrypted=True) if the server "
+            "supports it.",
+            parts.hostname,
+        )
 
 
 class BoltNode:
@@ -116,6 +143,7 @@ class BoltDriver:
                 "bolt+ssc://", "bolt://", 1
             )
 
+        _warn_if_insecure(uri)
         self._uri = uri
         self._auth = auth
         self._neo4j_driver = neo4j.GraphDatabase.driver(uri, auth=auth)

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from runic.cypher import escape_identifier, escape_string, property_ref
 from runic.ogm import Session
 from runic.ogm.schema import extract_declared_specs
+from runic.rag.config import reveal_secret
 from runic.rag.domain import ChunkHit, EntityHit, RelationHit, ScoredKey
 from runic.rag.ontology import Ontology
 
@@ -357,7 +358,7 @@ class GraphStore:
         try:
             SchemaManager(adapter).ensure_entity_types(self._models)
         except Exception as exc:  # noqa: BLE001 - types created on write; non-fatal
-            log.info(
+            log.warning(
                 "ensure_entity_types skipped for %s (types created on write): %s",
                 self._settings.backend,
                 exc,
@@ -440,7 +441,7 @@ class GraphStore:
             if "already" in text or "duplicate" in text or "equivalent" in text:
                 log.debug("%s already present: %s", what, exc)
             else:
-                log.info("Skipped optional %s (backend rejected DDL): %s", what, exc)
+                log.warning("Skipped optional %s (backend rejected DDL): %s", what, exc)
 
     @staticmethod
     def _ignore_exists(action: Any) -> None:
@@ -490,7 +491,7 @@ class GraphStore:
                 port=port,
                 database=s.neo4j_database,
                 username=s.neo4j_username or "neo4j",
-                password=s.neo4j_password or "",
+                password=reveal_secret(s.neo4j_password),
             )
         if backend == "memgraph":
             host, port = _parse_bolt_uri(s.memgraph_uri or "bolt://localhost:7687")
@@ -500,7 +501,7 @@ class GraphStore:
                 port=port,
                 database=s.memgraph_database,
                 username=s.memgraph_username or "",
-                password=s.memgraph_password or "",
+                password=reveal_secret(s.memgraph_password),
             )
         if backend == "arcadedb":
             return create_adapter(
@@ -509,7 +510,7 @@ class GraphStore:
                 port=s.arcadedb_port,
                 database=s.arcadedb_database,
                 username=s.arcadedb_username,
-                password=s.arcadedb_password or "",
+                password=reveal_secret(s.arcadedb_password),
             )
         if backend == "age":
             return create_adapter(
@@ -519,7 +520,7 @@ class GraphStore:
                 database=s.age_database,
                 graph=s.age_graph,
                 username=s.age_username,
-                password=s.age_password or "",
+                password=reveal_secret(s.age_password),
             )
         if backend == "neptune":
             if not s.neptune_endpoint:

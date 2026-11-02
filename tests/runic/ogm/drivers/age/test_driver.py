@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
-from runic.ogm.driver.age import AGEDriver, _parse_return_columns
+from runic.ogm.driver.age import AGEDriver, _dollar_quote, _parse_return_columns
 from runic.ogm.driver.factory import create_driver
 
 
@@ -178,3 +178,44 @@ class TestAGEDriverTransactions:
         driver.execute("MATCH (m) RETURN m", {})
 
         mock_conn.commit.assert_not_called()
+
+
+class TestDollarQuote:
+    def test_wraps_cypher_in_matching_delimiters(self) -> None:
+        quoted = _dollar_quote("MATCH (n) RETURN n")
+        delimiter = quoted.split(" ", 1)[0]
+        assert delimiter.startswith("$age_")
+        assert delimiter.endswith("$")
+        assert quoted == f"{delimiter} MATCH (n) RETURN n {delimiter}"
+
+    def test_delimiter_is_random_per_call(self) -> None:
+        assert _dollar_quote("RETURN 1") != _dollar_quote("RETURN 1")
+
+    def test_legacy_fixed_tag_in_query_cannot_terminate_quote(self) -> None:
+        cypher = "MATCH (n) SET n.`x$age_q$); DROP TABLE t; --` = 1 RETURN n"
+        quoted = _dollar_quote(cypher)
+        delimiter = quoted.split(" ", 1)[0]
+        assert cypher.count(delimiter) == 0
+        assert quoted.count(delimiter) == 2
+
+    def test_rerolls_when_delimiter_collides(self) -> None:
+        tokens = iter(["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"])
+        with patch("runic.ogm.driver.age.secrets.token_hex", lambda _n: next(tokens)):
+            quoted = _dollar_quote("RETURN '$age_aaaaaaaaaaaaaaaa$'")
+        assert quoted.startswith("$age_bbbbbbbbbbbbbbbb$")
+
+
+class TestExecuteQuoting:
+    def test_execute_sends_randomised_delimiter_to_postgres(self) -> None:
+        mock_conn = MagicMock()
+        cursor = MagicMock()
+        cursor.description = []
+        cursor.fetchall.return_value = []
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        AGEDriver(mock_conn, "g").execute("MATCH (n) RETURN n", {"a": 1})
+
+        sql = cursor.execute.call_args.args[0]
+        assert "$age_q$" not in sql
+        assert "cypher('g', $age_" in sql

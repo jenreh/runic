@@ -8,6 +8,10 @@ on:
     branches:
       - '**'
 
+# Least privilege: every job only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     name: Lint, Format & Type Check
@@ -15,15 +19,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.1.0
         with:
           python-version-file: "pyproject.toml"
 
@@ -47,15 +51,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.1.0
         with:
           python-version-file: "pyproject.toml"
 
@@ -77,15 +81,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.1.0
         with:
           python-version-file: "packages/runic-rag-docling/pyproject.toml"
 
@@ -111,3 +115,44 @@ jobs:
       - name: Run Type check
         if: always()
         run: uv run ty check .
+
+  dependency-audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Export locked dependencies
+        run: uv export --frozen --no-emit-project --all-extras --all-groups -o requirements.audit.txt
+
+      - name: Audit against known vulnerabilities
+        run: uvx pip-audit --requirement requirements.audit.txt --no-deps --disable-pip
+
+      - name: Export locked dependencies (runic-rag-docling)
+        working-directory: packages/runic-rag-docling
+        run: uv export --frozen --no-emit-project --no-emit-package runic-py --all-groups -o requirements.audit.txt
+
+      - name: Audit runic-rag-docling
+        working-directory: packages/runic-rag-docling
+        run: uvx pip-audit --requirement requirements.audit.txt --no-deps --disable-pip
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high

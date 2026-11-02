@@ -274,6 +274,13 @@ RUNIC_RAG_CACHE_DIR=.cache/runic-rag
 
 ---
 
+## Security notes
+
+- **Secrets are `SecretStr`.** `openai_api_key` and the Neo4j, Memgraph, ArcadeDB and AGE passwords are masked in `repr()` and `model_dump()`. Read one with `settings.openai_api_key.get_secret_value()`, or `reveal_secret(settings.neo4j_password)` from `runic.rag.config`, which returns `""` when it is unset. Keep real values in `.env` or your secret store, never in code.
+- **Use TLS outside local development.** Memgraph and ArcadeDB connect without TLS by default, and runic logs a warning for any cleartext `bolt://` connection to a non-loopback host. `bolt+ssc://` skips certificate verification and always warns.
+- **Ingested documents are untrusted input.** The answer prompt wraps retrieved text in a `<context>` block and tells the model to treat it as data, but a poisoned document can still skew an answer. Ingest only sources you trust, and review answers that drive actions.
+- **The content cache trusts its directory.** `cache_dir` holds cached LLM results as JSON. Keep it writable only by the account that runs ingestion.
+
 ## Next steps
 
 ::: info See also

@@ -14,7 +14,7 @@ import logging
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 log = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "RagSettings",
     "load_settings",
+    "reveal_secret",
 ]
 
 
@@ -54,7 +55,9 @@ class RagSettings(BaseSettings):
     embed_batch_size: int = 128
 
     # ── Provider credentials / endpoints ────────────────────────────────────
-    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias="OPENAI_API_KEY"
+    )
     openai_base_url: str | None = None
     ollama_base_url: str | None = Field(
         default=None, validation_alias="OLLAMA_BASE_URL"
@@ -78,26 +81,26 @@ class RagSettings(BaseSettings):
     falkordb_graph: str = "runic_rag"
     neo4j_uri: str | None = None
     neo4j_username: str | None = None
-    neo4j_password: str | None = None
+    neo4j_password: SecretStr | None = None
     neo4j_database: str = "neo4j"
     # Memgraph (Bolt; Neo4j protocol family)
     memgraph_uri: str | None = None
     memgraph_username: str | None = None
-    memgraph_password: str | None = None
+    memgraph_password: SecretStr | None = None
     memgraph_database: str = "memgraph"
     # ArcadeDB (Bolt)
     arcadedb_host: str = "localhost"
     arcadedb_port: int = 2424
     arcadedb_database: str = "runic_rag"
     arcadedb_username: str = "root"
-    arcadedb_password: str | None = None
+    arcadedb_password: SecretStr | None = None
     # Apache AGE (PostgreSQL + AGE extension)
     age_host: str = "localhost"
     age_port: int = 5432
     age_database: str = "postgres"
     age_graph: str = "runic_rag"
     age_username: str = "postgres"
-    age_password: str | None = None
+    age_password: SecretStr | None = None
     # Amazon Neptune Database (Bolt; SigV4 IAM auth via botocore)
     neptune_endpoint: str | None = None
     neptune_port: int = 8182
@@ -131,6 +134,11 @@ class RagSettings(BaseSettings):
     # ── Retrieval ───────────────────────────────────────────────────────────
     max_hops: int = 2
     top_k: int = 10
+
+
+def reveal_secret(secret: SecretStr | None) -> str:
+    """Return the plain value of *secret*, or ``""`` when it is unset."""
+    return secret.get_secret_value() if secret is not None else ""
 
 
 def load_settings() -> RagSettings:

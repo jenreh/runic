@@ -14,6 +14,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic import SecretStr
 from runic.rag import RagError
 from werkzeug import Request, Response
 
@@ -55,7 +56,7 @@ def _pdf(tmp_path: Path) -> Path:
 def _converter(
     httpserver: HTTPServer,
     *,
-    api_key: str | None = None,
+    api_key: SecretStr | None = None,
     rehydrate: Any = None,
 ) -> ServerDoclingConverter:
     """Build a ServerDoclingConverter pointed at the fake server."""
@@ -108,7 +109,9 @@ def test_api_key_header_sent_when_set(httpserver: HTTPServer, tmp_path: Path) ->
         capture
     )
 
-    _converter(httpserver, api_key="secret-key").markdown_from_path(_pdf(tmp_path))
+    _converter(httpserver, api_key=SecretStr("secret-key")).markdown_from_path(
+        _pdf(tmp_path)
+    )
 
     assert capture.received["api_key"] == "secret-key"
 
@@ -158,3 +161,27 @@ def test_missing_server_url_raises_config_ragerror() -> None:
     """Constructing without a ``server_url`` is a clear RagError, not a crash."""
     with pytest.raises(RagError):
         ServerDoclingConverter(DoclingSettings(mode="server", server_url=None))
+
+
+# ── TLS guard for the API key ────────────────────────────────────────────────
+
+
+def test_api_key_over_cleartext_remote_http_is_rejected() -> None:
+    """An API key must not be sent over ``http://`` to a non-loopback host."""
+    settings = DoclingSettings(
+        mode="server", server_url="http://docling.example:5001", api_key=SecretStr("k")
+    )
+    with pytest.raises(RagError, match="plain HTTP"):
+        ServerDoclingConverter(settings)
+
+
+def test_api_key_over_https_is_allowed() -> None:
+    settings = DoclingSettings(
+        mode="server", server_url="https://docling.example", api_key=SecretStr("k")
+    )
+    ServerDoclingConverter(settings)
+
+
+def test_cleartext_remote_http_without_api_key_is_allowed() -> None:
+    settings = DoclingSettings(mode="server", server_url="http://docling.example:5001")
+    ServerDoclingConverter(settings)

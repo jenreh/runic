@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from runic.rag.config import RagSettings, load_settings
+from runic.rag.config import RagSettings, load_settings, reveal_secret
 
 
 @pytest.fixture(autouse=True)
@@ -72,20 +72,20 @@ def test_prefixed_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_openai_api_key_reads_unprefixed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
     settings = RagSettings()
-    assert settings.openai_api_key == "sk-from-env"
+    assert reveal_secret(settings.openai_api_key) == "sk-from-env"
 
 
 def test_openai_api_key_reads_prefixed(monkeypatch: pytest.MonkeyPatch) -> None:
     # populate_by_name=True also accepts the RUNIC_RAG_-prefixed field name.
     monkeypatch.setenv("RUNIC_RAG_OPENAI_API_KEY", "sk-prefixed")
     settings = RagSettings()
-    assert settings.openai_api_key == "sk-prefixed"
+    assert reveal_secret(settings.openai_api_key) == "sk-prefixed"
 
 
 def test_openai_api_key_accepts_kwarg() -> None:
     # populate_by_name=True lets the field be set by name, not only its alias.
     settings = RagSettings(openai_api_key="sk-kwarg")
-    assert settings.openai_api_key == "sk-kwarg"
+    assert reveal_secret(settings.openai_api_key) == "sk-kwarg"
 
 
 def test_ollama_base_url_reads_unprefixed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,3 +105,16 @@ def test_load_settings_returns_settings(monkeypatch: pytest.MonkeyPatch) -> None
     settings = load_settings()
     assert isinstance(settings, RagSettings)
     assert settings.backend == "falkordb"
+
+
+def test_secrets_are_masked_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-me")
+    settings = RagSettings(neo4j_password="pw-leak-me")
+
+    text = repr(settings) + str(settings.model_dump())
+    assert "sk-leak-me" not in text
+    assert "pw-leak-me" not in text
+
+
+def test_reveal_secret_handles_unset() -> None:
+    assert reveal_secret(None) == ""
