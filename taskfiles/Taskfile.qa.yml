@@ -47,3 +47,23 @@ tasks:
   typecheck:
     desc: Run type checking
     cmd: "{{.RUNNER}} ty check ."
+
+  # ----------------------------------------------------------------------------
+  # Security (Dependency audit, Secret scan)
+  # ----------------------------------------------------------------------------
+
+  audit:
+    desc: Audit locked dependencies for known vulnerabilities (uv audit)
+    cmds:
+      - uv audit --frozen --preview-features audit-command
+      - cd packages/runic-rag-docling && UV_PYTHON=3.14 uv audit --frozen --preview-features audit-command --no-extra local --no-extra server
+
+  gitleaks:
+    desc: Scan git history for leaked secrets (gitleaks)
+    cmd: gitleaks git --no-banner --redact -c .gitleaks.toml
+
+  security:
+    desc: Run dependency audit and secret scan
+    cmds:
+      - task: audit
+      - task: gitleaks

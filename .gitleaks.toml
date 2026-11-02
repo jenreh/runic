@@ -1,0 +1,14 @@
+title = "runic gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Lockfile hashes and local/generated directories that look like secrets"
+paths = [
+    '''(^|/)uv\.lock$''',
+    '''(^|/)\.venv[^/]*/''',
+    '''(^|/)node_modules/''',
+    '''(^|/)dist/''',
+    '''(^|/)\.cache/''',
+]

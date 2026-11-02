@@ -116,33 +116,6 @@ jobs:
         if: always()
         run: uv run ty check .
 
-  dependency-audit:
-    name: Dependency Vulnerability Audit
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.3
-        with:
-          enable-cache: true
-
-      - name: Export locked dependencies
-        run: uv export --frozen --no-emit-project --all-extras --all-groups -o requirements.audit.txt
-
-      - name: Audit against known vulnerabilities
-        run: uvx pip-audit --requirement requirements.audit.txt --no-deps --disable-pip
-
-      - name: Export locked dependencies (runic-rag-docling)
-        working-directory: packages/runic-rag-docling
-        run: uv export --frozen --no-emit-project --no-emit-package runic-py --all-groups -o requirements.audit.txt
-
-      - name: Audit runic-rag-docling
-        working-directory: packages/runic-rag-docling
-        run: uvx pip-audit --requirement requirements.audit.txt --no-deps --disable-pip
-
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'

@@ -1,0 +1,68 @@
+name: Security Audit
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '**'
+  schedule:
+    # New advisories appear without code changes; re-audit weekly (Mon 06:00 UTC).
+    - cron: '0 6 * * 1'
+
+# Least privilege: every job only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  uv-audit:
+    name: uv Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Audit runic
+        run: uv audit --frozen --preview-features audit-command
+
+      - name: Set up Python (runic-rag-docling)
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version-file: "packages/runic-rag-docling/pyproject.toml"
+
+      # The 'local'/'server' extras pull docling + torch and their transitive
+      # advisories; they are conflicting extras and are not part of the gate.
+      - name: Audit runic-rag-docling
+        working-directory: packages/runic-rag-docling
+        run: >
+          uv audit --frozen --preview-features audit-command
+          --no-extra local --no-extra server
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          # Full history so leaks in earlier commits are caught too.
+          fetch-depth: 0
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
