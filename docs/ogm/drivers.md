@@ -103,6 +103,39 @@ width it uses is a **server setting**. Any client that reconstructs one from the
 other is guessing, so the Bolt dialects match on `elementId()`, which compares
 the value runic actually holds.
 
+::: warning Upgrading from 0.6.0 or earlier on a Bolt backend
+
+Through 0.6.0, `Field(generated=True)` handed back an **integer** on Neo4j,
+Memgraph and ArcadeDB, because runic read the Bolt driver's deprecated
+`Node.id`. It now returns the element id verbatim, which is a **string**.
+
+```python
+# through 0.6.0, on Neo4j
+doc.id == 317
+
+# now
+doc.id == "4:9b38fab1-085e-46aa-b72b-825702e59dcf:317"
+```
+
+Values created and read back in the same version round-trip fine either way.
+What breaks is a generated id you **persisted somewhere outside the graph** — a
+SQL column, a cache key, a URL path, an export. Those integers no longer
+resolve, and they fail *quietly*:
+
+```python
+session.get(Doc, 317)   # 0.6.0 → the node;  now → None
+```
+
+So audit anywhere you stored a generated primary key and re-key it from a fresh
+query before upgrading. FalkorDB and Apache AGE are unaffected — they return
+integers as before.
+
+The change is not optional: `Node.id` is removed in the next major of the Neo4j
+driver, and on ArcadeDB the old integer path did not merely differ, it raised
+`ValueError` on every write of a generated key.
+
+:::
+
 ---
 
 ## FalkorDB

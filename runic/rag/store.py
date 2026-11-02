@@ -31,7 +31,7 @@ from runic.rag.domain import ChunkHit, EntityHit, RelationHit, ScoredKey
 from runic.rag.ontology import Ontology
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Generator, Sequence
 
     from runic.rag.config import RagSettings
 
@@ -545,7 +545,7 @@ class GraphStore:
     # ── Writer ────────────────────────────────────────────────────────────────
 
     @contextmanager
-    def writer(self) -> Iterator[_Writer]:
+    def writer(self) -> Generator[_Writer]:
         """Open ONE session as a unit of work; commit on clean exit."""
         expr = (
             self._dialect.vector_write("$vec") if self._dialect is not None else "$vec"

@@ -14,7 +14,7 @@ from runic.ogm.core.types import DatetimeConverter, EnumConverter, TypeConverter
 
 def test_type_converter_is_abstract() -> None:
     with pytest.raises(TypeError):
-        TypeConverter()  # type: ignore[abstract]
+        TypeConverter()  # ty: ignore[call-non-callable]
 
 
 def test_type_converter_requires_to_graph() -> None:
@@ -23,7 +23,7 @@ def test_type_converter_requires_to_graph() -> None:
             return value
 
     with pytest.raises(TypeError):
-        Partial()  # type: ignore[abstract]
+        Partial()  # ty: ignore[call-non-callable]
 
 
 def test_type_converter_requires_from_graph() -> None:
@@ -32,7 +32,7 @@ def test_type_converter_requires_from_graph() -> None:
             return value
 
     with pytest.raises(TypeError):
-        Partial()  # type: ignore[abstract]
+        Partial()  # ty: ignore[call-non-callable]
 
 
 def test_custom_converter_works() -> None:

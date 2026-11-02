@@ -150,7 +150,9 @@ class _ProcedureRootBuilder(QueryBuilder[T]):  # noqa: UP046
     behave exactly as they do on a ``MATCH``-rooted statement.
     """
 
-    _root_clause: CallClause
+    @property
+    def _root_clause(self) -> CallClause:
+        raise NotImplementedError
 
     def build(self) -> tuple[str, dict[str, Any]]:
         """Compile to Cypher, opening with the procedure call."""
@@ -237,7 +239,7 @@ class FulltextQueryBuilder(_ProcedureRootBuilder[T]):  # noqa: UP046
         self._fts_fields = fields
 
     @property
-    def _root_clause(self) -> CallClause:  # type: ignore[override]
+    def _root_clause(self) -> CallClause:
         raise NotImplementedError  # pragma: no cover - replaced by build()
 
     def build(self) -> tuple[str, dict[str, Any]]:

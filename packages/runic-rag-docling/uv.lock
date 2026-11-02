@@ -1904,7 +1904,7 @@ wheels = [
 
 [[package]]
 name = "runic-py"
-version = "0.4.5"
+version = "0.6.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "mako" },
@@ -1922,6 +1922,10 @@ graphrag = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", marker = "extra == 'all'", specifier = ">=1.34,<2.0" },
+    { name = "boto3", marker = "extra == 'neptune-analytics'", specifier = ">=1.34,<2.0" },
+    { name = "botocore", marker = "extra == 'all'", specifier = ">=1.34,<2.0" },
+    { name = "botocore", marker = "extra == 'neptune'", specifier = ">=1.34,<2.0" },
     { name = "falkordb", marker = "extra == 'all'", specifier = ">=1.6.0,<2.0.0" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.0,<2.0.0" },
     { name = "mako", specifier = ">=1.3.0,<2.0.0" },
@@ -1929,6 +1933,7 @@ requires-dist = [
     { name = "neo4j", marker = "extra == 'arcadedb'", specifier = ">=6.2.0,<7.0.0" },
     { name = "neo4j", marker = "extra == 'memgraph'", specifier = ">=6.2.0,<7.0.0" },
     { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=6.2.0,<7.0.0" },
+    { name = "neo4j", marker = "extra == 'neptune'", specifier = ">=6.2.0,<7.0.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "psycopg", marker = "extra == 'age'", specifier = ">=3.3.4,<4.0.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'age-binary'", specifier = ">=3.3.4,<4.0.0" },
@@ -1939,31 +1944,33 @@ requires-dist = [
     { name = "shellingham", specifier = ">=1.5.0,<2.0.0" },
     { name = "typer", specifier = ">=0.24.0,<0.28.0" },
 ]
-provides-extras = ["falkordb", "neo4j", "memgraph", "arcadedb", "age", "age-binary", "all", "graphrag"]
+provides-extras = ["falkordb", "neo4j", "memgraph", "arcadedb", "age", "age-binary", "all", "graphrag", "neptune", "neptune-analytics"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "bump-my-version", specifier = "==1.5.0" },
-    { name = "deepeval", specifier = "==4.1.5" },
+    { name = "boto3", specifier = ">=1.34,<2.0" },
+    { name = "bump-my-version", specifier = "==1.5.1" },
+    { name = "deepeval", specifier = "==4.2.0" },
     { name = "detect-secrets", specifier = "==1.5.0" },
     { name = "falkordb", specifier = ">=1.6.1" },
     { name = "falkordblite", specifier = "==0.10.0" },
     { name = "furo", specifier = "==2025.12.19" },
     { name = "neo4j", specifier = "==6.2.0" },
-    { name = "pre-commit", specifier = "==4.6.1" },
+    { name = "pre-commit", specifier = "==4.6.2" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
-    { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.25.0" },
-    { name = "pymupdf", specifier = ">=1.28.0" },
+    { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.35.1" },
+    { name = "pydantic-settings", specifier = ">=2.14.0" },
+    { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-asyncio", specifier = "==1.4.0" },
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "pytest-httpserver", specifier = "==1.1.5" },
-    { name = "python-dotenv", specifier = "==1.2.2" },
-    { name = "ruff", specifier = "==0.16.1" },
-    { name = "setuptools", specifier = ">=83.0.0" },
-    { name = "tiktoken", specifier = ">=0.13.0" },
-    { name = "ty", specifier = "==0.0.69" },
+    { name = "python-dotenv", specifier = "==1.2.3" },
+    { name = "ruff", specifier = "==0.16.4" },
+    { name = "setuptools", specifier = ">=84.0.0" },
+    { name = "tiktoken", specifier = ">=0.14.0" },
+    { name = "ty", specifier = "==0.0.75" },
 ]
 
 [[package]]
